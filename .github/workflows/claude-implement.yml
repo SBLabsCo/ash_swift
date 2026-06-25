@@ -1,0 +1,62 @@
+name: Claude implement issue
+
+# AFK issue pickup: manually dispatch with an issue number and Claude implements
+# that issue on a branch, runs the suite until green, and opens a PR. This is a
+# starting point — keep the human review gate (the PR) and refine the prompt as
+# you learn what the agent gets wrong. See docs/agents/ai-automation.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to implement (must be ready-for-agent)"
+        required: true
+        type: string
+
+jobs:
+  implement:
+    if: vars.ENABLE_CLAUDE_AUTOMATION == 'true'
+    # macOS so the agent can actually run the suite (mix test shells to swift
+    # build; swift test needs the toolchain). Matches CI.
+    runs-on: macos-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Install the toolchains up front so the agent's `mix test` / `swift test`
+      # actually run (Swift ships with Xcode on macOS runners).
+      - name: Install Elixir/Erlang
+        run: brew install elixir
+      - name: Install hex + rebar
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+      - name: Fetch deps
+        run: mix deps.get
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Implement GitHub issue #${{ inputs.issue_number }} in ${{ github.repository }}.
+
+            1. Read it: `gh issue view ${{ inputs.issue_number }}`.
+            2. Follow this repo's conventions: CLAUDE.md, CONTEXT.md, docs/adr/,
+               docs/prd/m1-vertical-slice.md. Use the domain vocabulary in CONTEXT.md.
+            3. Scope strictly to this issue's acceptance criteria — do not pull in
+               later-milestone work. Work test-first where there is a natural seam.
+            4. Run `mix test` and `swift test` until green. Keep generated codegen
+               output deterministic.
+            5. Create a branch `issue-${{ inputs.issue_number }}-<short-slug>`, commit,
+               push, and open a PR whose body starts with
+               "Closes #${{ inputs.issue_number }}". Do NOT merge — leave it for review.
+          claude_args: "--max-turns 80"

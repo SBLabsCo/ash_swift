@@ -1,0 +1,38 @@
+name: Claude issue triage
+
+# Applies the repo's triage-label vocabulary to newly opened issues. Gated on
+# ENABLE_CLAUDE_AUTOMATION. See docs/agents/ai-automation.md and
+# docs/agents/triage-labels.md.
+
+on:
+  issues:
+    types: [opened, reopened]
+
+jobs:
+  triage:
+    if: vars.ENABLE_CLAUDE_AUTOMATION == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Triage issue #${{ github.event.issue.number }} in ${{ github.repository }}.
+
+            Read docs/agents/triage-labels.md and docs/agents/issue-tracker.md for the
+            label vocabulary and rules, then read the issue.
+
+            Apply the single most appropriate triage label with `gh issue edit`
+            (one of: needs-triage, needs-info, ready-for-agent, ready-for-human,
+            wontfix). If the issue is underspecified, apply `needs-info` and post one
+            concise comment listing exactly what is missing. Do not implement anything.
+          claude_args: "--max-turns 15"

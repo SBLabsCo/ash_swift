@@ -15,3 +15,7 @@ Default vocabulary: needs-triage, needs-info, ready-for-agent, ready-for-human, 
 ### Domain docs
 
 Single-context: one CONTEXT.md + docs/adr/ at the repo root. See `docs/agents/domain.md`.
+
+### CI & AI automation
+
+GitHub Actions run CI (Elixir + Swift) and Claude-driven review, triage, and issue implementation. See `docs/agents/ai-automation.md`.
