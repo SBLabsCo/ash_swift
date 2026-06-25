@@ -65,8 +65,11 @@ jobs:
                docs/prd/m1-vertical-slice.md. Use the domain vocabulary in CONTEXT.md.
             3. Scope strictly to this issue's acceptance criteria — do not pull in
                later-milestone work. Work test-first where there is a natural seam.
-            4. Run `mix test` and `swift test` until green. Keep generated codegen
-               output deterministic.
+            4. Before committing, make every gate CI runs pass locally, in this
+               order: `mix format` (CI enforces `mix format --check-formatted`),
+               `mix compile --warnings-as-errors`, `mix test`, and `swift test`.
+               Keep generated codegen output deterministic. Do not open the PR
+               until all four are green.
             5. Create a branch `issue-${{ inputs.issue_number }}-<short-slug>`, commit,
                push, and open a PR whose body starts with
                "Closes #${{ inputs.issue_number }}". Do NOT merge — leave it for review.
