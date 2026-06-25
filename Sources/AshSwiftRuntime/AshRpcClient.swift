@@ -5,9 +5,6 @@ import Foundation
 /// `{"success": ...}` envelope, surfacing failures as thrown `AshRpcError`s.
 ///
 /// Generated per-resource code stays thin — typed signatures over this client.
-/// M1's walking skeleton sends the action name and a (currently empty) field
-/// list; typed inputs and decoding the `data` payload into models land in later
-/// slices.
 public struct AshRpcClient: Sendable {
     public let config: AshRpcConfig
     public let transport: Transport
@@ -30,11 +27,16 @@ public struct AshRpcClient: Sendable {
         let fields: [String]
     }
 
-    /// The portion of the response envelope the runtime inspects to decide
-    /// success vs. failure. The typed `data` payload is decoded by callers.
+    /// The envelope the runtime checks for success/failure before returning data.
     private struct Envelope: Decodable {
         let success: Bool
         let errors: [AshRpcServerError]?
+    }
+
+    /// Typed envelope for decoding a list data payload after `runRaw` validates
+    /// the success flag. Generic so each generated list function gets its type.
+    private struct ListEnvelope<T: Decodable>: Decodable {
+        let data: [T]
     }
 
     /// Runs an RPC action and returns the raw response body on success.
@@ -71,5 +73,17 @@ public struct AshRpcClient: Sendable {
         }
 
         return data
+    }
+
+    /// Runs a list RPC action and decodes the `data` array from the response
+    /// envelope into `[T]`. The caller supplies `T` through the return-type
+    /// context; no type parameter is needed at the call site.
+    public func runList<T: Decodable>(action: String, fields: [String] = []) async throws -> [T] {
+        let raw = try await runRaw(action: action, fields: fields)
+        do {
+            return try decoder.decode(ListEnvelope<T>.self, from: raw).data
+        } catch {
+            throw AshRpcError.decodingFailed(description: String(describing: error))
+        }
     }
 }

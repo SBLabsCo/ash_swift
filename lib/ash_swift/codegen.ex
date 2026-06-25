@@ -6,10 +6,6 @@ defmodule AshSwift.Codegen do
   pure (domains in, `%{relative_path => source}` out) so tests can assert on the
   emitted source without touching the filesystem, and `generate/2` wraps it with
   deterministic, change-only writes.
-
-  M1's walking skeleton (issue #1) emits a navigable, two-file split — a types
-  file and an RPC-functions file — wiring every integration layer once. Real
-  field selection, typed inputs, and model fields land in later slices.
   """
 
   alias AshTypescript.Resource.Info, as: ResourceInfo
@@ -92,10 +88,19 @@ defmodule AshSwift.Codegen do
     |> Enum.map(fn %{resource: resource, rpc_actions: rpc_actions} ->
       %{
         type_name: ResourceInfo.typescript_type_name!(resource),
+        fields: collect_fields(resource),
         actions:
           rpc_actions
           |> Enum.map(fn rpc_action ->
-            %{rpc_name: rpc_action.name, action: rpc_action.action}
+            ash_action = Ash.Resource.Info.action(resource, rpc_action.action)
+
+            %{
+              rpc_name: rpc_action.name,
+              action: rpc_action.action,
+              action_type: ash_action.type,
+              # get? only exists on read actions; all other types are non-get.
+              is_get?: ash_action.type == :read && Map.get(ash_action, :get?, false)
+            }
           end)
           |> Enum.sort_by(& &1.rpc_name)
       }
@@ -103,21 +108,53 @@ defmodule AshSwift.Codegen do
     |> Enum.sort_by(& &1.type_name)
   end
 
+  # Returns a sorted list of {swift_name, swift_type} for the resource's public
+  # scalar attributes. Sorting by attribute name keeps output deterministic.
+  defp collect_fields(resource) do
+    resource
+    |> Ash.Resource.Info.public_attributes()
+    |> Enum.map(fn attr ->
+      %{name: lower_camel(attr.name), swift_type: ash_type_to_swift(attr.type)}
+    end)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  # Maps an Ash attribute type to its Swift optional counterpart. M1 covers the
+  # core scalar types; atoms with enum constraints become Swift enums in M2.
+  defp ash_type_to_swift(Ash.Type.UUID), do: "String"
+  defp ash_type_to_swift(Ash.Type.String), do: "String"
+  defp ash_type_to_swift(Ash.Type.Boolean), do: "Bool"
+  defp ash_type_to_swift(Ash.Type.Integer), do: "Int"
+  defp ash_type_to_swift(Ash.Type.Float), do: "Double"
+  defp ash_type_to_swift(_), do: "String"
+
   defp render_types(resources) do
     structs =
-      Enum.map_join(resources, "\n\n", fn %{type_name: type_name} ->
+      Enum.map_join(resources, "\n\n", fn %{type_name: type_name, fields: fields} ->
+        fields_block = render_fields(fields)
+
         """
         /// Generated model for the `#{type_name}` resource.
         ///
         /// Every selectable field is Optional so that ad-hoc field selection is
-        /// safe: unselected fields decode as `nil`. Fields land in a later slice.
+        /// safe: unselected fields decode as `nil`.
         public struct #{type_name}: Codable, Sendable, Equatable {
-            public init() {}
+        #{fields_block}    public init() {}
         }\
         """
       end)
 
     IO.iodata_to_binary([@header, "\n", "import Foundation\n", body_or_empty(structs)])
+  end
+
+  defp render_fields([]), do: ""
+
+  defp render_fields(fields) do
+    fields
+    |> Enum.map_join("\n", fn %{name: name, swift_type: type} ->
+      "    public var #{name}: #{type}?"
+    end)
+    |> Kernel.<>("\n")
   end
 
   defp render_functions(resources) do
@@ -152,6 +189,23 @@ defmodule AshSwift.Codegen do
     ])
   end
 
+  # List (non-get read) actions accept a field selection list and return [TypeName].
+  defp render_method(
+         %{rpc_name: rpc_name, action_type: :read, is_get?: false},
+         type_name
+       ) do
+    func = lower_camel(rpc_name)
+
+    """
+    /// Calls the `#{rpc_name}` RPC action (list `#{type_name}` records).
+    public func #{func}(fields: [String] = []) async throws -> [#{type_name}] {
+        return try await client.runList(action: "#{rpc_name}", fields: fields)
+    }\
+    """
+  end
+
+  # All other action types (get, create, update, destroy) keep the simple signature
+  # for M1; typed inputs and returns land in later milestones.
   defp render_method(%{rpc_name: rpc_name, action: action}, type_name) do
     func = lower_camel(rpc_name)
 
@@ -179,7 +233,7 @@ defmodule AshSwift.Codegen do
     end)
   end
 
-  # snake_case atom/string -> lowerCamelCase, the Swift idiom for functions.
+  # snake_case atom/string -> lowerCamelCase, the Swift idiom for functions and fields.
   defp lower_camel(name) do
     [first | rest] = name |> to_string() |> String.split("_", trim: true)
     Enum.join([String.downcase(first) | Enum.map(rest, &String.capitalize/1)])
