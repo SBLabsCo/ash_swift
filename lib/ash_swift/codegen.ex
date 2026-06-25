@@ -493,7 +493,6 @@ defmodule AshSwift.Codegen do
       case location do
         :input -> ~s(input: [#{dict_entries}])
         :get_by -> ~s(getBy: [#{dict_entries}])
-        _ -> ""
       end
 
     lookup_str = if lookup_arg == "", do: "", else: "#{lookup_arg}, "
@@ -575,9 +574,7 @@ defmodule AshSwift.Codegen do
   defp build_get_by_params(fields, resource, formatter) do
     Enum.map(fields, fn field ->
       name = FieldFormatter.format_field_for_client(field, resource, formatter)
-      attr = Ash.Resource.Info.attribute(resource, field)
-      swift_type = if attr, do: ash_type_to_swift(attr.type), else: "String"
-      %{name: name, swift_type: swift_type}
+      %{name: name, swift_type: "String"}
     end)
   end
 

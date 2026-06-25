@@ -113,6 +113,22 @@ public struct AshRpcClient: Sendable {
         }
     }
 
+    /// Builds a `GetRequestBody`, omitting `input`/`getBy` from the JSON when
+    /// empty (Swift synthesises `encodeIfPresent` for Optional properties).
+    private func makeGetBody(
+        action: String,
+        input: [String: String],
+        getBy: [String: String],
+        fields: [FieldSelection]
+    ) -> GetRequestBody {
+        GetRequestBody(
+            action: action,
+            fields: fields,
+            input: input.isEmpty ? nil : input,
+            getBy: getBy.isEmpty ? nil : getBy
+        )
+    }
+
     /// Runs a get RPC action and decodes the single record from `data`.
     ///
     /// Use this when `not_found_error?` is true (the default): the backend throws
@@ -126,13 +142,7 @@ public struct AshRpcClient: Sendable {
         getBy: [String: String] = [:],
         fields: [FieldSelection] = []
     ) async throws -> T {
-        let body = GetRequestBody(
-            action: action,
-            fields: fields,
-            input: input.isEmpty ? nil : input,
-            getBy: getBy.isEmpty ? nil : getBy
-        )
-        let raw = try await sendRequest(body)
+        let raw = try await sendRequest(makeGetBody(action: action, input: input, getBy: getBy, fields: fields))
         do {
             return try decoder.decode(GetEnvelope<T>.self, from: raw).data
         } catch {
@@ -151,13 +161,7 @@ public struct AshRpcClient: Sendable {
         getBy: [String: String] = [:],
         fields: [FieldSelection] = []
     ) async throws -> T? {
-        let body = GetRequestBody(
-            action: action,
-            fields: fields,
-            input: input.isEmpty ? nil : input,
-            getBy: getBy.isEmpty ? nil : getBy
-        )
-        let raw = try await sendRequest(body)
+        let raw = try await sendRequest(makeGetBody(action: action, input: input, getBy: getBy, fields: fields))
         do {
             return try decoder.decode(GetOptionalEnvelope<T>.self, from: raw).data
         } catch {

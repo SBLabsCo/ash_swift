@@ -20,6 +20,7 @@ defmodule AshSwift.Test.Todo do
     attribute :completed, :boolean, default: false, public?: true
     attribute :priority, :atom, constraints: [one_of: [:low, :medium, :high]], public?: true
     attribute :status, AshSwift.Test.StatusType, public?: true
+    attribute :score, :integer, public?: true
     timestamps()
   end
 
@@ -32,6 +33,10 @@ defmodule AshSwift.Test.Todo do
 
     read :get_by_id do
       get_by :id
+    end
+
+    read :get_by_score do
+      get_by [:score]
     end
   end
 end
