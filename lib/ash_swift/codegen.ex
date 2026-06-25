@@ -8,6 +8,7 @@ defmodule AshSwift.Codegen do
   deterministic, change-only writes.
   """
 
+  alias AshTypescript.FieldFormatter
   alias AshTypescript.Resource.Info, as: ResourceInfo
   alias AshTypescript.Rpc.Info, as: RpcInfo
 
@@ -109,12 +110,22 @@ defmodule AshSwift.Codegen do
   end
 
   # Returns a sorted list of {swift_name, swift_type} for the resource's public
-  # scalar attributes. Sorting by attribute name keeps output deterministic.
+  # scalar attributes. Field names go through the same formatter AshTypescript
+  # uses for output, so the generated Swift property names match the JSON keys on
+  # the wire byte-for-byte (and pick up any `field_names` DSL overrides). This
+  # matters because the runtime decodes with a plain JSONDecoder and no
+  # keyDecodingStrategy: a mismatched key would silently decode as nil rather
+  # than error. Sorting by the formatted name keeps output deterministic.
   defp collect_fields(resource) do
+    formatter = AshTypescript.output_field_formatter() || :camel_case
+
     resource
     |> Ash.Resource.Info.public_attributes()
     |> Enum.map(fn attr ->
-      %{name: lower_camel(attr.name), swift_type: ash_type_to_swift(attr.type)}
+      %{
+        name: FieldFormatter.format_field_for_client(attr.name, resource, formatter),
+        swift_type: ash_type_to_swift(attr.type)
+      }
     end)
     |> Enum.sort_by(& &1.name)
   end

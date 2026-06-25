@@ -27,15 +27,25 @@ defmodule AshSwift.E2ETest do
     assert "AshRpcTypes.swift" in written
     assert "AshRpcFunctions.swift" in written
 
-    # Create a todo in-process using the ETS-backed data layer.
-    Ash.create!(AshSwift.Test.Todo, %{title: "E2E Todo", completed: true},
+    # Create a todo (owned by a user) in-process using the ETS-backed data layer.
+    # Assigning an owner lets us select the multi-word `user_id` field below, which
+    # exercises the snake_case -> camelCase wire mapping end to end.
+    user =
+      Ash.create!(AshSwift.Test.User, %{name: "Owner", email: "owner@example.com"},
+        domain: AshSwift.Test.Domain
+      )
+
+    Ash.create!(AshSwift.Test.Todo, %{title: "E2E Todo", completed: true, user_id: user.id},
       domain: AshSwift.Test.Domain
     )
 
     # Run the list action through the real AshTypescript RPC pipeline.
     # A minimal Plug.Conn suffices — no auth needed for these fixture actions.
+    # `userId` is sent in client (camelCase) format, the way the Swift client emits
+    # it; the pipeline parses it back to `user_id` and formats the response key as
+    # `userId`, which must match the generated Swift property name.
     conn = %Plug.Conn{private: %{}, assigns: %{}}
-    params = %{"action" => "list_todos", "fields" => ["id", "title", "completed"]}
+    params = %{"action" => "list_todos", "fields" => ["id", "title", "completed", "userId"]}
     rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
 
     assert rpc_result["success"] == true
@@ -74,8 +84,12 @@ defmodule AshSwift.E2ETest do
             XCTAssertNotNil(first.id)
             XCTAssertEqual(first.title, "E2E Todo")
             XCTAssertEqual(first.completed, true)
-            // userId not requested — decodes as nil, not a decode failure.
-            XCTAssertNil(first.userId)
+            // user_id is serialized as the camelCased key `userId` on the wire;
+            // the generated property name must match it exactly, or this decodes
+            // as nil instead of the owner's id.
+            XCTAssertEqual(first.userId, #{inspect(to_string(user.id))})
+            // priority was not requested — absent keys decode as nil, not an error.
+            XCTAssertNil(first.priority)
         }
     }
     """
