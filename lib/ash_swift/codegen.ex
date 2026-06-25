@@ -14,6 +14,12 @@ defmodule AshSwift.Codegen do
 
   @scalar_swift_types MapSet.new(["String", "Bool", "Int", "Double"])
 
+  # Swift keywords that cannot appear bare as identifiers — enum case names
+  # matching any of these must be backtick-escaped to produce valid Swift.
+  @swift_reserved_keywords ~w(class struct enum protocol extension func var let init deinit
+    return throw throws rethrows try catch defer import typealias associatedtype
+    self Self super true false nil in is as any some default where)
+
   @types_file "AshRpcTypes.swift"
   @functions_file "AshRpcFunctions.swift"
 
@@ -27,6 +33,11 @@ defmodule AshSwift.Codegen do
 
   Returns a map of relative file path to file contents. Pure and deterministic:
   the same domains always produce byte-identical output.
+
+  Known limitation: no collision check between generated enum type names and
+  resource struct type names. If both resolve to the same string (e.g. a resource
+  named `TodoPriority` and a `priority` enum field on `Todo`), the output will
+  contain two Swift types with the same name and won't compile. See issue #24.
   """
   @spec build_files([module()]) :: %{String.t() => String.t()}
   def build_files(domains) when is_list(domains) do
@@ -216,6 +227,8 @@ defmodule AshSwift.Codegen do
 
     # Enum types defined in this file are always safe to reference — include
     # them in the known-type set so the 2-hop guard doesn't drop enum fields.
+    # Note: `related_raw` entries use the slim %{type_name, fields, enums} shape
+    # (no :resource_module or :actions keys), so only :enums is accessed here.
     all_enum_type_names =
       (primary_resources ++ related_raw)
       |> Enum.flat_map(& &1.enums)
@@ -265,7 +278,11 @@ defmodule AshSwift.Codegen do
         end
 
       is_atom(attr.type) and attr.type != nil and
-        Code.ensure_loaded?(attr.type) and function_exported?(attr.type, :values, 0) ->
+        Code.ensure_loaded?(attr.type) and
+        function_exported?(attr.type, :values, 0) and
+          Ash.Type.Enum in (attr.type.module_info(:attributes)
+                            |> Keyword.get_values(:behaviour)
+                            |> List.flatten()) ->
         {:ok, attr.type.values()}
 
       true ->
@@ -334,10 +351,13 @@ defmodule AshSwift.Codegen do
         str = to_string(c)
         swift_case = lower_camel(str)
 
+        safe_name =
+          if swift_case in @swift_reserved_keywords, do: "`#{swift_case}`", else: swift_case
+
         if swift_case == str do
-          "    case #{str}"
+          "    case #{safe_name}"
         else
-          "    case #{swift_case} = \"#{str}\""
+          "    case #{safe_name} = \"#{str}\""
         end
       end)
 
