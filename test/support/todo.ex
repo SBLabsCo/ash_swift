@@ -7,7 +7,7 @@ defmodule AshSwift.Test.Todo do
     extensions: [AshTypescript.Resource]
 
   typescript do
-    type_name "Todo"
+    type_name("Todo")
   end
 
   ets do

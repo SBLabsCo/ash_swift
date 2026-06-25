@@ -5,16 +5,16 @@ defmodule AshSwift.Test.Domain do
 
   typescript_rpc do
     resource AshSwift.Test.Todo do
-      rpc_action :list_todos, :read
-      rpc_action :get_todo, :get_by_id
-      rpc_action :create_todo, :create
-      rpc_action :update_todo, :update
-      rpc_action :destroy_todo, :destroy
+      rpc_action(:list_todos, :read)
+      rpc_action(:get_todo, :get_by_id)
+      rpc_action(:create_todo, :create)
+      rpc_action(:update_todo, :update)
+      rpc_action(:destroy_todo, :destroy)
     end
 
     resource AshSwift.Test.User do
-      rpc_action :list_users, :read
-      rpc_action :create_user, :create
+      rpc_action(:list_users, :read)
+      rpc_action(:create_user, :create)
     end
   end
 

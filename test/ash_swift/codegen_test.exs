@@ -24,7 +24,9 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public struct User: Codable, Sendable, Equatable {"
     end
 
-    test "the functions file imports the runtime and exposes an AshRpc entry point", %{files: files} do
+    test "the functions file imports the runtime and exposes an AshRpc entry point", %{
+      files: files
+    } do
       functions = files["AshRpcFunctions.swift"]
       assert functions =~ "import AshSwiftRuntime"
       assert functions =~ "public struct AshRpc: Sendable {"

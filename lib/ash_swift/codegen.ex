@@ -143,7 +143,13 @@ defmodule AshSwift.Codegen do
     }
     """
 
-    IO.iodata_to_binary([@header, "\n", "import Foundation\n", "import AshSwiftRuntime\n\n", body])
+    IO.iodata_to_binary([
+      @header,
+      "\n",
+      "import Foundation\n",
+      "import AshSwiftRuntime\n\n",
+      body
+    ])
   end
 
   defp render_method(%{rpc_name: rpc_name, action: action}, type_name) do

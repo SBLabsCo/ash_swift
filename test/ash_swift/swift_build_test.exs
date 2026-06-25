@@ -34,7 +34,9 @@ defmodule AshSwift.SwiftBuildTest do
   end
 
   test "regenerating with no schema change produces no diff" do
-    sources = Path.join(System.tmp_dir!(), "ash_swift_determinism_#{System.unique_integer([:positive])}")
+    sources =
+      Path.join(System.tmp_dir!(), "ash_swift_determinism_#{System.unique_integer([:positive])}")
+
     on_exit(fn -> File.rm_rf!(sources) end)
 
     assert {:ok, first} = Codegen.generate(@domains, sources)

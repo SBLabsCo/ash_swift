@@ -7,7 +7,7 @@ defmodule AshSwift.Test.User do
     extensions: [AshTypescript.Resource]
 
   typescript do
-    type_name "User"
+    type_name("User")
   end
 
   ets do
