@@ -29,8 +29,11 @@ and a TypeScript client stay wire-identical by construction.
   reviewable diff, not a runtime decode failure.
 - **Reuses your existing RPC config** — reads the domain's `typescript_rpc`
   configuration, so you don't maintain a second list of exposed actions for Swift.
-- **Core CRUD actions** — generates callable functions for read/list, get,
-  create, update, and destroy actions.
+- **Core action types** — generates a callable function for each exposed
+  read/list, get, create, update, and destroy action. In M1, list/read actions
+  are fully typed (`async throws -> [T]` with field selection); get, create,
+  update, and destroy emit callable stubs — typed inputs and return values land
+  in a later milestone.
 - **Ad-hoc field selection** — request only the fields a screen needs; every model
   field is `Optional`, so unselected fields safely decode as `nil`.
 - **Idiomatic Swift** — backend field and action names become Swift `camelCase`.

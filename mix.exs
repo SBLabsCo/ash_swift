@@ -24,7 +24,10 @@ defmodule AshSwift.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/SBLabsCo/ash_swift"}
+      links: %{"GitHub" => "https://github.com/SBLabsCo/ash_swift"},
+      # The Swift runtime (Sources/, Package.swift), tests, and CI configs don't
+      # belong in the Hex release — ship only the Elixir codegen and docs.
+      files: ~w(lib mix.exs README.md LICENSE)
     ]
   end
 
