@@ -41,7 +41,7 @@ jobs:
 
       - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Pin the model: the action's default resolves to an invalid
           # `claude-opus-4-8[1m]` id that the API rejects. Sonnet 4.6 is a
           # capable, cost-appropriate default; bump to claude-opus-4-8 if wanted.
