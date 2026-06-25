@@ -189,6 +189,82 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "generated Swift enum decodes from real backend enum value" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, written} = Codegen.generate(@domains, sources)
+    assert "AshRpcTypes.swift" in written
+
+    # Create a todo with an explicit priority value so the wire format carries
+    # the enum string ("high") and proves the generated Swift enum decodes it.
+    Ash.create!(AshSwift.Test.Todo, %{title: "Enum Todo", priority: :high},
+      domain: AshSwift.Test.Domain
+    )
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+    params = %{"action" => "list_todos", "fields" => ["id", "title", "priority"]}
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+
+    assert rpc_result["success"] == true
+    data = rpc_result["data"]
+    assert is_list(data) and data != []
+
+    json = Jason.encode!(rpc_result)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Decodes the backend's enum wire value ("high") into the generated TodoPriority
+    // Swift enum, proving end-to-end enum wire compatibility.
+    final class E2EEnumDecodeTest: XCTestCase {
+        func testEnumFieldDecodesFromBackendResponse() throws {
+            let json = #{inspect(json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct ListEnvelope: Decodable {
+                let success: Bool
+                let data: [Todo]
+            }
+
+            let envelope = try JSONDecoder().decode(ListEnvelope.self, from: raw)
+            XCTAssertTrue(envelope.success)
+
+            let enumTodo = try XCTUnwrap(
+                envelope.data.first(where: { $0.title == "Enum Todo" })
+            )
+
+            // The backend serialises :high as "high"; the generated enum must decode it.
+            XCTAssertEqual(enumTodo.priority, .high)
+
+            // Exhaustive switch — proves the generated enum has all three cases.
+            let priority = try XCTUnwrap(enumTodo.priority)
+            switch priority {
+            case .low: break
+            case .medium: break
+            case .high: break
+            }
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EEnumDecodeTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EEnumDecodeTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).

@@ -14,6 +14,37 @@ defmodule AshSwift.Codegen do
 
   @scalar_swift_types MapSet.new(["String", "Bool", "Int", "Double"])
 
+  # Complete set of Swift reserved keywords (Swift Language Reference §Lexical Structure).
+  # Enum case names matching any of these must be backtick-escaped to produce valid Swift.
+  #
+  # Keywords used in declarations:
+  #   associatedtype class deinit enum extension fileprivate func import init inout
+  #   internal let open operator precedencegroup private protocol public rethrows
+  #   static struct subscript typealias var
+  # Keywords used in statements:
+  #   break case catch continue default defer do else fallthrough for guard if in
+  #   repeat return throw throws where while
+  # Keywords used in expressions and types:
+  #   Any as await catch false is nil rethrows self Self super throw throws true try
+  # Keywords reserved in particular contexts (pattern / context keywords):
+  #   associativity convenience didSet dynamic final get indirect infix lazy left
+  #   mutating none nonisolated nonmutating optional override postfix precedence
+  #   prefix Protocol required right set some Type unowned weak willSet
+  # Swift Concurrency keywords:
+  #   actor async distributed isolated
+  @swift_reserved_keywords ~w(
+    associatedtype class deinit enum extension fileprivate func import init inout
+    internal let open operator precedencegroup private protocol public rethrows
+    static struct subscript typealias var
+    break case catch continue default defer do else fallthrough for guard if in
+    repeat return throw throws where while
+    Any as await false is nil self Self super true try
+    associativity convenience didSet dynamic final get indirect infix lazy left
+    mutating none nonisolated nonmutating optional override postfix precedence
+    prefix Protocol required right set some Type unowned weak willSet
+    actor async distributed isolated
+  )
+
   @types_file "AshRpcTypes.swift"
   @functions_file "AshRpcFunctions.swift"
 
@@ -27,6 +58,11 @@ defmodule AshSwift.Codegen do
 
   Returns a map of relative file path to file contents. Pure and deterministic:
   the same domains always produce byte-identical output.
+
+  Known limitation: no collision check between generated enum type names and
+  resource struct type names. If both resolve to the same string (e.g. a resource
+  named `TodoPriority` and a `priority` enum field on `Todo`), the output will
+  contain two Swift types with the same name and won't compile. See issue #24.
   """
   @spec build_files([module()]) :: %{String.t() => String.t()}
   def build_files(domains) when is_list(domains) do
@@ -90,10 +126,14 @@ defmodule AshSwift.Codegen do
     domains
     |> Enum.flat_map(&RpcInfo.typescript_rpc/1)
     |> Enum.map(fn %{resource: resource, rpc_actions: rpc_actions} ->
+      type_name = ResourceInfo.typescript_type_name!(resource)
+      {fields, enums} = collect_fields(resource, type_name)
+
       %{
         resource_module: resource,
-        type_name: ResourceInfo.typescript_type_name!(resource),
-        fields: collect_fields(resource),
+        type_name: type_name,
+        fields: fields,
+        enums: enums,
         actions:
           rpc_actions
           |> Enum.map(fn rpc_action ->
@@ -113,22 +153,35 @@ defmodule AshSwift.Codegen do
     |> Enum.sort_by(& &1.type_name)
   end
 
-  # Returns a sorted list of %{name, swift_type} for the resource's public
-  # scalar attributes AND public relationships. Field names go through the same
-  # formatter AshTypescript uses for output, so generated Swift property names
-  # match the JSON keys on the wire byte-for-byte. Sorting by the formatted name
-  # keeps output deterministic.
-  defp collect_fields(resource) do
+  # Returns a tuple {fields, enums} for the resource.
+  #
+  # fields: sorted list of %{name, swift_type} for public scalar attributes and
+  # public relationships. Field names go through the same formatter AshTypescript
+  # uses for output. Enum attributes produce a generated Swift enum type name
+  # instead of the default "String" fallback.
+  #
+  # enums: sorted list of %{enum_name, cases} for each attribute whose Ash type
+  # is an enum (Ash.Type.Atom with one_of constraint, or Ash.Type.Enum subtype).
+  defp collect_fields(resource, type_name) do
     formatter = AshTypescript.output_field_formatter() || :camel_case
 
-    attr_fields =
+    {attr_fields, enums} =
       resource
       |> Ash.Resource.Info.public_attributes()
-      |> Enum.map(fn attr ->
-        %{
-          name: FieldFormatter.format_field_for_client(attr.name, resource, formatter),
-          swift_type: ash_type_to_swift(attr.type)
-        }
+      |> Enum.reduce({[], []}, fn attr, {fields_acc, enums_acc} ->
+        formatted_name = FieldFormatter.format_field_for_client(attr.name, resource, formatter)
+
+        case extract_enum_cases(attr) do
+          {:ok, cases} ->
+            en_name = enum_type_name(type_name, formatted_name)
+            field = %{name: formatted_name, swift_type: en_name}
+            enum = %{enum_name: en_name, cases: cases}
+            {[field | fields_acc], [enum | enums_acc]}
+
+          :not_enum ->
+            field = %{name: formatted_name, swift_type: ash_type_to_swift(attr.type)}
+            {[field | fields_acc], enums_acc}
+        end
       end)
 
     rel_fields =
@@ -151,7 +204,9 @@ defmodule AshSwift.Codegen do
         end
       end)
 
-    (attr_fields ++ rel_fields) |> Enum.sort_by(& &1.name)
+    fields = (attr_fields ++ rel_fields) |> Enum.sort_by(& &1.name)
+    sorted_enums = enums |> Enum.sort_by(& &1.enum_name)
+    {fields, sorted_enums}
   end
 
   # Augments the primary resource list with any related resources referenced by
@@ -165,7 +220,8 @@ defmodule AshSwift.Codegen do
   #
   # 2-hop guard: a related resource's own relationship fields may point to types
   # that are never emitted (2 hops away). Those fields are dropped so the
-  # generated Swift compiles without undefined-type references.
+  # generated Swift compiles without undefined-type references. Enum fields are
+  # always safe because their type is defined in the same file.
   defp expand_with_related(primary_resources) do
     primary_type_names = MapSet.new(primary_resources, & &1.type_name)
 
@@ -180,7 +236,8 @@ defmodule AshSwift.Codegen do
               if MapSet.member?(primary_type_names, type_name) do
                 []
               else
-                [%{type_name: type_name, fields: collect_fields(rel.destination)}]
+                {fields, enums} = collect_fields(rel.destination, type_name)
+                [%{type_name: type_name, fields: fields, enums: enums}]
               end
 
             :error ->
@@ -193,22 +250,41 @@ defmodule AshSwift.Codegen do
     all_type_names =
       MapSet.union(primary_type_names, MapSet.new(related_raw, & &1.type_name))
 
+    # Enum types defined in this file are always safe to reference — include
+    # them in the known-type set so the 2-hop guard doesn't drop enum fields.
+    # Note: `related_raw` entries use the slim %{type_name, fields, enums} shape
+    # (no :resource_module or :actions keys), so only :enums is accessed here.
+    all_enum_type_names =
+      (primary_resources ++ related_raw)
+      |> Enum.flat_map(& &1.enums)
+      |> MapSet.new(& &1.enum_name)
+
     related =
-      Enum.map(related_raw, fn %{type_name: type_name, fields: fields} ->
+      Enum.map(related_raw, fn %{type_name: type_name, fields: fields, enums: enums} ->
         safe_fields =
           Enum.filter(fields, fn %{swift_type: swift_type} ->
             base = swift_type |> String.replace(~r/[\[\]?]/, "")
-            MapSet.member?(@scalar_swift_types, base) or MapSet.member?(all_type_names, base)
+
+            MapSet.member?(@scalar_swift_types, base) or
+              MapSet.member?(all_type_names, base) or
+              MapSet.member?(all_enum_type_names, base)
           end)
 
-        %{resource_module: nil, type_name: type_name, fields: safe_fields, actions: []}
+        %{
+          resource_module: nil,
+          type_name: type_name,
+          fields: safe_fields,
+          enums: enums,
+          actions: []
+        }
       end)
 
     (primary_resources ++ related) |> Enum.sort_by(& &1.type_name)
   end
 
-  # Maps an Ash attribute type to its Swift optional counterpart. M1 covers the
-  # core scalar types; atoms with enum constraints become Swift enums in M2.
+  # Maps an Ash attribute type to its Swift counterpart. Enum attributes are
+  # handled before this is called (via extract_enum_cases/1); this covers the
+  # remaining scalar types and falls back to String for unknown types.
   defp ash_type_to_swift(Ash.Type.UUID), do: "String"
   defp ash_type_to_swift(Ash.Type.String), do: "String"
   defp ash_type_to_swift(Ash.Type.Boolean), do: "Bool"
@@ -216,20 +292,67 @@ defmodule AshSwift.Codegen do
   defp ash_type_to_swift(Ash.Type.Float), do: "Double"
   defp ash_type_to_swift(_), do: "String"
 
+  # Returns {:ok, cases} when the attribute is an enum, :not_enum otherwise.
+  # Handles Ash.Type.Atom with one_of constraint and Ash.Type.Enum subtypes.
+  defp extract_enum_cases(attr) do
+    cond do
+      attr.type == Ash.Type.Atom ->
+        case Keyword.get(attr.constraints || [], :one_of) do
+          values when is_list(values) and values != [] -> {:ok, values}
+          _ -> :not_enum
+        end
+
+      is_atom(attr.type) and attr.type != nil and
+        Code.ensure_loaded?(attr.type) and
+        function_exported?(attr.type, :values, 0) and
+          Ash.Type.Enum in (attr.type.module_info(:attributes)
+                            |> Keyword.get_values(:behaviour)
+                            |> List.flatten()) ->
+        {:ok, attr.type.values()}
+
+      true ->
+        :not_enum
+    end
+  end
+
+  # Computes the Swift enum type name from the resource's Swift type name and the
+  # formatted field name. E.g. type_name="Todo", field_name="priority" → "TodoPriority".
+  # Only the first character of field_name is uppercased; the rest is preserved so
+  # camelCase field names like "deliveryStatus" → "TodoDeliveryStatus".
+  defp enum_type_name(type_name, field_name) do
+    capitalized =
+      case field_name do
+        <<first::utf8, rest::binary>> -> String.upcase(<<first::utf8>>) <> rest
+        "" -> ""
+      end
+
+    type_name <> capitalized
+  end
+
   defp render_types(resources) do
     structs =
-      Enum.map_join(resources, "\n\n", fn %{type_name: type_name, fields: fields} ->
+      Enum.map_join(resources, "\n\n", fn %{type_name: type_name, fields: fields, enums: enums} ->
+        enums_block =
+          case enums do
+            [] ->
+              ""
+
+            _ ->
+              Enum.map_join(enums, "\n\n", &render_enum/1) <> "\n\n"
+          end
+
         fields_block = render_fields(fields)
 
-        """
-        /// Generated model for the `#{type_name}` resource.
-        ///
-        /// Every selectable field is Optional so that ad-hoc field selection is
-        /// safe: unselected fields decode as `nil`.
-        public struct #{type_name}: Codable, Sendable, Equatable {
-        #{fields_block}    public init() {}
-        }\
-        """
+        enums_block <>
+          """
+          /// Generated model for the `#{type_name}` resource.
+          ///
+          /// Every selectable field is Optional so that ad-hoc field selection is
+          /// safe: unselected fields decode as `nil`.
+          public struct #{type_name}: Codable, Sendable, Equatable {
+          #{fields_block}    public init() {}
+          }\
+          """
       end)
 
     IO.iodata_to_binary([@header, "\n", "import Foundation\n", body_or_empty(structs)])
@@ -243,6 +366,31 @@ defmodule AshSwift.Codegen do
       "    public var #{name}: #{type}?"
     end)
     |> Kernel.<>("\n")
+  end
+
+  defp render_enum(%{enum_name: name, cases: cases}) do
+    cases_block =
+      cases
+      |> Enum.sort_by(&to_string/1)
+      |> Enum.map_join("\n", fn c ->
+        str = to_string(c)
+        swift_case = lower_camel(str)
+
+        safe_name =
+          if swift_case in @swift_reserved_keywords, do: "`#{swift_case}`", else: swift_case
+
+        if swift_case == str do
+          "    case #{safe_name}"
+        else
+          "    case #{safe_name} = \"#{str}\""
+        end
+      end)
+
+    """
+    public enum #{name}: String, Codable, Sendable, Equatable {
+    #{cases_block}
+    }\
+    """
   end
 
   defp render_functions(resources) do

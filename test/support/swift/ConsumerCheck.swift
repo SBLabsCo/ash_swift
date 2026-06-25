@@ -55,7 +55,7 @@ enum ConsumerCheck {
     static func decodeModels() throws {
         let decoder = JSONDecoder()
 
-        // All fields present.
+        // All fields present; priority is null so it decodes as nil.
         let full = try decoder.decode(
             Todo.self,
             from: Data(#"{"id":"1","title":"Buy milk","completed":false,"priority":null,"userId":null}"#.utf8)
@@ -63,6 +63,37 @@ enum ConsumerCheck {
         _ = full.id
         _ = full.title
         _ = full.completed
+
+        // Enum field: backend sends "high" as the raw string; generated TodoPriority decodes it.
+        let withPriority = try decoder.decode(
+            Todo.self,
+            from: Data(#"{"priority":"high"}"#.utf8)
+        )
+        // Exhaustive switch proves all three cases exist in the generated enum.
+        if let p = withPriority.priority {
+            switch p {
+            case .low: break
+            case .medium: break
+            case .high: break
+            }
+        }
+
+        // Enum with keyword-named cases: backend sends "case" and "default" as raw strings.
+        // The generated TodoStatus uses backtick-escaped case names so Swift accepts them.
+        let withStatus = try decoder.decode(
+            Todo.self,
+            from: Data(#"{"status":"case"}"#.utf8)
+        )
+        // Exhaustive switch over all TodoStatus cases — proves `case` and `default` compile.
+        if let s = withStatus.status {
+            switch s {
+            case .active: break
+            case .archived: break
+            case .`case`: break
+            case .`default`: break
+            case .pending: break
+            }
+        }
 
         // Partial response: fields not selected decode as nil.
         let partial = try decoder.decode(Todo.self, from: Data(#"{"id":"1","title":"Test"}"#.utf8))
