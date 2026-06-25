@@ -24,6 +24,19 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public struct User: Codable, Sendable, Equatable {"
     end
 
+    test "emits all-Optional camelCased fields for each resource", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # Todo scalar fields
+      assert types =~ "public var completed: Bool?"
+      assert types =~ "public var id: String?"
+      assert types =~ "public var priority: String?"
+      assert types =~ "public var title: String?"
+      assert types =~ "public var userId: String?"
+      # User scalar fields
+      assert types =~ "public var email: String?"
+      assert types =~ "public var name: String?"
+    end
+
     test "the functions file imports the runtime and exposes an AshRpc entry point", %{
       files: files
     } do
@@ -33,10 +46,18 @@ defmodule AshSwift.CodegenTest do
       assert functions =~ "public let client: AshRpcClient"
     end
 
-    test "generates a camelCased async function per RPC action", %{files: files} do
+    test "list (non-get read) actions accept a field list and return a typed array", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+      assert functions =~ "public func listTodos(fields: [String] = []) async throws -> [Todo] {"
+      assert functions =~ "public func listUsers(fields: [String] = []) async throws -> [User] {"
+    end
+
+    test "non-list actions keep the simple M1 void signature", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
-      for func <- ~w(listTodos getTodo createTodo updateTodo destroyTodo listUsers createUser) do
+      for func <- ~w(getTodo createTodo updateTodo destroyTodo createUser) do
         assert functions =~ "public func #{func}() async throws {"
       end
     end
