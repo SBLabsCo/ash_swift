@@ -1,8 +1,8 @@
 defmodule AshSwift.E2ETest do
   @moduledoc """
-  End-to-end wire compatibility: runs the list_todos action in-process through
-  the reused AshTypescript RPC pipeline, then verifies the generated Swift model
-  can decode the real JSON response.
+  End-to-end wire compatibility: runs actions in-process through the reused
+  AshTypescript RPC pipeline, then verifies generated Swift models can decode
+  the real JSON responses.
 
   This proves that the Elixir backend and the generated Swift client agree on
   the wire — not just that the Swift code compiles, but that it correctly
@@ -98,6 +98,93 @@ defmodule AshSwift.E2ETest do
 
     {output, status} =
       System.cmd("swift", ["test", "--filter", "E2EDecodeTest"], cd: tmp, stderr_to_stdout: true)
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
+  test "generated Swift model decodes nested relationship data" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Create a user and a todo that belongs to that user.
+    user =
+      Ash.create!(AshSwift.Test.User, %{name: "Nested Owner", email: "nested@example.com"},
+        domain: AshSwift.Test.Domain
+      )
+
+    Ash.create!(AshSwift.Test.Todo, %{title: "Nested Todo", user_id: user.id},
+      domain: AshSwift.Test.Domain
+    )
+
+    # Request the todo list with nested user fields — the wire format passes
+    # relationship field selection as a map inside the fields array.
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    params = %{
+      "action" => "list_todos",
+      "fields" => ["id", "title", %{"user" => ["name", "email"]}]
+    }
+
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+
+    assert rpc_result["success"] == true
+    data = rpc_result["data"]
+    assert is_list(data) and data != []
+
+    json = Jason.encode!(rpc_result)
+
+    # The Swift XCTest decodes the response and asserts the nested User struct
+    # populated on todo.user, proving full round-trip wire compatibility.
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    final class E2ENestedRelationshipTest: XCTestCase {
+        func testNestedRelationshipDecodesIntoGeneratedModel() throws {
+            let json = #{inspect(json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct ListEnvelope: Decodable {
+                let success: Bool
+                let data: [Todo]
+            }
+
+            let envelope = try JSONDecoder().decode(ListEnvelope.self, from: raw)
+
+            XCTAssertTrue(envelope.success)
+            XCTAssertFalse(envelope.data.isEmpty)
+
+            // Find the todo we created for this test (ETS may have others from
+            // the concurrent scalar E2E test).
+            let todo = try XCTUnwrap(
+                envelope.data.first(where: { $0.title == "Nested Todo" })
+            )
+
+            // Nested relationship: todo.user should be populated.
+            let nestedUser = try XCTUnwrap(todo.user)
+            XCTAssertEqual(nestedUser.name, "Nested Owner")
+            XCTAssertEqual(nestedUser.email, "nested@example.com")
+
+            // The scalar userId was not requested in this call — it decodes as nil.
+            XCTAssertNil(todo.userId)
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2ENestedRelationshipTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2ENestedRelationshipTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
 
     assert status == 0, "swift test failed:\n#{output}"
   end

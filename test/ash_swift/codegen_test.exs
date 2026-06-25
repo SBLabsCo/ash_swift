@@ -37,6 +37,14 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public var name: String?"
     end
 
+    test "emits relationship fields as Optional nested types", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # belongs_to :user on Todo emits a User? field
+      assert types =~ "public var user: User?"
+      # has_many :todos on User emits a [Todo]? field
+      assert types =~ "public var todos: [Todo]?"
+    end
+
     test "the functions file imports the runtime and exposes an AshRpc entry point", %{
       files: files
     } do
@@ -50,8 +58,12 @@ defmodule AshSwift.CodegenTest do
       files: files
     } do
       functions = files["AshRpcFunctions.swift"]
-      assert functions =~ "public func listTodos(fields: [String] = []) async throws -> [Todo] {"
-      assert functions =~ "public func listUsers(fields: [String] = []) async throws -> [User] {"
+
+      assert functions =~
+               "public func listTodos(fields: [FieldSelection] = []) async throws -> [Todo] {"
+
+      assert functions =~
+               "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
     test "non-list actions keep the simple M1 void signature", %{files: files} do
@@ -64,6 +76,38 @@ defmodule AshSwift.CodegenTest do
 
     test "is deterministic — same domains produce byte-identical output", %{files: files} do
       assert Codegen.build_files(@domains) == files
+    end
+  end
+
+  describe "2-hop relationship guard" do
+    setup do
+      %{files: Codegen.build_files([AshSwift.Test.TagDomain])}
+    end
+
+    test "emits the 1-hop related resource struct", %{files: files} do
+      assert files["AshRpcTypes.swift"] =~
+               "public struct Category: Codable, Sendable, Equatable {"
+    end
+
+    test "does not emit a 2-hop resource struct", %{files: files} do
+      refute files["AshRpcTypes.swift"] =~
+               "public struct Publisher: Codable, Sendable, Equatable {"
+    end
+
+    test "drops relationship fields referencing 2-hop types from related structs", %{files: files} do
+      refute files["AshRpcTypes.swift"] =~ "public var publisher: Publisher?"
+    end
+
+    test "preserves scalar fields on related resource structs", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public var name: String?"
+      assert types =~ "public var publisherId: String?"
+    end
+
+    test "the 1-hop relationship field is still emitted on the primary resource struct", %{
+      files: files
+    } do
+      assert files["AshRpcTypes.swift"] =~ "public var category: Category?"
     end
   end
 

@@ -31,6 +31,14 @@ enum ConsumerCheck {
         let selected: [Todo] = try await rpc.listTodos(fields: ["id", "title"])
         let _ = selected
 
+        // Nested relationship field selection: select fields on a related resource
+        // in a single call. The todo.user property decodes from the inline JSON.
+        let withUser: [Todo] = try await rpc.listTodos(fields: [
+            "id", "title",
+            .relationship("user", ["name", "email"])
+        ])
+        let _ = withUser
+
         // Non-list actions keep their M1 void signature.
         try await rpc.getTodo()
         try await rpc.createTodo()
@@ -63,6 +71,13 @@ enum ConsumerCheck {
         // Empty object: every field is nil.
         _ = try decoder.decode(Todo.self, from: Data("{}".utf8))
         _ = try decoder.decode(User.self, from: Data("{}".utf8))
+
+        // Nested relationship: todo.user decodes from an inline user object.
+        let withUser = try decoder.decode(
+            Todo.self,
+            from: Data(#"{"id":"1","title":"Buy milk","user":{"name":"Alice","email":"alice@example.com"}}"#.utf8)
+        )
+        _ = withUser.user?.name  // "Alice"
     }
 
     // A custom Transport can be injected without depending on AshSwift's default.
