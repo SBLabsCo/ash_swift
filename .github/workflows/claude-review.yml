@@ -31,6 +31,9 @@ jobs:
           # PRs opened by the implement workflow are authored by the claude bot;
           # allow that specific bot (not '*') so its PRs still get reviewed.
           allowed_bots: claude
+          # Review mode: posts/updates a tracking comment on the PR (also gives
+          # live visibility into the review's progress).
+          track_progress: true
           prompt: |
             Review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
 
@@ -46,6 +49,11 @@ jobs:
             approve, merge, or push commits.
           # Pin the model (the action's default resolves to an invalid
           # `claude-opus-4-8[1m]` id). See claude.yml for rationale.
+          # Allow the tools a reviewer needs: the inline-comment MCP tool, gh for
+          # the diff/PR + top-level comments, and file reads for the repo docs the
+          # prompt references. Without these the reviewer is denied every tool and
+          # burns its turns (error_max_turns).
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 25
+            --max-turns 30
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
