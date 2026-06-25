@@ -12,10 +12,11 @@ and implementation. Workflows live in `.github/workflows/`.
 | Claude PR review | `claude-review.yml` | PR opened / updated | independent inline review pass (comments only, never merges) | yes |
 | Claude issue triage | `claude-triage.yml` | issue opened / reopened | applies a triage label per `triage-labels.md`; asks for info if underspecified | yes |
 | Claude implement issue | `claude-implement.yml` | manual dispatch w/ issue number | implements the issue on a branch, runs the suite green, opens a PR | yes |
+| Claude address review | `claude-address-review.yml` | `/address-review` comment on a PR | addresses the review feedback on the PR's own branch, runs the suite green, pushes | yes |
 
-CI is independent and active immediately. The four Claude workflows are **gated
-off** until you complete setup, so they show up as skipped (not failed) and
-incur no cost until you opt in.
+CI is independent and active immediately. The Claude workflows are **gated off**
+until you complete setup, so they show up as skipped (not failed) and incur no
+cost until you opt in.
 
 ## One-time setup (maintainer)
 
@@ -43,6 +44,12 @@ These steps require account/repo admin and can't be done from a code PR:
 - **Implement an issue:** Actions tab → "Claude implement issue" → Run workflow
   → enter the issue number (use only `ready-for-agent` issues). It opens a PR
   for review — it never merges.
+- **Hand a PR's review off to an agent:** comment `/address-review` on the PR.
+  An agent reads the review feedback, fixes it on the PR's own branch, runs the
+  gates, and pushes — which re-triggers CI and the auto-review. This closes the
+  loop: implement → review → `/address-review` → re-review → human merge.
+  (`@claude` tag mode is read-only and can't edit code; this is the editing
+  counterpart, scoped to a distinct phrase.)
 
 ## Guardrails and caveats
 

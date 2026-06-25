@@ -1,0 +1,73 @@
+name: Claude address PR review
+
+# Comment `/address-review` on a PR and an agent addresses the review feedback
+# on that PR's own branch. This is tag mode (auto-detected for issue_comment),
+# which is PR-branch-native — it commits and pushes to the PR, re-triggering CI
+# and the auto-review. A distinct phrase from `@claude` so the lightweight Q&A
+# handler (claude.yml) doesn't collide. See docs/agents/ai-automation.md.
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  address-review:
+    # Only on PR comments containing the phrase, once automation is enabled.
+    if: |
+      vars.ENABLE_CLAUDE_AUTOMATION == 'true' &&
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, '/address-review')
+    # macOS so the agent can run the suite (mix test shells to swift build).
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Toolchains up front so the agent's `mix`/`swift` work (Swift ships with
+      # Xcode on macOS runners). The agent re-runs `mix deps.get` on the PR
+      # branch the action checks out.
+      - name: Install Elixir/Erlang
+        run: brew install elixir
+      - name: Install hex + rebar
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          trigger_phrase: "/address-review"
+          # Stream the turn-by-turn log so the run is inspectable.
+          show_full_output: true
+          prompt: |
+            Address the review feedback on this pull request. You are operating on
+            the PR's own branch — commit and push fixes here; do NOT open a new PR.
+
+            1. Read the review thoroughly: the inline review comments and the
+               summary on this PR. Use `gh pr view --comments` and
+               `gh api repos/${{ github.repository }}/pulls/<pr>/comments` (inline)
+               and `.../reviews`.
+            2. Address each actionable finding. Follow this repo's conventions:
+               CLAUDE.md, CONTEXT.md, docs/adr/, docs/prd/. Use the `/tdd` skill
+               where a fix has a natural test seam. If you intentionally skip a
+               finding (e.g. out of the issue's M1 scope), say so and why.
+            3. Run `mix deps.get`, then make every gate CI runs pass locally before
+               pushing: `mix format`, `mix compile --warnings-as-errors`,
+               `mix test`, and `swift test`. Keep generated codegen deterministic.
+            4. Commit and push to this PR's branch, then reply with a concise
+               summary of what you changed and anything you deliberately left.
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 80
+            --verbose
+            --allowedTools "Bash,Edit,MultiEdit,Write,Read,NotebookEdit,Glob,Grep,LS,TodoWrite,Skill"
