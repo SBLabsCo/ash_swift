@@ -1,0 +1,3 @@
+# AshSwift is an Elixir extension that emits Swift, not a Swift tool
+
+Despite the name `ash_swift` and a repo that will be majority Elixir, AshSwift is an Elixir/Mix Ash extension that generates Swift client code at codegen time — a faithful port of ash_typescript with the output language swapped. We chose this over a standalone Swift CLI that consumes an exported schema artifact, because hooking directly into Ash's compile-time resource reflection (the way ash_typescript does) gives lossless, zero-config type generation and keeps AshSwift a first-class member of the Ash ecosystem. The cost we accept: codegen requires the Elixir toolchain, and the repo's primary language is Elixir even though the product is Swift.

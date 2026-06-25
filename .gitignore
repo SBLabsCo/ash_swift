@@ -1,18 +1,23 @@
-## Build generated
+# Elixir / Mix
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+*.beam
+/config/*.secret.exs
+.elixir_ls/
+
+# Hex
+ash_swift-*.tar
+
+# Swift / SPM (runtime package lives in this monorepo)
 .build/
-DerivedData/
-
-## Swift Package Manager
-Package.resolved
 .swiftpm/
+DerivedData/
+Package.resolved
 
-## Xcode user data
-xcuserdata/
-*.xcuserstate
-*.xcscmblueprint
-
-## macOS
+# macOS
 .DS_Store
-
-## Scratch / local issue tracker
-.scratch/
