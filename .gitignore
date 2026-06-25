@@ -1,0 +1,18 @@
+## Build generated
+.build/
+DerivedData/
+
+## Swift Package Manager
+Package.resolved
+.swiftpm/
+
+## Xcode user data
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+## macOS
+.DS_Store
+
+## Scratch / local issue tracker
+.scratch/
