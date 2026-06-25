@@ -10,8 +10,21 @@ defmodule AshSwift.MixProject do
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      description: description(),
+      package: package(),
       deps: deps(),
       aliases: aliases()
+    ]
+  end
+
+  defp description do
+    "An Ash extension that generates a type-safe Swift client for Ash RPC actions."
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/SBLabsCo/ash_swift"}
     ]
   end
 
