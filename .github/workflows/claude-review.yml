@@ -28,6 +28,9 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # PRs opened by the implement workflow are authored by the claude bot;
+          # allow that specific bot (not '*') so its PRs still get reviewed.
+          allowed_bots: claude
           prompt: |
             Review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
 
