@@ -35,4 +35,8 @@ jobs:
             (one of: needs-triage, needs-info, ready-for-agent, ready-for-human,
             wontfix). If the issue is underspecified, apply `needs-info` and post one
             concise comment listing exactly what is missing. Do not implement anything.
-          claude_args: "--max-turns 15"
+          # Pin the model (the action's default resolves to an invalid
+          # `claude-opus-4-8[1m]` id). See claude.yml for rationale.
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 15

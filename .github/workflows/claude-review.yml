@@ -40,4 +40,8 @@ jobs:
 
             Post findings as precise, actionable inline review comments. Do not
             approve, merge, or push commits.
-          claude_args: "--max-turns 25"
+          # Pin the model (the action's default resolves to an invalid
+          # `claude-opus-4-8[1m]` id). See claude.yml for rationale.
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 25

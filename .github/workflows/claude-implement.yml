@@ -64,5 +64,6 @@ jobs:
           # tool allowlist (auditable, and scoped to this dispatch-only,
           # write-access-gated workflow) rather than bypassing permissions.
           claude_args: |
+            --model claude-sonnet-4-6
             --max-turns 80
             --allowedTools "Bash,Edit,MultiEdit,Write,Read,NotebookEdit,Glob,Grep,LS,TodoWrite"
