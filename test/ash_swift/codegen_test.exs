@@ -64,6 +64,13 @@ defmodule AshSwift.CodegenTest do
       assert enum_pos < struct_pos
     end
 
+    test "backtick-escapes :case — a statement keyword — in an Ash.Type.Enum", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # :case is a Swift statement keyword; bare `case case` is a syntax error.
+      assert types =~ "    case `case`"
+      refute types =~ "    case case\n"
+    end
+
     test "emits relationship fields as Optional nested types", %{files: files} do
       types = files["AshRpcTypes.swift"]
       # belongs_to :user on Todo emits a User? field

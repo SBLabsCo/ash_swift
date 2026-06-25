@@ -78,6 +78,23 @@ enum ConsumerCheck {
             }
         }
 
+        // Enum with keyword-named cases: backend sends "case" and "default" as raw strings.
+        // The generated TodoStatus uses backtick-escaped case names so Swift accepts them.
+        let withStatus = try decoder.decode(
+            Todo.self,
+            from: Data(#"{"status":"case"}"#.utf8)
+        )
+        // Exhaustive switch over all TodoStatus cases — proves `case` and `default` compile.
+        if let s = withStatus.status {
+            switch s {
+            case .active: break
+            case .archived: break
+            case .`case`: break
+            case .`default`: break
+            case .pending: break
+            }
+        }
+
         // Partial response: fields not selected decode as nil.
         let partial = try decoder.decode(Todo.self, from: Data(#"{"id":"1","title":"Test"}"#.utf8))
         _ = partial.completed  // nil — field absent from partial response

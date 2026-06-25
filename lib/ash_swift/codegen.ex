@@ -14,11 +14,36 @@ defmodule AshSwift.Codegen do
 
   @scalar_swift_types MapSet.new(["String", "Bool", "Int", "Double"])
 
-  # Swift keywords that cannot appear bare as identifiers — enum case names
-  # matching any of these must be backtick-escaped to produce valid Swift.
-  @swift_reserved_keywords ~w(class struct enum protocol extension func var let init deinit
-    return throw throws rethrows try catch defer import typealias associatedtype
-    self Self super true false nil in is as any some default where)
+  # Complete set of Swift reserved keywords (Swift Language Reference §Lexical Structure).
+  # Enum case names matching any of these must be backtick-escaped to produce valid Swift.
+  #
+  # Keywords used in declarations:
+  #   associatedtype class deinit enum extension fileprivate func import init inout
+  #   internal let open operator precedencegroup private protocol public rethrows
+  #   static struct subscript typealias var
+  # Keywords used in statements:
+  #   break case catch continue default defer do else fallthrough for guard if in
+  #   repeat return throw throws where while
+  # Keywords used in expressions and types:
+  #   Any as await catch false is nil rethrows self Self super throw throws true try
+  # Keywords reserved in particular contexts (pattern / context keywords):
+  #   associativity convenience didSet dynamic final get indirect infix lazy left
+  #   mutating none nonisolated nonmutating optional override postfix precedence
+  #   prefix Protocol required right set some Type unowned weak willSet
+  # Swift Concurrency keywords:
+  #   actor async distributed isolated
+  @swift_reserved_keywords ~w(
+    associatedtype class deinit enum extension fileprivate func import init inout
+    internal let open operator precedencegroup private protocol public rethrows
+    static struct subscript typealias var
+    break case catch continue default defer do else fallthrough for guard if in
+    repeat return throw throws where while
+    Any as await false is nil self Self super true try
+    associativity convenience didSet dynamic final get indirect infix lazy left
+    mutating none nonisolated nonmutating optional override postfix precedence
+    prefix Protocol required right set some Type unowned weak willSet
+    actor async distributed isolated
+  )
 
   @types_file "AshRpcTypes.swift"
   @functions_file "AshRpcFunctions.swift"
