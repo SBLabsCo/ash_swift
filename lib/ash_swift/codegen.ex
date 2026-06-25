@@ -138,13 +138,29 @@ defmodule AshSwift.Codegen do
           rpc_actions
           |> Enum.map(fn rpc_action ->
             ash_action = Ash.Resource.Info.action(resource, rpc_action.action)
+            formatter = AshTypescript.output_field_formatter() || :camel_case
+
+            {is_get?, get_by_params, get_by_location} =
+              if ash_action.type == :read do
+                build_get_info(ash_action, rpc_action, resource, formatter)
+              else
+                {false, [], nil}
+              end
+
+            not_found_error? =
+              case Map.get(rpc_action, :not_found_error?) do
+                nil -> AshTypescript.Rpc.not_found_error?()
+                value -> value
+              end
 
             %{
               rpc_name: rpc_action.name,
               action: rpc_action.action,
               action_type: ash_action.type,
-              # get? only exists on read actions; all other types are non-get.
-              is_get?: ash_action.type == :read && Map.get(ash_action, :get?, false)
+              is_get?: is_get?,
+              get_by_params: get_by_params,
+              get_by_location: get_by_location,
+              not_found_error?: not_found_error?
             }
           end)
           |> Enum.sort_by(& &1.rpc_name)
@@ -441,7 +457,56 @@ defmodule AshSwift.Codegen do
     """
   end
 
-  # All other action types (get, create, update, destroy) keep the simple signature
+  # Get (single-record read) actions: typed lookup params and a typed return.
+  # not_found_error? true → return T (throws on missing).
+  # not_found_error? false → return T? (nil on missing).
+  defp render_method(
+         %{
+           rpc_name: rpc_name,
+           action_type: :read,
+           is_get?: true,
+           get_by_params: get_by_params,
+           get_by_location: location,
+           not_found_error?: not_found_error?
+         },
+         type_name
+       ) do
+    func = lower_camel(rpc_name)
+
+    param_list =
+      Enum.map_join(get_by_params, ", ", fn %{name: n, swift_type: t} -> "#{n}: #{t}" end)
+
+    params_str =
+      if param_list == "",
+        do: "fields: [FieldSelection] = []",
+        else: "#{param_list}, fields: [FieldSelection] = []"
+
+    dict_entries =
+      Enum.map_join(get_by_params, ", ", fn %{name: n} -> ~s("#{n}": #{n}) end)
+
+    {method_name, return_type} =
+      if not_found_error?,
+        do: {"runGet", type_name},
+        else: {"runGetOptional", "#{type_name}?"}
+
+    lookup_arg =
+      case location do
+        :input -> ~s(input: [#{dict_entries}])
+        :get_by -> ~s(getBy: [#{dict_entries}])
+        _ -> ""
+      end
+
+    lookup_str = if lookup_arg == "", do: "", else: "#{lookup_arg}, "
+
+    """
+    /// Calls the `#{rpc_name}` RPC action (get `#{type_name}` record).
+    public func #{func}(#{params_str}) async throws -> #{return_type} {
+        return try await client.#{method_name}(action: "#{rpc_name}", #{lookup_str}fields: fields)
+    }\
+    """
+  end
+
+  # All other action types (create, update, destroy) keep the simple signature
   # for M1; typed inputs and returns land in later milestones.
   defp render_method(%{rpc_name: rpc_name, action: action}, type_name) do
     func = lower_camel(rpc_name)
@@ -474,6 +539,46 @@ defmodule AshSwift.Codegen do
   defp lower_camel(name) do
     [first | rest] = name |> to_string() |> String.split("_", trim: true)
     Enum.join([String.downcase(first) | Enum.map(rest, &String.capitalize/1)])
+  end
+
+  # Determines whether a read action is a get action and, if so, collects the
+  # lookup field params and where to place them in the request body.
+  #
+  # Returns {is_get?, get_by_params, location} where:
+  #   - get_by_params: list of %{name, swift_type} for the lookup fields
+  #   - location: :input (native get_by on the action) | :get_by (RPC-level get_by)
+  defp build_get_info(ash_action, rpc_action, resource, formatter) do
+    native_get_by = List.wrap(Map.get(ash_action, :get_by))
+    rpc_get_by = Map.get(rpc_action, :get_by) || []
+    rpc_get? = Map.get(rpc_action, :get?, false)
+
+    cond do
+      native_get_by != [] ->
+        # get_by on the Ash action itself: fields travel in the `input` body key.
+        {true, build_get_by_params(native_get_by, resource, formatter), :input}
+
+      rpc_get_by != [] ->
+        # get_by on the RPC action entity: fields travel in the `getBy` body key.
+        {true, build_get_by_params(rpc_get_by, resource, formatter), :get_by}
+
+      rpc_get? || Map.get(ash_action, :get?, false) ->
+        # Pure get? (no explicit field list): look up by primary key via `input`.
+        pk = Ash.Resource.Info.primary_key(resource)
+        {true, build_get_by_params(pk, resource, formatter), :input}
+
+      true ->
+        {false, [], nil}
+    end
+  end
+
+  # Maps a list of field atoms to the %{name, swift_type} shapes render_method uses.
+  defp build_get_by_params(fields, resource, formatter) do
+    Enum.map(fields, fn field ->
+      name = FieldFormatter.format_field_for_client(field, resource, formatter)
+      attr = Ash.Resource.Info.attribute(resource, field)
+      swift_type = if attr, do: ash_type_to_swift(attr.type), else: "String"
+      %{name: name, swift_type: swift_type}
+    end)
   end
 
   defp write_if_changed(path, content) do

@@ -100,12 +100,28 @@ defmodule AshSwift.CodegenTest do
                "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
-    test "non-list actions keep the simple M1 void signature", %{files: files} do
+    test "non-list, non-get actions keep the simple M1 void signature", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
-      for func <- ~w(getTodo createTodo updateTodo destroyTodo createUser) do
+      for func <- ~w(createTodo updateTodo destroyTodo createUser) do
         assert functions =~ "public func #{func}() async throws {"
       end
+    end
+
+    test "get action with not_found_error? true emits a typed non-optional return", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func getTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo {"
+    end
+
+    test "get action with not_found_error? false emits a typed optional return", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func findTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo? {"
     end
 
     test "is deterministic — same domains produce byte-identical output", %{files: files} do

@@ -265,6 +265,102 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "get action: single-record retrieval and not-found path exercise both not_found_error? behaviors" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Create a record so we can retrieve it by id.
+    todo =
+      Ash.create!(AshSwift.Test.Todo, %{title: "Get E2E Todo"}, domain: AshSwift.Test.Domain)
+
+    todo_id = to_string(todo.id)
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # --- Successful get (not_found_error? true by default) ---
+    get_params = %{
+      "action" => "get_todo",
+      "input" => %{"id" => todo_id},
+      "fields" => ["id", "title"]
+    }
+
+    get_result = AshTypescript.Rpc.run_action(:ash_swift, conn, get_params)
+    assert get_result["success"] == true
+    assert is_map(get_result["data"])
+
+    get_json = Jason.encode!(get_result)
+
+    # --- Not-found path (not_found_error? false — returns null data) ---
+    nonexistent_id = Ash.UUID.generate()
+
+    find_params = %{
+      "action" => "find_todo",
+      "input" => %{"id" => nonexistent_id},
+      "fields" => ["id"]
+    }
+
+    find_result = AshTypescript.Rpc.run_action(:ash_swift, conn, find_params)
+    assert find_result["success"] == true
+    assert find_result["data"] == nil
+
+    find_json = Jason.encode!(find_result)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Verifies that the get action response decodes into a single typed record and
+    // that the not-found path produces nil for actions with not_found_error? false.
+    final class E2EGetActionTest: XCTestCase {
+        func testGetSuccessDecodesIntoTypedRecord() throws {
+            let json = #{inspect(get_json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct GetEnvelope: Decodable {
+                let success: Bool
+                let data: Todo
+            }
+
+            let envelope = try JSONDecoder().decode(GetEnvelope.self, from: raw)
+            XCTAssertTrue(envelope.success)
+            XCTAssertEqual(envelope.data.title, "Get E2E Todo")
+            XCTAssertEqual(envelope.data.id, #{inspect(todo_id)})
+        }
+
+        func testGetNotFoundDecodesAsNil() throws {
+            let json = #{inspect(find_json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct GetOptionalEnvelope: Decodable {
+                let success: Bool
+                let data: Todo?
+            }
+
+            let envelope = try JSONDecoder().decode(GetOptionalEnvelope.self, from: raw)
+            XCTAssertTrue(envelope.success)
+            XCTAssertNil(envelope.data)
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EGetActionTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EGetActionTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).
