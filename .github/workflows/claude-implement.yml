@@ -59,4 +59,10 @@ jobs:
             5. Create a branch `issue-${{ inputs.issue_number }}-<short-slug>`, commit,
                push, and open a PR whose body starts with
                "Closes #${{ inputs.issue_number }}". Do NOT merge — leave it for review.
-          claude_args: "--max-turns 80"
+          # Unlike tag mode (read-only + git), an implementer needs to run the
+          # build/test toolchain, edit files, and use git/gh. Grant an explicit
+          # tool allowlist (auditable, and scoped to this dispatch-only,
+          # write-access-gated workflow) rather than bypassing permissions.
+          claude_args: |
+            --max-turns 80
+            --allowedTools "Bash,Edit,MultiEdit,Write,Read,NotebookEdit,Glob,Grep,LS,TodoWrite"
