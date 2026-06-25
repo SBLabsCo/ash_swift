@@ -28,11 +28,12 @@ defmodule AshSwift.Codegen do
   """
   @spec build_files([module()]) :: %{String.t() => String.t()}
   def build_files(domains) when is_list(domains) do
-    resources = collect_resources(domains)
+    primary_resources = collect_resources(domains)
+    all_resources = expand_with_related(primary_resources)
 
     %{
-      @types_file => render_types(resources),
-      @functions_file => render_functions(resources)
+      @types_file => render_types(all_resources),
+      @functions_file => render_functions(primary_resources)
     }
   end
 
@@ -88,6 +89,7 @@ defmodule AshSwift.Codegen do
     |> Enum.flat_map(&RpcInfo.typescript_rpc/1)
     |> Enum.map(fn %{resource: resource, rpc_actions: rpc_actions} ->
       %{
+        resource_module: resource,
         type_name: ResourceInfo.typescript_type_name!(resource),
         fields: collect_fields(resource),
         actions:
@@ -109,25 +111,76 @@ defmodule AshSwift.Codegen do
     |> Enum.sort_by(& &1.type_name)
   end
 
-  # Returns a sorted list of {swift_name, swift_type} for the resource's public
-  # scalar attributes. Field names go through the same formatter AshTypescript
-  # uses for output, so the generated Swift property names match the JSON keys on
-  # the wire byte-for-byte (and pick up any `field_names` DSL overrides). This
-  # matters because the runtime decodes with a plain JSONDecoder and no
-  # keyDecodingStrategy: a mismatched key would silently decode as nil rather
-  # than error. Sorting by the formatted name keeps output deterministic.
+  # Returns a sorted list of %{name, swift_type} for the resource's public
+  # scalar attributes AND public relationships. Field names go through the same
+  # formatter AshTypescript uses for output, so generated Swift property names
+  # match the JSON keys on the wire byte-for-byte. Sorting by the formatted name
+  # keeps output deterministic.
   defp collect_fields(resource) do
     formatter = AshTypescript.output_field_formatter() || :camel_case
 
-    resource
-    |> Ash.Resource.Info.public_attributes()
-    |> Enum.map(fn attr ->
-      %{
-        name: FieldFormatter.format_field_for_client(attr.name, resource, formatter),
-        swift_type: ash_type_to_swift(attr.type)
-      }
-    end)
-    |> Enum.sort_by(& &1.name)
+    attr_fields =
+      resource
+      |> Ash.Resource.Info.public_attributes()
+      |> Enum.map(fn attr ->
+        %{
+          name: FieldFormatter.format_field_for_client(attr.name, resource, formatter),
+          swift_type: ash_type_to_swift(attr.type)
+        }
+      end)
+
+    rel_fields =
+      resource
+      |> Ash.Resource.Info.public_relationships()
+      |> Enum.flat_map(fn rel ->
+        case ResourceInfo.typescript_type_name(rel.destination) do
+          {:ok, dest_type} ->
+            swift_type =
+              case rel.cardinality do
+                :one -> dest_type
+                :many -> "[#{dest_type}]"
+              end
+
+            name = FieldFormatter.format_field_for_client(rel.name, resource, formatter)
+            [%{name: name, swift_type: swift_type}]
+
+          :error ->
+            []
+        end
+      end)
+
+    (attr_fields ++ rel_fields) |> Enum.sort_by(& &1.name)
+  end
+
+  # Augments the primary resource list with any related resources referenced by
+  # their relationships that aren't already in the primary set. The related
+  # resource's struct must be in the types file so the nested field decodes
+  # correctly. Only one hop of relationship expansion is performed for M1.
+  defp expand_with_related(primary_resources) do
+    primary_type_names = MapSet.new(primary_resources, & &1.type_name)
+
+    related =
+      primary_resources
+      |> Enum.flat_map(fn %{resource_module: resource} ->
+        resource
+        |> Ash.Resource.Info.public_relationships()
+        |> Enum.flat_map(fn rel ->
+          case ResourceInfo.typescript_type_name(rel.destination) do
+            {:ok, type_name} ->
+              if MapSet.member?(primary_type_names, type_name) do
+                []
+              else
+                [%{type_name: type_name, fields: collect_fields(rel.destination)}]
+              end
+
+            :error ->
+              []
+          end
+        end)
+      end)
+      |> Enum.uniq_by(& &1.type_name)
+
+    (primary_resources ++ related) |> Enum.sort_by(& &1.type_name)
   end
 
   # Maps an Ash attribute type to its Swift optional counterpart. M1 covers the
@@ -200,7 +253,8 @@ defmodule AshSwift.Codegen do
     ])
   end
 
-  # List (non-get read) actions accept a field selection list and return [TypeName].
+  # List (non-get read) actions accept a FieldSelection list and return [TypeName].
+  # FieldSelection supports both scalar strings and nested relationship selections.
   defp render_method(
          %{rpc_name: rpc_name, action_type: :read, is_get?: false},
          type_name
@@ -209,7 +263,7 @@ defmodule AshSwift.Codegen do
 
     """
     /// Calls the `#{rpc_name}` RPC action (list `#{type_name}` records).
-    public func #{func}(fields: [String] = []) async throws -> [#{type_name}] {
+    public func #{func}(fields: [FieldSelection] = []) async throws -> [#{type_name}] {
         return try await client.runList(action: "#{rpc_name}", fields: fields)
     }\
     """

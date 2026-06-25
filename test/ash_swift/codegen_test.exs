@@ -37,6 +37,26 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public var name: String?"
     end
 
+    test "emits relationship fields as Optional nested types", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # belongs_to :user on Todo emits a User? field
+      assert types =~ "public var user: User?"
+      # has_many :todos on User emits a [Todo]? field
+      assert types =~ "public var todos: [Todo]?"
+    end
+
+    test "list actions accept FieldSelection for nested relationship field selection", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func listTodos(fields: [FieldSelection] = []) async throws -> [Todo] {"
+
+      assert functions =~
+               "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
+    end
+
     test "the functions file imports the runtime and exposes an AshRpc entry point", %{
       files: files
     } do
@@ -50,8 +70,12 @@ defmodule AshSwift.CodegenTest do
       files: files
     } do
       functions = files["AshRpcFunctions.swift"]
-      assert functions =~ "public func listTodos(fields: [String] = []) async throws -> [Todo] {"
-      assert functions =~ "public func listUsers(fields: [String] = []) async throws -> [User] {"
+
+      assert functions =~
+               "public func listTodos(fields: [FieldSelection] = []) async throws -> [Todo] {"
+
+      assert functions =~
+               "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
     test "non-list actions keep the simple M1 void signature", %{files: files} do

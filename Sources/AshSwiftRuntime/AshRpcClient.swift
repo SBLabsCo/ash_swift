@@ -24,7 +24,7 @@ public struct AshRpcClient: Sendable {
     /// AshTypescript client sends, by construction (ADR-0003).
     private struct RequestBody: Encodable {
         let action: String
-        let fields: [String]
+        let fields: [FieldSelection]
     }
 
     /// The envelope the runtime checks for success/failure before returning data.
@@ -45,7 +45,7 @@ public struct AshRpcClient: Sendable {
     /// responses, `AshRpcError.server` when the backend reports failure, and
     /// `AshRpcError.decodingFailed` when the envelope is unintelligible.
     @discardableResult
-    public func runRaw(action: String, fields: [String] = []) async throws -> Data {
+    public func runRaw(action: String, fields: [FieldSelection] = []) async throws -> Data {
         var request = URLRequest(url: config.runEndpointURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -78,7 +78,7 @@ public struct AshRpcClient: Sendable {
     /// Runs a list RPC action and decodes the `data` array from the response
     /// envelope into `[T]`. The caller supplies `T` through the return-type
     /// context; no type parameter is needed at the call site.
-    public func runList<T: Decodable>(action: String, fields: [String] = []) async throws -> [T] {
+    public func runList<T: Decodable>(action: String, fields: [FieldSelection] = []) async throws -> [T] {
         let raw = try await runRaw(action: action, fields: fields)
         do {
             return try decoder.decode(ListEnvelope<T>.self, from: raw).data
