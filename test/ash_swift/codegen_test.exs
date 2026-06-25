@@ -43,4 +43,29 @@ defmodule AshSwift.CodegenTest do
       assert Codegen.build_files(@domains) == files
     end
   end
+
+  describe "stale_files/2 (the --check staleness guard)" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "ash_swift_stale_#{System.unique_integer([:positive])}")
+      on_exit(fn -> File.rm_rf!(dir) end)
+      %{dir: dir}
+    end
+
+    test "reports every file as stale when nothing has been generated yet", %{dir: dir} do
+      assert Codegen.stale_files(@domains, dir) ==
+               ["AshRpcFunctions.swift", "AshRpcTypes.swift"]
+    end
+
+    test "reports nothing stale right after generating", %{dir: dir} do
+      assert {:ok, _} = Codegen.generate(@domains, dir)
+      assert Codegen.stale_files(@domains, dir) == []
+    end
+
+    test "reports a file stale once its committed copy drifts", %{dir: dir} do
+      assert {:ok, _} = Codegen.generate(@domains, dir)
+      File.write!(Path.join(dir, "AshRpcTypes.swift"), "// hand-edited\n")
+
+      assert Codegen.stale_files(@domains, dir) == ["AshRpcTypes.swift"]
+    end
+  end
 end

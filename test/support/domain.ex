@@ -1,7 +1,7 @@
 defmodule AshSwift.Test.Domain do
   @moduledoc "Fixture domain exposing the core CRUD action types via the reused typescript_rpc DSL."
 
-  use Ash.Domain, extensions: [AshTypescript.Rpc]
+  use Ash.Domain, otp_app: :ash_swift, extensions: [AshTypescript.Rpc]
 
   typescript_rpc do
     resource AshSwift.Test.Todo do

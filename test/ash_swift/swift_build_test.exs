@@ -10,24 +10,24 @@ defmodule AshSwift.SwiftBuildTest do
   alias AshSwift.Codegen
 
   @domains [AshSwift.Test.Domain]
+  # Excluded automatically when the swift toolchain is absent (see test_helper).
   @moduletag :swift_build
 
-  setup_all do
-    unless System.find_executable("swift") do
-      raise "swift toolchain not found; required for the codegen compile harness"
-    end
-
-    :ok
-  end
-
-  test "generated Swift compiles against AshSwiftRuntime" do
+  test "generated Swift, plus a hand-written consumer, compiles against AshSwiftRuntime" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)
-
     sources = Path.join([tmp, "Sources", "GeneratedClient"])
+
     assert {:ok, written} = Codegen.generate(@domains, sources)
     assert "AshRpcTypes.swift" in written
     assert "AshRpcFunctions.swift" in written
+
+    # Build the generated output alongside a "shouldPass" consumer fixture that
+    # exercises the emitted surface, proving it is usable (not just consistent).
+    File.cp!(
+      Path.join(repo_root, "test/support/swift/ConsumerCheck.swift"),
+      Path.join(sources, "ConsumerCheck.swift")
+    )
 
     {output, status} = System.cmd("swift", ["build"], cd: tmp, stderr_to_stdout: true)
     assert status == 0, "swift build failed:\n#{output}"

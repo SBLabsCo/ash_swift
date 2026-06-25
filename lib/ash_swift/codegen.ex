@@ -62,6 +62,27 @@ defmodule AshSwift.Codegen do
     {:ok, written}
   end
 
+  @doc """
+  Returns the sorted list of relative paths whose generated content differs from
+  what is currently on disk under `output_dir` (a missing file counts as
+  differing). An empty list means the committed output is up to date.
+
+  This is the staleness check behind `mix ash_swift.codegen --check`: CI can fail
+  when generated Swift hasn't been regenerated after a schema change (ADR-0005).
+  """
+  @spec stale_files([module()], String.t()) :: [String.t()]
+  def stale_files(domains, output_dir) do
+    domains
+    |> build_files()
+    |> Enum.filter(fn {path, content} ->
+      full = Path.join(output_dir, path)
+      current = if File.exists?(full), do: File.read!(full), else: :none
+      current != content
+    end)
+    |> Enum.map(fn {path, _} -> path end)
+    |> Enum.sort()
+  end
+
   # Collects every RPC-exposed resource across the given domains, normalised into
   # a sorted list of maps the renderers consume. Sorting by Swift type name keeps
   # output deterministic regardless of domain/declaration order.
