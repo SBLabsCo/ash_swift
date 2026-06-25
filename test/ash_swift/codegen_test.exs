@@ -29,12 +29,25 @@ defmodule AshSwift.CodegenTest do
       # Todo scalar fields
       assert types =~ "public var completed: Bool?"
       assert types =~ "public var id: String?"
-      assert types =~ "public var priority: String?"
+      # priority is now a typed enum, not String
+      assert types =~ "public var priority: TodoPriority?"
       assert types =~ "public var title: String?"
       assert types =~ "public var userId: String?"
       # User scalar fields
       assert types =~ "public var email: String?"
       assert types =~ "public var name: String?"
+    end
+
+    test "emits a Swift enum for an atom attribute with one_of constraint", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public enum TodoPriority: String, Codable, Sendable, Equatable {"
+      assert types =~ "    case high"
+      assert types =~ "    case low"
+      assert types =~ "    case medium"
+      # The enum definition must appear before the struct that uses it
+      enum_pos = :binary.match(types, "public enum TodoPriority:") |> elem(0)
+      struct_pos = :binary.match(types, "public struct Todo:") |> elem(0)
+      assert enum_pos < struct_pos
     end
 
     test "emits relationship fields as Optional nested types", %{files: files} do
