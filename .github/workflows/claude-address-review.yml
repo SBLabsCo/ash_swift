@@ -66,6 +66,15 @@ jobs:
                `mix test`, and `swift test`. Keep generated codegen deterministic.
             4. Commit and push to this PR's branch, then reply with a concise
                summary of what you changed and anything you deliberately left.
+
+            The maintainer who triggered this run may have added extra guidance in
+            their comment (below). Treat it as high-priority direction on HOW to
+            solve the findings — it overrides your default approach where they
+            conflict. The leading `/address-review` is just the trigger; ignore it.
+
+            --- maintainer comment ---
+            ${{ github.event.comment.body }}
+            --- end maintainer comment ---
           claude_args: |
             --model claude-sonnet-4-6
             --max-turns 80

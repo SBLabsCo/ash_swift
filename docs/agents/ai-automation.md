@@ -50,6 +50,13 @@ These steps require account/repo admin and can't be done from a code PR:
   loop: implement → review → `/address-review` → re-review → human merge.
   (`@claude` tag mode is read-only and can't edit code; this is the editing
   counterpart, scoped to a distinct phrase.)
+  - **Steer it:** anything after the phrase becomes high-priority guidance on
+    *how* to solve the findings — e.g. `/address-review use the complete Swift
+    reserved-keyword set from the language reference, not just the example list`.
+    Useful when an agent's first pass converges on a partial fix. The comment
+    text is injected into the agent's prompt, so only trigger it yourself or from
+    trusted collaborators (the action already restricts triggers to write
+    access).
 
 ## Guardrails and caveats
 
