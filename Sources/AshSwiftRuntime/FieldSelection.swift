@@ -1,5 +1,3 @@
-import Foundation
-
 /// Represents a single field or nested relationship selection for an RPC request.
 ///
 /// String literals are implicitly converted to `.scalar`, so simple field lists

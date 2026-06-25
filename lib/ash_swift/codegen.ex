@@ -12,6 +12,8 @@ defmodule AshSwift.Codegen do
   alias AshTypescript.Resource.Info, as: ResourceInfo
   alias AshTypescript.Rpc.Info, as: RpcInfo
 
+  @scalar_swift_types MapSet.new(["String", "Bool", "Int", "Double"])
+
   @types_file "AshRpcTypes.swift"
   @functions_file "AshRpcFunctions.swift"
 
@@ -156,10 +158,18 @@ defmodule AshSwift.Codegen do
   # their relationships that aren't already in the primary set. The related
   # resource's struct must be in the types file so the nested field decodes
   # correctly. Only one hop of relationship expansion is performed for M1.
+  #
+  # Related entries share the same map shape as primary entries (resource_module:
+  # nil, actions: []) so render_types and render_functions always see uniform
+  # maps regardless of which list they iterate.
+  #
+  # 2-hop guard: a related resource's own relationship fields may point to types
+  # that are never emitted (2 hops away). Those fields are dropped so the
+  # generated Swift compiles without undefined-type references.
   defp expand_with_related(primary_resources) do
     primary_type_names = MapSet.new(primary_resources, & &1.type_name)
 
-    related =
+    related_raw =
       primary_resources
       |> Enum.flat_map(fn %{resource_module: resource} ->
         resource
@@ -179,6 +189,20 @@ defmodule AshSwift.Codegen do
         end)
       end)
       |> Enum.uniq_by(& &1.type_name)
+
+    all_type_names =
+      MapSet.union(primary_type_names, MapSet.new(related_raw, & &1.type_name))
+
+    related =
+      Enum.map(related_raw, fn %{type_name: type_name, fields: fields} ->
+        safe_fields =
+          Enum.filter(fields, fn %{swift_type: swift_type} ->
+            base = swift_type |> String.replace(~r/[\[\]?]/, "")
+            MapSet.member?(@scalar_swift_types, base) or MapSet.member?(all_type_names, base)
+          end)
+
+        %{resource_module: nil, type_name: type_name, fields: safe_fields, actions: []}
+      end)
 
     (primary_resources ++ related) |> Enum.sort_by(& &1.type_name)
   end
