@@ -29,15 +29,19 @@ jobs:
           prompt: |
             Triage issue #${{ github.event.issue.number }} in ${{ github.repository }}.
 
-            Read docs/agents/triage-labels.md and docs/agents/issue-tracker.md for the
-            label vocabulary and rules, then read the issue.
+            Use the `/triage` skill (see its AGENT-BRIEF in this repo's .claude/skills/)
+            together with docs/agents/triage-labels.md and docs/agents/issue-tracker.md
+            for the label vocabulary and rules, then read the issue. This is a
+            non-interactive run — do not try to ask the reporter questions live.
 
             Apply the single most appropriate triage label with `gh issue edit`
             (one of: needs-triage, needs-info, ready-for-agent, ready-for-human,
             wontfix). If the issue is underspecified, apply `needs-info` and post one
             concise comment listing exactly what is missing. Do not implement anything.
           # Pin the model (the action's default resolves to an invalid
-          # `claude-opus-4-8[1m]` id). See claude.yml for rationale.
+          # `claude-opus-4-8[1m]` id). See claude.yml for rationale. Allow the
+          # tools triage needs: gh via Bash, file reads, and the Skill tool.
           claude_args: |
             --model claude-sonnet-4-6
             --max-turns 15
+            --allowedTools "Bash,Read,Glob,Grep,Skill"

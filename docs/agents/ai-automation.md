@@ -60,3 +60,13 @@ These steps require account/repo admin and can't be done from a code PR:
 - **Permissions.** Each workflow requests only the scopes it needs. Triage is
   read + issues:write; review is read + pull-requests:write; implement needs
   contents:write to push its branch.
+- **Skills are vendored in-repo.** The runner only has what's checked out — it
+  cannot see your global `~/.claude/skills/`. Any skill the agent should use
+  must live in `.claude/skills/` (committed) *and* `Skill` must be in that
+  workflow's `--allowedTools`. We vendor `implement`, `tdd`, and `triage`; the
+  implement/triage prompts invoke them by name. Re-sync from upstream by copying
+  the skill folder in again.
+- **Model + visibility.** All workflows pin `--model` (the action's default
+  resolves to an invalid id). The implement workflow runs with
+  `show_full_output: true` + `--verbose` so its turn-by-turn log is inspectable;
+  drop those once runs are trusted. `timeout-minutes` caps every job.
