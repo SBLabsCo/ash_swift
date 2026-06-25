@@ -96,7 +96,9 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EDecodeTest.swift"), e2e_swift)
 
-    {output, status} = System.cmd("swift", ["test", "--filter", "E2EDecodeTest"], cd: tmp, stderr_to_stdout: true)
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EDecodeTest"], cd: tmp, stderr_to_stdout: true)
+
     assert status == 0, "swift test failed:\n#{output}"
   end
 
