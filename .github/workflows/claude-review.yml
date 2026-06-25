@@ -1,0 +1,43 @@
+name: Claude PR review
+
+# Automated, independent review pass on every PR. Since AI is also producing
+# these PRs, this closes the loop. Posts inline comments only — never approves
+# or merges. Gated on ENABLE_CLAUDE_AUTOMATION so it stays inert (skipped, not
+# failed) until setup is complete. See docs/agents/ai-automation.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    if: vars.ENABLE_CLAUDE_AUTOMATION == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
+
+            This repo is an Elixir Ash extension that generates a Swift client
+            (AshSwift). Read CLAUDE.md, CONTEXT.md, docs/adr/, and docs/prd/ first.
+
+            Prioritise correctness bugs, then reuse/simplification/efficiency.
+            Use the domain vocabulary defined in CONTEXT.md and flag any conflicts
+            with an ADR explicitly. Confirm the change stays within its issue's
+            scope and that the codegen output stays deterministic.
+
+            Post findings as precise, actionable inline review comments. Do not
+            approve, merge, or push commits.
+          claude_args: "--max-turns 25"
