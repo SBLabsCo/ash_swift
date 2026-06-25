@@ -7,6 +7,9 @@ defmodule AshSwift.Test.Domain do
     resource AshSwift.Test.Todo do
       rpc_action(:list_todos, :read)
       rpc_action(:get_todo, :get_by_id)
+      rpc_action(:find_todo, :get_by_id, not_found_error?: false)
+      rpc_action(:get_todo_by_score, :get_by_score)
+      rpc_action(:find_todo_by_title, :read, get_by: [:title])
       rpc_action(:create_todo, :create)
       rpc_action(:update_todo, :update)
       rpc_action(:destroy_todo, :destroy)

@@ -100,12 +100,48 @@ defmodule AshSwift.CodegenTest do
                "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
-    test "non-list actions keep the simple M1 void signature", %{files: files} do
+    test "non-list, non-get actions keep the simple M1 void signature", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
-      for func <- ~w(getTodo createTodo updateTodo destroyTodo createUser) do
+      for func <- ~w(createTodo updateTodo destroyTodo createUser) do
         assert functions =~ "public func #{func}() async throws {"
       end
+    end
+
+    test "get action with not_found_error? true emits a typed non-optional return", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func getTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo {"
+    end
+
+    test "get action with not_found_error? false emits a typed optional return", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func findTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo? {"
+    end
+
+    test "non-String get_by field (integer) is always emitted as String parameter type", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      # score is Ash.Type.Integer; ash_type_to_swift would emit "Int", but
+      # lookup params travel in [String: String] dicts so must always be String.
+      assert functions =~
+               "public func getTodoByScore(score: String, fields: [FieldSelection] = []) async throws -> Todo {"
+    end
+
+    test "rpc_action get_by emits getBy: argument in the generated call", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func findTodoByTitle(title: String, fields: [FieldSelection] = []) async throws -> Todo {"
+
+      assert functions =~ ~s(getBy: ["title": title])
     end
 
     test "is deterministic — same domains produce byte-identical output", %{files: files} do

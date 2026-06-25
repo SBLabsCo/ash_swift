@@ -39,8 +39,13 @@ enum ConsumerCheck {
         ])
         let _ = withUser
 
-        // Non-list actions keep their M1 void signature.
-        try await rpc.getTodo()
+        // Get actions return a typed single record; id is the lookup key.
+        let todo: Todo = try await rpc.getTodo(id: "some-uuid")
+        let _ = todo
+        // findTodo uses not_found_error? false, so the return type is optional.
+        let found: Todo? = try await rpc.findTodo(id: "some-uuid")
+        let _ = found
+
         try await rpc.createTodo()
         try await rpc.updateTodo()
         try await rpc.destroyTodo()
