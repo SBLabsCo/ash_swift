@@ -19,6 +19,10 @@ jobs:
     # macOS so the agent can actually run the suite (mix test shells to swift
     # build; swift test needs the toolchain). Matches CI.
     runs-on: macos-latest
+    # Safety cap: a stuck or runaway run self-kills instead of burning macOS
+    # minutes + subscription quota up to the 6h default. Generous headroom for a
+    # real implement+test loop.
+    timeout-minutes: 45
     permissions:
       contents: write
       pull-requests: write
@@ -46,8 +50,15 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Stream the full turn-by-turn execution into the run log so we can
+          # see exactly what the agent is doing (and where it stops). Drop once
+          # we trust the runs.
+          show_full_output: true
           prompt: |
             Implement GitHub issue #${{ inputs.issue_number }} in ${{ github.repository }}.
+
+            Use the `/implement` skill to structure your work, and `/tdd` for the
+            red-green-refactor loop (both are in this repo's .claude/skills/).
 
             1. Read it: `gh issue view ${{ inputs.issue_number }}`.
             2. Follow this repo's conventions: CLAUDE.md, CONTEXT.md, docs/adr/,
@@ -66,4 +77,5 @@ jobs:
           claude_args: |
             --model claude-sonnet-4-6
             --max-turns 80
-            --allowedTools "Bash,Edit,MultiEdit,Write,Read,NotebookEdit,Glob,Grep,LS,TodoWrite"
+            --verbose
+            --allowedTools "Bash,Edit,MultiEdit,Write,Read,NotebookEdit,Glob,Grep,LS,TodoWrite,Skill"
