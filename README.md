@@ -60,7 +60,7 @@ up as a reviewable diff and (where it matters) a compile error.
 
 ## How it works
 
-The repo is two packages in one (a monorepo, [ADR-0005](docs/adr/0005-monorepo-dual-package-and-output-model.md)):
+The repo is two packages in one (a monorepo):
 
 1. **AshSwift** — the Elixir/Mix Ash extension that performs codegen. A Mix task,
    `mix ash_swift.codegen`, walks your resources and the domain's existing RPC
@@ -68,11 +68,11 @@ The repo is two packages in one (a monorepo, [ADR-0005](docs/adr/0005-monorepo-d
 2. **AshSwiftRuntime** — a small, hand-written Swift package
    (`Sources/AshSwiftRuntime/`) that the generated client depends on at runtime:
    the base RPC client, request/response handling, error decoding, and config.
-   **Zero third-party dependencies** ([ADR-0004](docs/adr/0004-zero-dependency-generated-client.md)).
+   **Zero third-party dependencies.**
 
 For M1, AshSwift reuses AshTypescript's language-agnostic RPC runtime, its
 `typescript_rpc` DSL, and its HTTP endpoint unchanged — it adds only the Swift
-codegen layer and the Swift runtime ([ADR-0003](docs/adr/0003-reuse-ashtypescript-rpc-runtime.md)).
+codegen layer and the Swift runtime.
 No new server endpoint is built.
 
 ## Requirements
@@ -81,7 +81,7 @@ No new server endpoint is built.
 
 - Elixir 1.17+
 - Ash 3.0+
-- AshTypescript ~> 0.17 (M1 reuses its RPC runtime and `typescript_rpc` DSL — [ADR-0003](docs/adr/0003-reuse-ashtypescript-rpc-runtime.md))
+- AshTypescript ~> 0.17 (M1 reuses its RPC runtime and `typescript_rpc` DSL)
 - A Phoenix app serving the AshTypescript RPC endpoint for the client to call at runtime
 
 **Client (generated Swift + runtime):**
@@ -148,7 +148,7 @@ config :ash_swift, output_dir: "swift/Generated"
 
 Output is **deterministic and written change-only** — regenerating with no schema
 change produces no diff, so committing the generated Swift surfaces schema changes
-as reviewable diffs ([ADR-0005](docs/adr/0005-monorepo-dual-package-and-output-model.md)).
+as reviewable diffs.
 Two files are emitted: `AshRpcTypes.swift` (the `Codable` models) and
 `AshRpcFunctions.swift` (the RPC functions).
 
@@ -220,16 +220,14 @@ type safety is the product), and whether it decodes real backend JSON
 
 ## Design decisions
 
-The architecture is fixed by a set of ADRs in [`docs/adr/`](docs/adr/):
+The architecture rests on a few fixed decisions:
 
-| ADR | Decision |
-| --- | --- |
-| [0001](docs/adr/0001-elixir-extension-emitting-swift.md) | AshSwift is an Elixir/Mix Ash extension that emits Swift — not a standalone Swift tool |
-| [0002](docs/adr/0002-idiomatic-swift-over-literal-fidelity.md) | Where TypeScript and Swift diverge, idiomatic Swift wins over literal API fidelity |
-| [0003](docs/adr/0003-reuse-ashtypescript-rpc-runtime.md) | M1 reuses AshTypescript's RPC runtime, DSL, and endpoint unchanged |
-| [0004](docs/adr/0004-zero-dependency-generated-client.md) | The generated client and its runtime have zero third-party dependencies |
-| [0005](docs/adr/0005-monorepo-dual-package-and-output-model.md) | One repo is both the Mix package and the Swift package; generated output is committed |
-| [0006](docs/adr/0006-runtime-validation-is-a-non-goal.md) | No Zod-equivalent runtime schema validation; `Codable` is the decode boundary |
+- AshSwift is an Elixir/Mix Ash extension that emits Swift — not a standalone Swift tool.
+- Where TypeScript and Swift diverge, idiomatic Swift wins over literal API fidelity.
+- M1 reuses AshTypescript's RPC runtime, DSL, and endpoint unchanged.
+- The generated client and its runtime have zero third-party dependencies.
+- One repo is both the Mix package and the Swift package; generated output is committed.
+- No Zod-equivalent runtime schema validation; `Codable` is the decode boundary.
 
 Domain terminology lives in [`CONTEXT.md`](CONTEXT.md).
 
@@ -248,7 +246,7 @@ CI/AI automation are organized.
 ## Support
 
 - **Bugs and feature requests:** [GitHub Issues](https://github.com/SBLabsCo/ash_swift/issues)
-- **Roadmap and design rationale:** [`docs/prd/`](docs/prd/) and [`docs/adr/`](docs/adr/)
+- **Roadmap and design rationale:** [`docs/prd/`](docs/prd/)
 
 ## License
 
