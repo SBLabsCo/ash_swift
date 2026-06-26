@@ -23,6 +23,10 @@ member. Otherwise the next domain that uses an unlisted value re-opens the
 same bug. See PR #23 (Swift keyword escaping landed twice: the first pass
 copied just the review's examples; the steered pass used the complete list).
 
+### Keyword escaping must be applied to every emitter that writes identifier names
+
+When a review flags missing keyword escaping in one emitter (e.g. `render_input_struct`), audit every other function that emits Swift identifier names — `render_fields`, `render_enum`, relationship field emitters, etc. The fix for PR #28 initially only escaped `render_input_struct`; `render_fields` (the model-struct emitter) silently emitted `public var default: String?`, causing Swift compiler errors in the e2e test. The fix: grep for every place that interpolates a field name (`#{n}` or `#{name}`) and confirm each one calls `escape_swift_keyword/1`.
+
 ### Lookup-key parameter types are always `String`
 
 `get_by` / identity lookup values travel through the runtime as JSON in a
