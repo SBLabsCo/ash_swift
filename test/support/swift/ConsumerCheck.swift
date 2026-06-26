@@ -46,13 +46,18 @@ enum ConsumerCheck {
         let found: Todo? = try await rpc.findTodo(id: "some-uuid")
         let _ = found
 
-        try await rpc.createTodo()
-        try await rpc.updateTodo()
-        try await rpc.destroyTodo()
+        let newTodo: Todo = try await rpc.createTodo(input: CreateTodoInput(title: "New Todo"))
+        let _ = newTodo
+        let updatedTodo: Todo = try await rpc.updateTodo(id: "some-uuid", input: UpdateTodoInput(title: "Updated"))
+        let _ = updatedTodo
+        try await rpc.destroyTodo(id: "some-uuid")
 
         let users: [User] = try await rpc.listUsers()
         let _ = users
-        try await rpc.createUser()
+        let newUser: User = try await rpc.createUser(
+            input: CreateUserInput(email: "test@example.com", name: "Test User")
+        )
+        let _ = newUser
     }
 
     // Generated models are all-Optional Codable structs. Absent JSON keys

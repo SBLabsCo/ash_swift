@@ -21,6 +21,7 @@ defmodule AshSwift.Test.Todo do
     attribute :priority, :atom, constraints: [one_of: [:low, :medium, :high]], public?: true
     attribute :status, AshSwift.Test.StatusType, public?: true
     attribute :score, :integer, public?: true
+    attribute :default, :string, public?: true
     timestamps()
   end
 

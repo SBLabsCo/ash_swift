@@ -100,12 +100,84 @@ defmodule AshSwift.CodegenTest do
                "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
-    test "non-list, non-get actions keep the simple M1 void signature", %{files: files} do
+    test "create action emits typed input + return", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
-      for func <- ~w(createTodo updateTodo destroyTodo createUser) do
-        assert functions =~ "public func #{func}() async throws {"
-      end
+      assert functions =~
+               "public func createTodo(input: CreateTodoInput, fields: [FieldSelection] = []) async throws -> Todo {"
+
+      assert functions =~
+               "public func createUser(input: CreateUserInput, fields: [FieldSelection] = []) async throws -> User {"
+    end
+
+    test "update action emits primary-key param + typed input + return", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func updateTodo(id: String, input: UpdateTodoInput, fields: [FieldSelection] = []) async throws -> Todo {"
+    end
+
+    test "destroy action emits primary-key param and void return", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func destroyTodo(id: String) async throws {"
+    end
+
+    test "emits input structs for create and update actions in the types file", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      assert types =~ "public struct CreateTodoInput: Encodable, Sendable {"
+      assert types =~ "public struct UpdateTodoInput: Encodable, Sendable {"
+      assert types =~ "public struct CreateUserInput: Encodable, Sendable {"
+    end
+
+    test "required create fields are non-optional; optional fields are Optional", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      # title is required (allow_nil?: false, no default) → non-optional
+      assert types =~ "    public var title: String\n"
+      # completed is optional (has default) → Optional
+      assert types =~ "    public var completed: Bool?\n"
+      # enum field is Optional in create input
+      assert types =~ "    public var priority: TodoPriority?\n"
+    end
+
+    test "update input struct has all-Optional fields", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      assert types =~ "public struct UpdateTodoInput: Encodable, Sendable {"
+      # The stored property must be Optional (not non-optional like in CreateTodoInput)
+      assert Regex.match?(
+               ~r/public struct UpdateTodoInput: Encodable, Sendable \{[^}]*\n    public var title: String\?\n/s,
+               types
+             )
+
+      # The init parameter must also use = nil
+      assert types =~ "title: String? = nil"
+    end
+
+    test "backtick-escapes Swift reserved keywords in input struct property and init", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+
+      # :default is a Swift reserved keyword; the property, init param, and CodingKey
+      # must all use the backtick-escaped form. The raw JSON key remains "default".
+      assert types =~ "public var `default`: String?"
+      assert types =~ "`default`: String? = nil"
+      assert types =~ "case `default`"
+      assert types =~ "encodeIfPresent(`default`, forKey: .`default`)"
+      refute types =~ "public var default:"
+    end
+
+    test "required create fields appear as mandatory init params", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      # CreateTodoInput init must require `title: String` with no default
+      assert types =~ "public init(title: String,"
+      # CreateUserInput init must require both name and email
+      assert types =~ "public init(email: String, name: String)"
     end
 
     test "get action with not_found_error? true emits a typed non-optional return", %{
