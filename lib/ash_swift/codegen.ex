@@ -71,10 +71,10 @@ defmodule AshSwift.Codegen do
   Returns a map of relative file path to file contents. Pure and deterministic:
   the same domains always produce byte-identical output.
 
-  Known limitation: no collision check between generated enum type names and
-  resource struct type names. If both resolve to the same string (e.g. a resource
-  named `TodoPriority` and a `priority` enum field on `Todo`), the output will
-  contain two Swift types with the same name and won't compile. See issue #24.
+  Raises `Mix.Error` if a generated enum type name collides with a resource
+  struct type name (e.g. a resource named `TodoPriority` and a `priority` enum
+  field on `Todo` both resolve to `TodoPriority`). The error names the colliding
+  type and suggests the fix.
   """
   @spec build_files([module()]) :: %{String.t() => String.t()}
   def build_files(domains) when is_list(domains) do
@@ -324,6 +324,17 @@ defmodule AshSwift.Codegen do
       (primary_resources ++ related_raw)
       |> Enum.flat_map(& &1.enums)
       |> MapSet.new(& &1.enum_name)
+
+    collision = MapSet.intersection(all_type_names, all_enum_type_names)
+
+    unless Enum.empty?(collision) do
+      names = collision |> MapSet.to_list() |> Enum.sort() |> Enum.map_join(", ", &"\"#{&1}\"")
+
+      Mix.raise(
+        "AshSwift codegen: enum type name(s) #{names} conflict with resource struct name(s) — " <>
+          "rename the field that generates this enum or rename the resource."
+      )
+    end
 
     related =
       Enum.map(related_raw, fn %{type_name: type_name, fields: fields, enums: enums} ->
