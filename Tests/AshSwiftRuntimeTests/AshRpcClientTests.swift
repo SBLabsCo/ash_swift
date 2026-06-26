@@ -178,6 +178,100 @@ final class AshRpcClientTests: XCTestCase {
             XCTFail("unexpected error: \(error)")
         }
     }
+
+    // MARK: - Sort string assembly
+
+    // A sortable field set, as codegen emits per resource: a String-backed enum
+    // whose raw values are the camelCase wire field names.
+    private enum TodoSortField: String, Sendable {
+        case title
+        case dueAt
+        case score
+    }
+
+    func testSortDirectionModifiersMatchAshSortString() {
+        XCTAssertEqual(SortDirection.ascending.sortModifier, "")
+        XCTAssertEqual(SortDirection.descending.sortModifier, "-")
+        XCTAssertEqual(SortDirection.ascendingNilsFirst.sortModifier, "++")
+        XCTAssertEqual(SortDirection.descendingNilsLast.sortModifier, "--")
+    }
+
+    func testAshSortStringIsNilForEmptySort() {
+        let sort: [SortField<TodoSortField>] = []
+        XCTAssertNil(ashSortString(sort))
+    }
+
+    func testAshSortStringDefaultsToAscendingWithBareFieldName() {
+        XCTAssertEqual(ashSortString([SortField(TodoSortField.title)]), "title")
+    }
+
+    func testAshSortStringEncodesEachDirectionModifier() {
+        XCTAssertEqual(ashSortString([SortField(TodoSortField.title, .descending)]), "-title")
+        XCTAssertEqual(ashSortString([SortField(TodoSortField.score, .ascendingNilsFirst)]), "++score")
+        XCTAssertEqual(ashSortString([SortField(TodoSortField.score, .descendingNilsLast)]), "--score")
+    }
+
+    func testAshSortStringJoinsMultipleFieldsInPriorityOrder() {
+        let sort = [
+            SortField(TodoSortField.score, .descending),
+            SortField(TodoSortField.dueAt, .ascendingNilsFirst),
+            SortField(TodoSortField.title),
+        ]
+        XCTAssertEqual(ashSortString(sort), "-score,++dueAt,title")
+    }
+
+    func testRunListSendsSortStringInRequestBody() async throws {
+        let captured = CapturedRequest()
+        let stub = StubTransport(status: 200, body: Data(#"{"success":true,"data":[]}"#.utf8)) {
+            captured.value = $0
+        }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable {}
+        let _: [Item] = try await client.runList(action: "list_todos", sort: "-title")
+
+        let request = try XCTUnwrap(captured.value)
+        let body = try XCTUnwrap(request.httpBody)
+        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(parsed["sort"] as? String, "-title")
+    }
+
+    func testRunListOmitsSortKeyWhenNil() async throws {
+        let captured = CapturedRequest()
+        let stub = StubTransport(status: 200, body: Data(#"{"success":true,"data":[]}"#.utf8)) {
+            captured.value = $0
+        }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable {}
+        let _: [Item] = try await client.runList(action: "list_todos")
+
+        let request = try XCTUnwrap(captured.value)
+        let body = try XCTUnwrap(request.httpBody)
+        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNil(parsed["sort"])
+    }
+
+    func testRunListOffsetSendsSortAlongsidePage() async throws {
+        let captured = CapturedRequest()
+        let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":0,"count":null}}"#
+        let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable & Sendable {}
+        let _: OffsetPage<Item> = try await client.runListOffset(
+            action: "list_todos_offset",
+            page: OffsetPageParams(limit: 5),
+            sort: "-title"
+        )
+
+        let request = try XCTUnwrap(captured.value)
+        let body = try XCTUnwrap(request.httpBody)
+        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(parsed["sort"] as? String, "-title")
+        let page = try XCTUnwrap(parsed["page"] as? [String: Any])
+        XCTAssertEqual(page["limit"] as? Int, 5)
+    }
 }
 
 /// Reference box so the `@Sendable` capture can record the request the stub saw.

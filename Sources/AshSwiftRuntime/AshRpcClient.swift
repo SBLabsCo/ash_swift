@@ -46,8 +46,11 @@ public struct AshRpcClient: Sendable {
 
     /// The request body the client POSTs for list and void actions.
     /// Wire-identical to what any AshTypescript client sends (ADR-0003).
+    /// `sort` is the assembled Ash sort string (see AshSort.swift); it is
+    /// omitted from the JSON when nil (Swift synthesises `encodeIfPresent`).
     private struct RequestBody: Encodable {
         let action: String
+        let sort: String?
         let fields: [FieldSelection]
     }
 
@@ -105,20 +108,22 @@ public struct AshRpcClient: Sendable {
         let data: KeysetPage<T>
     }
 
-    /// Request body for offset-paginated list actions. `page` is omitted from
-    /// the JSON when nil (Swift synthesises `encodeIfPresent` for Optional).
+    /// Request body for offset-paginated list actions. `page` and `sort` are
+    /// each omitted from the JSON when nil (Swift synthesises `encodeIfPresent`).
     private struct PagedOffsetRequestBody: Encodable {
         let action: String
         let fields: [FieldSelection]
         let page: OffsetPageParams?
+        let sort: String?
     }
 
-    /// Request body for keyset-paginated list actions. `page` is omitted from
-    /// the JSON when nil.
+    /// Request body for keyset-paginated list actions. `page` and `sort` are
+    /// each omitted from the JSON when nil.
     private struct PagedKeysetRequestBody: Encodable {
         let action: String
         let fields: [FieldSelection]
         let page: KeysetPageParams?
+        let sort: String?
     }
 
     /// Typed envelope for decoding a single non-optional record.
@@ -171,14 +176,22 @@ public struct AshRpcClient: Sendable {
     /// `AshRpcError.decodingFailed` when the envelope is unintelligible.
     @discardableResult
     public func runRaw(action: String, fields: [FieldSelection] = []) async throws -> Data {
-        return try await sendRequest(RequestBody(action: action, fields: fields))
+        return try await sendRequest(RequestBody(action: action, sort: nil, fields: fields))
     }
 
     /// Runs a list RPC action and decodes the `data` array from the response
     /// envelope into `[T]`. The caller supplies `T` through the return-type
     /// context; no type parameter is needed at the call site.
-    public func runList<T: Decodable>(action: String, fields: [FieldSelection] = []) async throws -> [T] {
-        let raw = try await runRaw(action: action, fields: fields)
+    ///
+    /// `sort` is the assembled Ash sort string (build it from a typed sort with
+    /// `ashSortString` — see AshSort.swift); nil leaves it off the request body,
+    /// preserving the pre-sort wire shape exactly.
+    public func runList<T: Decodable>(
+        action: String,
+        sort: String? = nil,
+        fields: [FieldSelection] = []
+    ) async throws -> [T] {
+        let raw = try await sendRequest(RequestBody(action: action, sort: sort, fields: fields))
         do {
             return try decoder.decode(ListEnvelope<T>.self, from: raw).data
         } catch {
@@ -193,9 +206,10 @@ public struct AshRpcClient: Sendable {
     public func runListOffset<T: Decodable & Sendable>(
         action: String,
         page: OffsetPageParams? = nil,
+        sort: String? = nil,
         fields: [FieldSelection] = []
     ) async throws -> OffsetPage<T> {
-        let raw = try await sendRequest(PagedOffsetRequestBody(action: action, fields: fields, page: page))
+        let raw = try await sendRequest(PagedOffsetRequestBody(action: action, fields: fields, page: page, sort: sort))
         do {
             return try decoder.decode(OffsetPageEnvelope<T>.self, from: raw).data
         } catch {
@@ -210,9 +224,10 @@ public struct AshRpcClient: Sendable {
     public func runListKeyset<T: Decodable & Sendable>(
         action: String,
         page: KeysetPageParams? = nil,
+        sort: String? = nil,
         fields: [FieldSelection] = []
     ) async throws -> KeysetPage<T> {
-        let raw = try await sendRequest(PagedKeysetRequestBody(action: action, fields: fields, page: page))
+        let raw = try await sendRequest(PagedKeysetRequestBody(action: action, fields: fields, page: page, sort: sort))
         do {
             return try decoder.decode(KeysetPageEnvelope<T>.self, from: raw).data
         } catch {

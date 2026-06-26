@@ -167,6 +167,11 @@ defmodule AshSwift.Codegen do
               value -> value
             end
 
+          # Sorting is offered only on list (non-get) read actions whose RPC
+          # action leaves `enable_sort?` at its default of true. A false flag
+          # drops the sort: parameter so a forbidden sort is a compile error.
+          sortable? = ash_action.type == :read and not is_get? and sort_enabled?(rpc_action)
+
           {input_struct_name, primary_key_params} =
             case ash_action.type do
               type when type in [:create, :update] ->
@@ -193,7 +198,8 @@ defmodule AshSwift.Codegen do
             not_found_error?: not_found_error?,
             input_struct_name: input_struct_name,
             primary_key_params: primary_key_params,
-            pagination_type: pagination_type
+            pagination_type: pagination_type,
+            sortable?: sortable?
           }
 
           new_struct =
@@ -207,17 +213,47 @@ defmodule AshSwift.Codegen do
           {[action | actions_acc], new_struct ++ structs_acc}
         end)
 
+      # A resource needs a typed sortable-field enum only when at least one of
+      # its actions actually exposes sorting; otherwise the enum would be dead
+      # code. Covers public attributes only (M2 scope).
+      sort_field =
+        if Enum.any?(actions_unsorted, & &1.sortable?) do
+          %{
+            type_name: type_name <> "SortField",
+            fields: collect_sortable_fields(resource, formatter)
+          }
+        else
+          nil
+        end
+
       %{
         resource_module: resource,
         type_name: type_name,
         fields: fields,
         enums: enums,
         actions: Enum.sort_by(actions_unsorted, & &1.rpc_name),
-        input_structs: input_structs_unsorted |> Enum.sort_by(& &1.struct_name)
+        input_structs: input_structs_unsorted |> Enum.sort_by(& &1.struct_name),
+        sort_field: sort_field
       }
     end)
     |> Enum.sort_by(& &1.type_name)
   end
+
+  # Collects a resource's public-attribute names (client-formatted, sorted) for
+  # the typed sortable-field enum. Relationships, aggregates, and calculations
+  # are out of scope for M2 sorting.
+  defp collect_sortable_fields(resource, formatter) do
+    resource
+    |> Ash.Resource.Info.public_attributes()
+    |> Enum.map(fn attr ->
+      FieldFormatter.format_field_for_client(attr.name, resource, formatter)
+    end)
+    |> Enum.sort()
+  end
+
+  # Reads the RPC action's `enable_sort?` flag, defaulting to true (the
+  # AshTypescript default) when unset.
+  defp sort_enabled?(rpc_action), do: Map.get(rpc_action, :enable_sort?, true)
 
   # Returns a tuple {fields, enums} for the resource.
   #
@@ -338,7 +374,8 @@ defmodule AshSwift.Codegen do
           fields: safe_fields,
           enums: enums,
           actions: [],
-          input_structs: []
+          input_structs: [],
+          sort_field: nil
         }
       end)
 
@@ -432,8 +469,13 @@ defmodule AshSwift.Codegen do
   defp render_types(resources) do
     structs =
       Enum.map_join(resources, "\n\n", fn resource ->
-        %{type_name: type_name, fields: fields, enums: enums, input_structs: input_structs} =
-          resource
+        %{
+          type_name: type_name,
+          fields: fields,
+          enums: enums,
+          input_structs: input_structs,
+          sort_field: sort_field
+        } = resource
 
         enums_block =
           case enums do
@@ -458,13 +500,19 @@ defmodule AshSwift.Codegen do
             }\
             """
 
-        case input_structs do
-          [] ->
-            model_struct
+        base =
+          case input_structs do
+            [] ->
+              model_struct
 
-          structs ->
-            input_block = Enum.map_join(structs, "\n\n", &render_input_struct/1)
-            model_struct <> "\n\n" <> input_block
+            structs ->
+              input_block = Enum.map_join(structs, "\n\n", &render_input_struct/1)
+              model_struct <> "\n\n" <> input_block
+          end
+
+        case sort_field do
+          nil -> base
+          sf -> base <> "\n\n" <> render_sort_field_enum(sf)
         end
       end)
 
@@ -511,6 +559,22 @@ defmodule AshSwift.Codegen do
     """
   end
 
+  # Emits the typed sortable-field enum for a resource. Each case is a public
+  # attribute's client-formatted (camelCase) name; the String raw value Swift
+  # infers from the case name is exactly the wire field the server expects, so
+  # no explicit raw values are needed. Keyword-named fields are backtick-escaped
+  # (the escaped identifier still infers the unescaped raw value).
+  defp render_sort_field_enum(%{type_name: name, fields: fields}) do
+    cases_block =
+      Enum.map_join(fields, "\n", fn field -> "    case #{escape_swift_keyword(field)}" end)
+
+    """
+    public enum #{name}: String, Sendable {
+    #{cases_block}
+    }\
+    """
+  end
+
   defp render_functions(resources) do
     methods =
       resources
@@ -549,43 +613,58 @@ defmodule AshSwift.Codegen do
   #   - keyset pagination → KeysetPage<TypeName> via runListKeyset
   #   - no pagination     → [TypeName] via runList
   defp render_method(
-         %{rpc_name: rpc_name, action_type: :read, is_get?: false, pagination_type: :offset},
+         %{
+           rpc_name: rpc_name,
+           action_type: :read,
+           is_get?: false,
+           pagination_type: :offset,
+           sortable?: sortable?
+         },
          type_name
        ) do
     func = lower_camel(rpc_name)
+    {sort_param, sort_arg} = sort_fragments(sortable?, type_name)
 
     """
     /// Calls the `#{rpc_name}` RPC action (offset-paginated list of `#{type_name}` records).
-    public func #{func}(page: OffsetPageParams? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<#{type_name}> {
-        return try await client.runListOffset(action: "#{rpc_name}", page: page, fields: fields)
+    public func #{func}(page: OffsetPageParams? = nil, #{sort_param}fields: [FieldSelection] = []) async throws -> OffsetPage<#{type_name}> {
+        return try await client.runListOffset(action: "#{rpc_name}", page: page, #{sort_arg}fields: fields)
     }\
     """
   end
 
   defp render_method(
-         %{rpc_name: rpc_name, action_type: :read, is_get?: false, pagination_type: :keyset},
+         %{
+           rpc_name: rpc_name,
+           action_type: :read,
+           is_get?: false,
+           pagination_type: :keyset,
+           sortable?: sortable?
+         },
          type_name
        ) do
     func = lower_camel(rpc_name)
+    {sort_param, sort_arg} = sort_fragments(sortable?, type_name)
 
     """
     /// Calls the `#{rpc_name}` RPC action (keyset-paginated list of `#{type_name}` records).
-    public func #{func}(page: KeysetPageParams? = nil, fields: [FieldSelection] = []) async throws -> KeysetPage<#{type_name}> {
-        return try await client.runListKeyset(action: "#{rpc_name}", page: page, fields: fields)
+    public func #{func}(page: KeysetPageParams? = nil, #{sort_param}fields: [FieldSelection] = []) async throws -> KeysetPage<#{type_name}> {
+        return try await client.runListKeyset(action: "#{rpc_name}", page: page, #{sort_arg}fields: fields)
     }\
     """
   end
 
   defp render_method(
-         %{rpc_name: rpc_name, action_type: :read, is_get?: false},
+         %{rpc_name: rpc_name, action_type: :read, is_get?: false, sortable?: sortable?},
          type_name
        ) do
     func = lower_camel(rpc_name)
+    {sort_param, sort_arg} = sort_fragments(sortable?, type_name)
 
     """
     /// Calls the `#{rpc_name}` RPC action (list `#{type_name}` records).
-    public func #{func}(fields: [FieldSelection] = []) async throws -> [#{type_name}] {
-        return try await client.runList(action: "#{rpc_name}", fields: fields)
+    public func #{func}(#{sort_param}fields: [FieldSelection] = []) async throws -> [#{type_name}] {
+        return try await client.runList(action: "#{rpc_name}", #{sort_arg}fields: fields)
     }\
     """
   end
@@ -750,6 +829,17 @@ defmodule AshSwift.Codegen do
   end
 
   # ---- helpers ----
+
+  # Returns the {param_decl, call_arg} fragments a read function uses to thread
+  # an optional typed sort through to the runtime. When sorting is disabled
+  # (enable_sort?: false), both are empty so the function signature and call are
+  # byte-identical to the pre-sort output. Each fragment carries its own trailing
+  # ", "/", " so it slots in before `fields:` cleanly.
+  defp sort_fragments(true, type_name) do
+    {"sort: [SortField<#{type_name}SortField>] = [], ", "sort: ashSortString(sort), "}
+  end
+
+  defp sort_fragments(false, _type_name), do: {"", ""}
 
   # Returns true when a Swift type expression is safe to use in a related
   # resource struct — i.e., all referenced types are either built-in or
