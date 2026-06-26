@@ -238,6 +238,37 @@ defmodule AshSwift.CodegenTest do
       assert functions =~ ~s(getBy: ["title": title])
     end
 
+    test "Ash.Type.Decimal maps to String (wire format is a JSON string)", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # Decimal serialises as "123.45" on the wire; String is the faithful Swift type.
+      assert types =~ "public var amount: String?"
+    end
+
+    test "Ash.Type.Date maps to String (ISO 8601 date-only wire format)", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public var deadline: String?"
+    end
+
+    test "Ash.Type.UtcDatetime maps to Date", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public var scheduledAt: Date?"
+    end
+
+    test "Ash.Type.UtcDatetimeUsec maps to Date", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public var dueAt: Date?"
+    end
+
+    test "Ash.Type.NaiveDatetime maps to String (no timezone in wire format)", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public var startedAt: String?"
+    end
+
+    test "Ash.Type.Map maps to [String: AshJSON]", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public var metadata: [String: AshJSON]?"
+    end
+
     test "is deterministic — same domains produce byte-identical output", %{files: files} do
       assert Codegen.build_files(@domains) == files
     end

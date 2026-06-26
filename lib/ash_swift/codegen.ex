@@ -14,7 +14,18 @@ defmodule AshSwift.Codegen do
   alias AshTypescript.Resource.Info, as: ResourceInfo
   alias AshTypescript.Rpc.Info, as: RpcInfo
 
-  @scalar_swift_types MapSet.new(["String", "Bool", "Int", "Double"])
+  # Built-in Swift types that are always safe to reference from related-resource
+  # structs (no generated struct needed, never "2 hops away"). Includes scalar
+  # types and AshJSON, which lives in the runtime package.
+  @builtin_swift_types MapSet.new([
+                         "String",
+                         "Bool",
+                         "Int",
+                         "Double",
+                         "Decimal",
+                         "Date",
+                         "AshJSON"
+                       ])
 
   # Complete set of Swift reserved keywords (Swift Language Reference §Lexical Structure).
   # Enum case names matching any of these must be backtick-escaped to produce valid Swift.
@@ -319,11 +330,7 @@ defmodule AshSwift.Codegen do
       Enum.map(related_raw, fn %{type_name: type_name, fields: fields, enums: enums} ->
         safe_fields =
           Enum.filter(fields, fn %{swift_type: swift_type} ->
-            base = swift_type |> String.replace(~r/[\[\]?]/, "")
-
-            MapSet.member?(@scalar_swift_types, base) or
-              MapSet.member?(all_type_names, base) or
-              MapSet.member?(all_enum_type_names, base)
+            swift_type_safe?(swift_type, all_type_names, all_enum_type_names)
           end)
 
         %{
@@ -342,12 +349,49 @@ defmodule AshSwift.Codegen do
   # Maps an Ash attribute type to its Swift counterpart. Enum attributes are
   # handled before this is called (via extract_enum_cases/1); this covers the
   # remaining scalar types and falls back to String for unknown types.
+  #
+  # Wire-format notes (confirmed from Jason.encode!/1 behaviour):
+  #   Decimal        → JSON string "123.45" — Swift String preserves precision
+  #   Date           → JSON string "2024-01-15" (date-only, no time component)
+  #   UtcDatetime    → JSON string "2024-01-15T10:30:00Z" (ISO 8601 UTC)
+  #   UtcDatetimeUsec → JSON string "2024-01-15T10:30:00.123456Z" (with μs)
+  #   NaiveDatetime  → JSON string "2024-01-15T10:30:00" (no timezone)
+  #   Map            → JSON object {…} — AshJSON handles any JSON value shape
   defp ash_type_to_swift(Ash.Type.UUID), do: "String"
   defp ash_type_to_swift(Ash.Type.String), do: "String"
   defp ash_type_to_swift(Ash.Type.Boolean), do: "Bool"
   defp ash_type_to_swift(Ash.Type.Integer), do: "Int"
   defp ash_type_to_swift(Ash.Type.Float), do: "Double"
-  defp ash_type_to_swift(_), do: "String"
+  # Decimal arrives as a JSON string ("123.45") — String is the faithful Swift
+  # type that preserves arbitrary precision without a custom decoder.
+  defp ash_type_to_swift(Ash.Type.Decimal), do: "String"
+  # Date-only ("2024-01-15"): Swift has no date-only type; String is correct.
+  defp ash_type_to_swift(Ash.Type.Date), do: "String"
+  # UTC datetimes arrive as ISO 8601 strings with "Z" suffix. AshRpcClient
+  # configures its JSONDecoder with a custom date strategy to decode them into
+  # Foundation Date values (see AshRpcClient.swift).
+  defp ash_type_to_swift(Ash.Type.UtcDatetime), do: "Date"
+  defp ash_type_to_swift(Ash.Type.UtcDatetimeUsec), do: "Date"
+  # NaiveDatetime has no timezone info ("2024-01-15T10:30:00"); String avoids
+  # the ambiguity of interpreting it in a caller-supplied timezone.
+  defp ash_type_to_swift(Ash.Type.NaiveDatetime), do: "String"
+  # Map arrives as an arbitrary JSON object. AshJSON (from AshSwiftRuntime)
+  # handles any JSON value shape with a typed recursive enum.
+  defp ash_type_to_swift(Ash.Type.Map), do: "[String: AshJSON]"
+  # Atom without one_of constraints falls back to String. Atoms WITH one_of are
+  # caught by extract_enum_cases/1 before reaching this function and become typed
+  # Swift enums. A full atom-to-enum mapping is tracked in issue #24 (M2 plan).
+  defp ash_type_to_swift(Ash.Type.Atom), do: "String"
+  # Catch-all: emit a warning so unmapped types are visible rather than silently
+  # stringified. Open an issue to add the explicit mapping if you hit this.
+  defp ash_type_to_swift(type) do
+    Logger.warning(
+      "AshSwift: no Swift type mapping for Ash type #{inspect(type)}; " <>
+        "falling back to String. Open an issue to add an explicit mapping."
+    )
+
+    "String"
+  end
 
   # Returns {:ok, cases} when the attribute is an enum, :not_enum otherwise.
   # Handles Ash.Type.Atom with one_of constraint and Ash.Type.Enum subtypes.
@@ -425,7 +469,13 @@ defmodule AshSwift.Codegen do
         end
       end)
 
-    IO.iodata_to_binary([@header, "\n", "import Foundation\n", body_or_empty(structs)])
+    IO.iodata_to_binary([
+      @header,
+      "\n",
+      "import Foundation\n",
+      "import AshSwiftRuntime\n",
+      body_or_empty(structs)
+    ])
   end
 
   defp render_fields([]), do: ""
@@ -701,6 +751,34 @@ defmodule AshSwift.Codegen do
   end
 
   # ---- helpers ----
+
+  # Returns true when a Swift type expression is safe to use in a related
+  # resource struct — i.e., all referenced types are either built-in or
+  # defined in the emitted output (resource types, enums).
+  #
+  # Handles: scalars ("String?"), arrays ("[Todo]?"), and dicts ("[String: AshJSON]").
+  # The dict case strips the leading "[String: " and trailing "]" to get the
+  # value type, then checks it independently.
+  defp swift_type_safe?(swift_type, all_type_names, all_enum_type_names) do
+    bare =
+      swift_type
+      |> String.trim_trailing("?")
+      |> String.trim_leading("[")
+      |> String.trim_trailing("]")
+
+    if String.starts_with?(bare, "String: ") do
+      value_type = String.replace_prefix(bare, "String: ", "")
+      builtin_or_known?(value_type, all_type_names, all_enum_type_names)
+    else
+      builtin_or_known?(bare, all_type_names, all_enum_type_names)
+    end
+  end
+
+  defp builtin_or_known?(type_name, all_type_names, all_enum_type_names) do
+    MapSet.member?(@builtin_swift_types, type_name) or
+      MapSet.member?(all_type_names, type_name) or
+      MapSet.member?(all_enum_type_names, type_name)
+  end
 
   defp body_or_empty(""), do: "\n"
   defp body_or_empty(structs), do: "\n" <> structs <> "\n"
