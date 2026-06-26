@@ -327,7 +327,7 @@ defmodule AshSwift.Codegen do
 
     collision = MapSet.intersection(all_type_names, all_enum_type_names)
 
-    unless MapSet.empty?(collision) do
+    unless Enum.empty?(collision) do
       names = collision |> MapSet.to_list() |> Enum.sort() |> Enum.map_join(", ", &"\"#{&1}\"")
 
       Mix.raise(
