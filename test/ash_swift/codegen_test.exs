@@ -496,6 +496,29 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
       refute functions =~ "public func getTodo(id: String, filter:"
     end
+
+    test "a resource with no filterable attributes emits an empty but valid filter struct" do
+      # MapOnly's only public attribute is an Ash.Type.Map (excluded from
+      # filtering) and its primary key is non-public, so the filterable read
+      # produces a filter struct with no properties — just the no-arg init. The
+      # struct must still be valid, compilable Swift.
+      files = Codegen.build_files([AshSwift.Test.MapOnlyDomain])
+      types = files["AshRpcTypes.swift"]
+
+      assert types =~
+               "public struct MapOnlyFilter: Encodable, Sendable {\n    public init() {}\n}"
+
+      # No attribute properties leaked in (metadata is excluded, id is non-public).
+      filter_struct =
+        Regex.run(~r/public struct MapOnlyFilter: Encodable, Sendable \{.*?\n\}/s, types) |> hd()
+
+      refute filter_struct =~ "public var"
+
+      # The read function still threads the (empty) filter type — the parameter is
+      # generated from the action's enable_filter?, not from whether fields exist.
+      assert files["AshRpcFunctions.swift"] =~
+               "public func listMapOnlys(filter: MapOnlyFilter? = nil, fields: [FieldSelection] = [])"
+    end
   end
 
   describe "2-hop relationship guard" do
