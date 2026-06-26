@@ -178,6 +178,12 @@ defmodule AshSwift.Codegen do
           # drops the sort: parameter so a forbidden sort is a compile error.
           sortable? = ash_action.type == :read and not is_get? and sort_enabled?(rpc_action)
 
+          # Filtering is offered on the same surface as sorting — list (non-get)
+          # read actions whose RPC action leaves `enable_filter?` at its default
+          # of true. A false flag drops the filter: parameter so a forbidden
+          # filter is a compile error, not a silently-ignored argument.
+          filterable? = ash_action.type == :read and not is_get? and filter_enabled?(rpc_action)
+
           {input_struct_name, primary_key_params} =
             case ash_action.type do
               type when type in [:create, :update] ->
@@ -205,7 +211,8 @@ defmodule AshSwift.Codegen do
             input_struct_name: input_struct_name,
             primary_key_params: primary_key_params,
             pagination_type: pagination_type,
-            sortable?: sortable?
+            sortable?: sortable?,
+            filterable?: filterable?
           }
 
           new_struct =
@@ -232,6 +239,18 @@ defmodule AshSwift.Codegen do
           nil
         end
 
+      # A resource needs a typed {Resource}Filter only when at least one of its
+      # actions exposes filtering; otherwise the struct would be dead code.
+      filter_struct =
+        if Enum.any?(actions_unsorted, & &1.filterable?) do
+          %{
+            type_name: type_name <> "Filter",
+            fields: collect_filter_fields(resource, type_name, formatter)
+          }
+        else
+          nil
+        end
+
       %{
         resource_module: resource,
         type_name: type_name,
@@ -239,7 +258,8 @@ defmodule AshSwift.Codegen do
         enums: enums,
         actions: Enum.sort_by(actions_unsorted, & &1.rpc_name),
         input_structs: input_structs_unsorted |> Enum.sort_by(& &1.struct_name),
-        sort_field: sort_field
+        sort_field: sort_field,
+        filter_struct: filter_struct
       }
     end)
     |> Enum.sort_by(& &1.type_name)
@@ -276,6 +296,97 @@ defmodule AshSwift.Codegen do
   # entity carrying the option through on the rpc_action struct — the same
   # pass-through contract `not_found_error?` above depends on.
   defp sort_enabled?(rpc_action), do: Map.get(rpc_action, :enable_sort?, true)
+
+  # Reads the RPC action's `enable_filter?` flag, defaulting to true (the
+  # AshTypescript default). Same Spark pass-through contract as `enable_sort?`.
+  defp filter_enabled?(rpc_action), do: Map.get(rpc_action, :enable_filter?, true)
+
+  # Collects the typed filter properties for a resource: one per public,
+  # filterable attribute (enums included), client-formatted and sorted. Each maps
+  # to a hand-written operator generic from AshSwiftRuntime instantiated over the
+  # attribute's Swift value type. Composite types (Ash.Type.Map → a JSON object)
+  # are excluded — filtering a whole JSON blob by equality is a footgun the
+  # backend rejects, mirroring the sort-field exclusion. Relationship/aggregate/
+  # calculation filtering and the and/or/not combinators are out of M2 scope.
+  defp collect_filter_fields(resource, type_name, formatter) do
+    resource
+    |> Ash.Resource.Info.public_attributes()
+    |> Enum.flat_map(fn attr ->
+      case filter_field(attr, resource, type_name, formatter) do
+        nil -> []
+        field -> [field]
+      end
+    end)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  # Builds one filter property %{name, swift_type} for a public attribute, or nil
+  # when the attribute's type isn't filterable (composite types like Ash.Type.Map).
+  # swift_type is the operator generic (e.g. "NullableComparableOperators<Int>"):
+  # the operator GROUP is driven by the Ash type (so a Decimal — wire String —
+  # still gets the comparable group), while the generic's value type is the
+  # mapped Swift type (enums use their generated Swift enum). A nullable attribute
+  # selects the `Nullable*` variant, which adds the `isNil` operator.
+  #
+  # The single `extract_enum_cases/1` call decides both axes: enums share the
+  # equality+membership group (eq/notEq/in) and filter over their generated Swift
+  # enum; everything else takes its group and value type from the Ash scalar type.
+  defp filter_field(attr, resource, type_name, formatter) do
+    name = FieldFormatter.format_field_for_client(attr.name, resource, formatter)
+
+    {group, value_type} =
+      case extract_enum_cases(attr) do
+        {:ok, _} -> {:enum, enum_type_name(type_name, name)}
+        :not_enum -> {scalar_filter_group(attr.type), ash_type_to_swift(attr.type)}
+      end
+
+    case group do
+      :exclude ->
+        nil
+
+      _ ->
+        generic = operator_generic_name(group, attr.allow_nil?)
+        %{name: name, swift_type: "#{generic}<#{value_type}>"}
+    end
+  end
+
+  # Classifies a (non-enum) Ash scalar type into its filter operator group:
+  # numeric and date/datetime types get the comparison operators; boolean gets
+  # equality only; string/atom/uuid and any unmapped scalar share the
+  # equality+membership group; Ash.Type.Map is excluded (see collect_filter_fields).
+  #
+  # NOTE: this is keyed on the Ash type, deliberately distinct from sorting's
+  # `@sortable_swift_types` (keyed on the mapped Swift type) — they answer
+  # different questions. When you add a new scalar to `ash_type_to_swift/1`, decide
+  # its operator group HERE as well, or it falls through to the :enum default.
+  defp scalar_filter_group(type)
+       when type in [
+              Ash.Type.Integer,
+              Ash.Type.Float,
+              Ash.Type.Decimal,
+              Ash.Type.Date,
+              Ash.Type.UtcDatetime,
+              Ash.Type.UtcDatetimeUsec,
+              Ash.Type.NaiveDatetime
+            ],
+       do: :comparable
+
+  defp scalar_filter_group(Ash.Type.Boolean), do: :equatable
+  defp scalar_filter_group(Ash.Type.Map), do: :exclude
+  # String, CiString, UUID, unconstrained Atom, and any unmapped scalar fall to
+  # the equality+membership group — matching AshTypescript's `default` filter
+  # classification (eq/notEq/in over the mapped Swift type, which is String).
+  defp scalar_filter_group(_type), do: :enum
+
+  # Maps an (operator group, nullable?) pair to its AshSwiftRuntime generic. The
+  # Nullable* variants add the `isNil` operator; the bare variants omit it, so a
+  # non-null attribute exposes exactly its type-driven operator set and nothing more.
+  defp operator_generic_name(:equatable, false), do: "EquatableOperators"
+  defp operator_generic_name(:equatable, true), do: "NullableEquatableOperators"
+  defp operator_generic_name(:enum, false), do: "EnumOperators"
+  defp operator_generic_name(:enum, true), do: "NullableEnumOperators"
+  defp operator_generic_name(:comparable, false), do: "ComparableOperators"
+  defp operator_generic_name(:comparable, true), do: "NullableComparableOperators"
 
   # Returns a tuple {fields, enums} for the resource.
   #
@@ -408,7 +519,8 @@ defmodule AshSwift.Codegen do
           enums: enums,
           actions: [],
           input_structs: [],
-          sort_field: nil
+          sort_field: nil,
+          filter_struct: nil
         }
       end)
 
@@ -428,6 +540,8 @@ defmodule AshSwift.Codegen do
   #   Map            → JSON object {…} — AshJSON handles any JSON value shape
   defp ash_type_to_swift(Ash.Type.UUID), do: "String"
   defp ash_type_to_swift(Ash.Type.String), do: "String"
+  # CiString is a case-insensitive string; the wire value is a plain JSON string.
+  defp ash_type_to_swift(Ash.Type.CiString), do: "String"
   defp ash_type_to_swift(Ash.Type.Boolean), do: "Bool"
   defp ash_type_to_swift(Ash.Type.Integer), do: "Int"
   defp ash_type_to_swift(Ash.Type.Float), do: "Double"
@@ -507,7 +621,8 @@ defmodule AshSwift.Codegen do
           fields: fields,
           enums: enums,
           input_structs: input_structs,
-          sort_field: sort_field
+          sort_field: sort_field,
+          filter_struct: filter_struct
         } = resource
 
         enums_block =
@@ -543,9 +658,15 @@ defmodule AshSwift.Codegen do
               model_struct <> "\n\n" <> input_block
           end
 
+        with_filter =
+          case filter_struct do
+            nil -> base
+            fs -> base <> "\n\n" <> render_filter_struct(fs)
+          end
+
         case sort_field do
-          nil -> base
-          sf -> base <> "\n\n" <> render_sort_field_enum(sf)
+          nil -> with_filter
+          sf -> with_filter <> "\n\n" <> render_sort_field_enum(sf)
         end
       end)
 
@@ -604,6 +725,36 @@ defmodule AshSwift.Codegen do
     """
     public enum #{name}: String, Sendable {
     #{cases_block}
+    }\
+    """
+  end
+
+  # Emits the typed {Resource}Filter struct. Every property is an Optional
+  # operator generic (from AshSwiftRuntime), so an unset attribute is simply
+  # omitted: Swift's synthesized Encodable encodes each Optional with
+  # `encodeIfPresent`, producing the `{field: {operator: value}}` map the
+  # `Ash.Query.filter_input` pipeline consumes (camelCase operator keys are
+  # confirmed against the live pipeline). Keyword-named fields are backtick-
+  # escaped; the synthesized CodingKey still carries the unescaped wire name.
+  defp render_filter_struct(%{type_name: name, fields: []}) do
+    """
+    public struct #{name}: Encodable, Sendable {
+        public init() {}
+    }\
+    """
+  end
+
+  defp render_filter_struct(%{type_name: name, fields: fields}) do
+    props_block =
+      Enum.map_join(fields, "\n", fn %{name: n, swift_type: t} ->
+        "    public var #{escape_swift_keyword(n)}: #{t}?"
+      end)
+
+    """
+    public struct #{name}: Encodable, Sendable {
+    #{props_block}
+
+        public init() {}
     }\
     """
   end
@@ -689,10 +840,12 @@ defmodule AshSwift.Codegen do
            action_type: :read,
            is_get?: false,
            pagination_type: :offset,
-           sortable?: sortable?
+           sortable?: sortable?,
+           filterable?: filterable?
          },
          type_name
        ) do
+    {filter_params, filter_args} = filter_entries(filterable?, type_name)
     {sort_params, sort_args} = sort_entries(sortable?, type_name)
 
     %{
@@ -701,12 +854,12 @@ defmodule AshSwift.Codegen do
       doc: "offset-paginated list of `#{type_name}` records",
       params:
         [%{name: "page", type: "OffsetPageParams?", default: "nil"}] ++
-          sort_params ++ [fields_param()],
+          filter_params ++ sort_params ++ [fields_param()],
       return_type: "OffsetPage<#{type_name}>",
       request_type: "OffsetPageRequest",
       request_args:
         [{"action", swift_string(rpc_name)}, {"page", "page"}] ++
-          sort_args ++ [{"fields", "fields"}]
+          filter_args ++ sort_args ++ [{"fields", "fields"}]
     }
   end
 
@@ -716,10 +869,12 @@ defmodule AshSwift.Codegen do
            action_type: :read,
            is_get?: false,
            pagination_type: :keyset,
-           sortable?: sortable?
+           sortable?: sortable?,
+           filterable?: filterable?
          },
          type_name
        ) do
+    {filter_params, filter_args} = filter_entries(filterable?, type_name)
     {sort_params, sort_args} = sort_entries(sortable?, type_name)
 
     %{
@@ -728,29 +883,37 @@ defmodule AshSwift.Codegen do
       doc: "keyset-paginated list of `#{type_name}` records",
       params:
         [%{name: "page", type: "KeysetPageParams?", default: "nil"}] ++
-          sort_params ++ [fields_param()],
+          filter_params ++ sort_params ++ [fields_param()],
       return_type: "KeysetPage<#{type_name}>",
       request_type: "KeysetPageRequest",
       request_args:
         [{"action", swift_string(rpc_name)}, {"page", "page"}] ++
-          sort_args ++ [{"fields", "fields"}]
+          filter_args ++ sort_args ++ [{"fields", "fields"}]
     }
   end
 
   defp method_spec(
-         %{rpc_name: rpc_name, action_type: :read, is_get?: false, sortable?: sortable?},
+         %{
+           rpc_name: rpc_name,
+           action_type: :read,
+           is_get?: false,
+           sortable?: sortable?,
+           filterable?: filterable?
+         },
          type_name
        ) do
+    {filter_params, filter_args} = filter_entries(filterable?, type_name)
     {sort_params, sort_args} = sort_entries(sortable?, type_name)
 
     %{
       rpc_name: rpc_name,
       func_name: lower_camel(rpc_name),
       doc: "list `#{type_name}` records",
-      params: sort_params ++ [fields_param()],
+      params: filter_params ++ sort_params ++ [fields_param()],
       return_type: "[#{type_name}]",
       request_type: "ListRequest",
-      request_args: [{"action", swift_string(rpc_name)}] ++ sort_args ++ [{"fields", "fields"}]
+      request_args:
+        [{"action", swift_string(rpc_name)}] ++ filter_args ++ sort_args ++ [{"fields", "fields"}]
     }
   end
 
@@ -887,6 +1050,20 @@ defmodule AshSwift.Codegen do
   end
 
   defp sort_entries(false, _type_name), do: {[], []}
+
+  # The optional typed `filter:` parameter and its request argument, threaded into
+  # a read function when filtering is enabled. Mirrors `sort_entries/2`: returns
+  # `{params, request_args}` spliced in before sort. When filtering is disabled
+  # (enable_filter?: false), both are empty so the signature stays byte-identical
+  # to the pre-filter output. The typed `{Resource}Filter` is type-erased through
+  # `AnyEncodable` so the runtime request bodies stay non-generic over the filter
+  # shape; a nil filter maps to nil and is omitted from the request body.
+  defp filter_entries(true, type_name) do
+    {[%{name: "filter", type: "#{type_name}Filter?", default: "nil"}],
+     [{"filter", "filter.map { AnyEncodable($0) }"}]}
+  end
+
+  defp filter_entries(false, _type_name), do: {[], []}
 
   # A lookup/primary-key field as a required Swift parameter.
   defp field_param(%{name: n, swift_type: t}), do: %{name: n, type: t, default: nil}

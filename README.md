@@ -15,13 +15,17 @@ architecture, output language swapped. The generated Swift client talks JSON ove
 HTTP to the *same* RPC endpoint AshTypescript already serves, so a Swift client
 and a TypeScript client stay wire-identical by construction.
 
-> **Status: early.** Milestone 1 (the thin end-to-end happy path) is the current
-> scope — core CRUD action types, ad-hoc field selection (incl. nested
-> relationships), enums, typed get actions, and a zero-dependency URLSession
-> runtime. Filters/sorting/pagination, typed (narrowed) queries, embedded
-> resources, hooks, and real-time support are later milestones. See the
-> [PRD](docs/prd/m1-vertical-slice.md) for the full roadmap (progress section
-> tracks what's landed).
+> **Status: early, actively progressing.** Milestone 1 (the thin end-to-end happy
+> path) is complete — core CRUD action types with typed inputs, ad-hoc field
+> selection (incl. nested relationships), enums, typed get actions, custom headers,
+> typed error handling, and a zero-dependency URLSession runtime. Milestone 2
+> ("Powerful Reads") is in progress: typed **sorting**, typed **filtering** (attribute
+> and enum predicates), and typed **pagination** (`OffsetPage`/`KeysetPage`) have
+> landed; logical filter combinators (`and`/`or`/`not`) and filter/sort/pagination
+> composition are next. Typed (narrowed) queries, embedded resources, hooks, and
+> real-time support are later milestones. See [`docs/prd/`](docs/prd/) for the
+> roadmap and [GitHub Issues](https://github.com/SBLabsCo/ash_swift/issues) for
+> what's in flight.
 
 ## Features
 
@@ -33,14 +37,28 @@ and a TypeScript client stay wire-identical by construction.
 - **Core action types** — generates a callable function for each exposed
   read/list, get, create, update, and destroy action. List/read actions are
   fully typed (`async throws -> [T]` with field selection); get actions reflect
-  `get?` / `get_by` / `not_found_error?` and return `T` or `T?` accordingly.
-  Create/update/destroy emit callable stubs — typed inputs land in a later
-  M1 slice.
+  `get?` / `get_by` / `not_found_error?` and return `T` or `T?` accordingly;
+  create/update/destroy take compiler-enforced typed input structs.
 - **Ad-hoc field selection** — request only the fields a screen needs, including
   fields on nested relationships. Every model field is `Optional`, so unselected
   fields safely decode as `nil`.
+- **Typed filtering** — read actions take an optional, type-safe `{Resource}Filter`
+  where each attribute exposes only the operators its type supports (equality for
+  booleans, comparisons for numbers and dates, membership for strings and enums),
+  and nullable attributes add `isNil`. Filtering an action off (`enable_filter?: false`)
+  drops the parameter, so a forbidden filter is a compile error.
+- **Typed sorting** — read actions take a typed sort over a generated
+  sortable-field enum, with ascending/descending and nils-first/last ordering,
+  gated per action by `enable_sort?`.
+- **Typed pagination** — read actions with required pagination return
+  `OffsetPage<T>` / `KeysetPage<T>` with typed page params and metadata.
+- **Faithful type mappings** — extended Ash types map to real Swift types
+  (`Decimal`/`Date` → `String` for precision and format fidelity,
+  `UtcDatetime` → `Date`, `Map` → typed JSON) rather than a blanket `String` fallback.
 - **Backend enums become Swift enums** — exhaustive `switch` handling and
   autocomplete; reserved-keyword values are backtick-escaped.
+- **Custom headers & typed errors** — per-client headers (e.g. auth tokens);
+  backend failures surface as a thrown, typed `AshRpcError`.
 - **Idiomatic Swift** — backend field and action names become Swift `camelCase`.
 - **Zero-dependency runtime** — `AshSwiftRuntime` is hand-written over URLSession
   with no third-party dependencies, adding no supply-chain surface.
@@ -49,9 +67,9 @@ and a TypeScript client stay wire-identical by construction.
 - **Deterministic, committable output** — regenerating with no schema change
   produces no diff.
 
-Filters/sorting/pagination, typed (narrowed) queries, embedded resources,
-lifecycle hooks, and Phoenix Channel support are planned for later milestones —
-see [`docs/prd/m1-vertical-slice.md`](docs/prd/m1-vertical-slice.md).
+Logical filter combinators (`and`/`or`/`not`), filter/sort/pagination composition,
+typed (narrowed) queries, embedded resources, lifecycle hooks, and Phoenix Channel
+support are planned for upcoming milestones — see [`docs/prd/`](docs/prd/).
 
 ## Why
 
@@ -75,7 +93,7 @@ The repo is two packages in one (a monorepo):
    the base RPC client, request/response handling, error decoding, and config.
    **Zero third-party dependencies.**
 
-For M1, AshSwift reuses AshTypescript's language-agnostic RPC runtime, its
+AshSwift reuses AshTypescript's language-agnostic RPC runtime, its
 `typescript_rpc` DSL, and its HTTP endpoint unchanged — it adds only the Swift
 codegen layer and the Swift runtime.
 No new server endpoint is built.
@@ -182,6 +200,23 @@ for todo in todos {
 }
 ```
 
+Filtering and sorting are typed too. Each attribute on the generated
+`{Resource}Filter` exposes only the operators its type supports, and sort fields
+come from a generated enum — both are optional, so existing call sites are
+unaffected:
+
+```swift
+var filter = TodoFilter()
+filter.completed = EquatableOperators(eq: false)        // Bool: equality only
+filter.priority = NullableEnumOperators(in: [.high, .medium])
+
+let urgent: [Todo] = try await rpc.listTodos(
+    filter: filter,
+    sort: [SortField(.priority, .descending)],
+    fields: ["id", "title", "priority"]
+)
+```
+
 Every selectable field on a generated model is `Optional` so that ad-hoc field
 selection is safe — unselected fields decode as `nil` rather than failing to
 decode. Backend errors surface as a thrown, typed `AshRpcError` you handle with
@@ -229,7 +264,7 @@ The architecture rests on a few fixed decisions:
 
 - AshSwift is an Elixir/Mix Ash extension that emits Swift — not a standalone Swift tool.
 - Where TypeScript and Swift diverge, idiomatic Swift wins over literal API fidelity.
-- M1 reuses AshTypescript's RPC runtime, DSL, and endpoint unchanged.
+- Reuses AshTypescript's RPC runtime, DSL, and endpoint unchanged.
 - The generated client and its runtime have zero third-party dependencies.
 - One repo is both the Mix package and the Swift package; generated output is committed.
 - No Zod-equivalent runtime schema validation; `Codable` is the decode boundary.

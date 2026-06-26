@@ -944,6 +944,106 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "filtered read action: the Swift-encoded filter map is what the pipeline accepts" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Seed todos spanning the filter predicates — completed flag, score comparison,
+    # and an enum membership test. Distinct prefixes isolate this test's rows from
+    # anything else ETS holds.
+    for attrs <- [
+          %{title: "FilterE2E-Match", completed: true, score: 5, priority: :high},
+          %{title: "FilterE2E-LowScore", completed: true, score: 1, priority: :high},
+          %{title: "FilterE2E-NotDone", completed: false, score: 9, priority: :low}
+        ] do
+      Ash.create!(AshSwift.Test.Todo, attrs, domain: AshSwift.Test.Domain)
+    end
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # This is exactly the map the generated Swift `TodoFilter` below encodes to.
+    # Multiple field predicates are implicitly ANDed by `Ash.Query.filter_input`,
+    # so this selects: completed AND score > 2 AND priority in [high, medium].
+    filter_map = %{
+      "completed" => %{"eq" => true},
+      "score" => %{"greaterThan" => 2},
+      "priority" => %{"in" => ["high", "medium"]}
+    }
+
+    params = %{
+      "action" => "list_todos",
+      "fields" => ["title", "completed", "score", "priority"],
+      "filter" => filter_map
+    }
+
+    result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+    assert result["success"] == true, inspect(result)
+    json = Jason.encode!(result)
+
+    # Embedded so the Swift side can assert its generated TodoFilter encodes to the
+    # identical map (operator key spelling and field names included).
+    expected_filter_json = Jason.encode!(filter_map)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Proves the filter surface round-trips: the generated `TodoFilter` encodes to
+    // the exact map the Elixir pipeline was given (and accepts), and only the
+    // matching record comes back, decoded through the generated Todo model.
+    final class E2EFilterTest: XCTestCase {
+        private func ours(_ todos: [Todo]) -> [String] {
+            todos.compactMap { $0.title }.filter { $0.hasPrefix("FilterE2E-") }.sorted()
+        }
+
+        func testFilterEncodesToTheMapTheServerAccepts() throws {
+            // Construct the typed filter the way a consumer would. Each operator
+            // group is the one codegen picked for that attribute's Ash type.
+            var filter = TodoFilter()
+            filter.completed = EquatableOperators(eq: true)
+            filter.score = NullableComparableOperators(greaterThan: 2)
+            filter.priority = NullableEnumOperators(in: [.high, .medium])
+
+            let encoded = try JSONEncoder().encode(filter)
+
+            // The generated encoding must equal the map the server was handed —
+            // same field names, same camelCase operator keys, same values.
+            let encodedObj = try JSONSerialization.jsonObject(with: encoded) as! NSDictionary
+            let expected = #{inspect(expected_filter_json, binaries: :as_strings)}
+            let expectedObj =
+                try JSONSerialization.jsonObject(with: Data(expected.utf8)) as! NSDictionary
+            XCTAssertEqual(encodedObj, expectedObj)
+
+            // The server applied that filter: only the matching record comes back.
+            let json = #{inspect(json, binaries: :as_strings)}
+            struct ListEnvelope: Decodable { let success: Bool; let data: [Todo] }
+            let envelope = try JSONDecoder().decode(ListEnvelope.self, from: Data(json.utf8))
+            XCTAssertTrue(envelope.success)
+            XCTAssertEqual(ours(envelope.data), ["FilterE2E-Match"])
+
+            // And the matching record decodes through the generated model.
+            let match = try XCTUnwrap(envelope.data.first(where: { $0.title == "FilterE2E-Match" }))
+            XCTAssertEqual(match.completed, true)
+            XCTAssertEqual(match.priority, .high)
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EFilterTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EFilterTest"], cd: tmp, stderr_to_stdout: true)
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).

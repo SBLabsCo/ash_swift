@@ -13,16 +13,20 @@ Tracks where the M1 slice stands. Each row is a `ready-for-agent` GitHub issue.
 | 3 | Nested relationship field selection | ✅ done |
 | 4 | Enums: backend enums to Swift enums | ✅ done |
 | 5 | Get action: single-record retrieval (`get?`, `get_by`, `not_found_error?`) | ✅ done |
-| 6 | Create / update / destroy actions with typed inputs | open, `ready-for-agent` |
-| 7 | Custom headers + typed error handling | open, `ready-for-agent` |
+| 6 | Create / update / destroy actions with typed inputs | ✅ done |
+| 7 | Custom headers + typed error handling | ✅ done |
 
-**Discovered during M1 (open, separately tracked):**
+**M1 is complete.** Milestone 2 ("Powerful Reads") is underway — typed sorting (#34)
+and typed attribute/enum filtering (#35) have landed; filter combinators (#36) and
+filter/sort/pagination composition (#37) are next.
+
+**Discovered during M1 (now landed):**
 
 | # | Issue | Note |
 |---|---|---|
-| 16 | `runList` assumes an unpaginated array | latent bug; paginated reads break decoding |
-| 17 | Map non-core Ash types to real Swift types (Decimal, Date, DateTime, Map, …) | currently fall back to `String` |
-| 24 | Detect enum/struct type-name collision at generation time | landed as low-severity from #4 review |
+| 16 | `runList` assumes an unpaginated array | ✅ done — typed `OffsetPage`/`KeysetPage` for required-pagination reads |
+| 17 | Map non-core Ash types to real Swift types (Decimal, Date, DateTime, Map, …) | ✅ done — real Swift type mappings, no `String` fallback |
+| 24 | Detect enum/struct type-name collision at generation time | ✅ done — landed as low-severity from #4 review |
 
 For the workflow that drives this — `mix ash_swift.codegen --check`, the implement/review/`/address-review` loop, and how an agent picks up the next ticket — see [`docs/agents/ai-automation.md`](../agents/ai-automation.md) and [`docs/agents/lessons.md`](../agents/lessons.md).
 
