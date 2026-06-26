@@ -144,6 +144,13 @@ defmodule AshSwift.Codegen do
               {false, [], nil}
             end
 
+          pagination_type =
+            if ash_action.type == :read do
+              action_pagination_type(ash_action)
+            else
+              :none
+            end
+
           not_found_error? =
             case Map.get(rpc_action, :not_found_error?) do
               nil -> AshTypescript.Rpc.not_found_error?()
@@ -175,7 +182,8 @@ defmodule AshSwift.Codegen do
             get_by_location: get_by_location,
             not_found_error?: not_found_error?,
             input_struct_name: input_struct_name,
-            primary_key_params: primary_key_params
+            primary_key_params: primary_key_params,
+            pagination_type: pagination_type
           }
 
           new_struct =
@@ -486,8 +494,39 @@ defmodule AshSwift.Codegen do
     ])
   end
 
-  # List (non-get read) actions accept a FieldSelection list and return [TypeName].
-  # FieldSelection supports both scalar strings and nested relationship selections.
+  # List (non-get read) actions accept a FieldSelection list. Return type and
+  # runtime method depend on the action's pagination configuration:
+  #   - offset pagination → OffsetPage<TypeName> via runListOffset
+  #   - keyset pagination → KeysetPage<TypeName> via runListKeyset
+  #   - no pagination     → [TypeName] via runList
+  defp render_method(
+         %{rpc_name: rpc_name, action_type: :read, is_get?: false, pagination_type: :offset},
+         type_name
+       ) do
+    func = lower_camel(rpc_name)
+
+    """
+    /// Calls the `#{rpc_name}` RPC action (offset-paginated list of `#{type_name}` records).
+    public func #{func}(page: OffsetPageParams? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<#{type_name}> {
+        return try await client.runListOffset(action: "#{rpc_name}", page: page, fields: fields)
+    }\
+    """
+  end
+
+  defp render_method(
+         %{rpc_name: rpc_name, action_type: :read, is_get?: false, pagination_type: :keyset},
+         type_name
+       ) do
+    func = lower_camel(rpc_name)
+
+    """
+    /// Calls the `#{rpc_name}` RPC action (keyset-paginated list of `#{type_name}` records).
+    public func #{func}(page: KeysetPageParams? = nil, fields: [FieldSelection] = []) async throws -> KeysetPage<#{type_name}> {
+        return try await client.runListKeyset(action: "#{rpc_name}", page: page, fields: fields)
+    }\
+    """
+  end
+
   defp render_method(
          %{rpc_name: rpc_name, action_type: :read, is_get?: false},
          type_name
@@ -840,6 +879,20 @@ defmodule AshSwift.Codegen do
   # snake_case to PascalCase (e.g. create_todo → CreateTodo).
   defp pascal_case(name) do
     name |> to_string() |> String.split("_", trim: true) |> Enum.map_join(&String.capitalize/1)
+  end
+
+  # Determines the pagination type for a read action by inspecting the action's
+  # pagination configuration. Returns :offset, :keyset, or :none.
+  #
+  # Only returns a paginated type when `required?: true` — actions where pagination
+  # is optional still return `[T]` (no page param sent → bare array response).
+  # Actions where both offset? and keyset? are enabled default to :offset.
+  defp action_pagination_type(ash_action) do
+    case ash_action.pagination do
+      %{required?: true, offset?: true} -> :offset
+      %{required?: true, keyset?: true} -> :keyset
+      _ -> :none
+    end
   end
 
   defp write_if_changed(path, content) do

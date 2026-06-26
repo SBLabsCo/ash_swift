@@ -608,6 +608,88 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "offset-paginated action decodes real backend JSON into OffsetPage<T>" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Create several todos so the paginated response contains results.
+    for i <- 1..3 do
+      Ash.create!(AshSwift.Test.Todo, %{title: "Paged Todo #{i}"}, domain: AshSwift.Test.Domain)
+    end
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # list_todos_offset uses the :list_offset_paginated action which requires
+    # pagination — the backend always returns the paginated envelope shape.
+    params = %{
+      "action" => "list_todos_offset",
+      "fields" => ["id", "title"],
+      "page" => %{"limit" => 2, "offset" => 0}
+    }
+
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+
+    assert rpc_result["success"] == true
+    data = rpc_result["data"]
+    assert is_map(data)
+    assert is_list(data["results"])
+    assert data["results"] != []
+    assert is_boolean(data["hasMore"])
+
+    json = Jason.encode!(rpc_result)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Decodes a real paginated JSON response from the AshTypescript RPC pipeline
+    // using the generated OffsetPage<Todo> type, proving wire compatibility for
+    // offset-paginated read actions (issue #16).
+    final class E2EOffsetPageTest: XCTestCase {
+        func testOffsetPageResponseDecodesIntoGeneratedModel() throws {
+            let json = #{inspect(json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct PageEnvelope: Decodable {
+                let success: Bool
+                let data: OffsetPage<Todo>
+            }
+
+            let envelope = try JSONDecoder().decode(PageEnvelope.self, from: raw)
+
+            XCTAssertTrue(envelope.success)
+            XCTAssertFalse(envelope.data.results.isEmpty)
+
+            // Pagination metadata must match the requested page params.
+            XCTAssertEqual(envelope.data.limit, 2)
+            XCTAssertEqual(envelope.data.offset, 0)
+            XCTAssertLessThanOrEqual(envelope.data.results.count, 2)
+
+            let first = try XCTUnwrap(envelope.data.results.first)
+            XCTAssertNotNil(first.id)
+            XCTAssertNotNil(first.title)
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EOffsetPageTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EOffsetPageTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).

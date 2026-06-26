@@ -39,5 +39,13 @@ defmodule AshSwift.Test.Todo do
     read :get_by_score do
       get_by [:score]
     end
+
+    read :list_offset_paginated do
+      pagination offset?: true, required?: true, default_limit: 5, countable: true
+    end
+
+    read :list_keyset_paginated do
+      pagination keyset?: true, required?: true, default_limit: 5
+    end
   end
 end

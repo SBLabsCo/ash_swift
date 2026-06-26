@@ -90,6 +90,94 @@ final class AshRpcClientTests: XCTestCase {
             XCTFail("unexpected error: \(error)")
         }
     }
+
+    func testRunListOffsetDecodesOffsetPageFromEnvelope() async throws {
+        let json = #"{"success":true,"data":{"results":[{"id":"1","title":"Test"}],"hasMore":false,"limit":10,"offset":0,"count":null,"type":"offset"}}"#
+        let stub = StubTransport(status: 200, body: Data(json.utf8)) { _ in }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable { let id: String?; let title: String? }
+        let page: OffsetPage<Item> = try await client.runListOffset(action: "list_todos_offset")
+
+        XCTAssertEqual(page.results.count, 1)
+        XCTAssertEqual(page.results.first?.title, "Test")
+        XCTAssertFalse(page.hasMore)
+        XCTAssertEqual(page.limit, 10)
+        XCTAssertEqual(page.offset, 0)
+        XCTAssertNil(page.count)
+    }
+
+    func testRunListKeysetDecodesKeysetPageFromEnvelope() async throws {
+        let json = #"{"success":true,"data":{"results":[{"id":"1"}],"hasMore":true,"limit":5,"after":null,"before":null,"previousPage":"prev-cursor","nextPage":"next-cursor","count":null,"type":"keyset"}}"#
+        let stub = StubTransport(status: 200, body: Data(json.utf8)) { _ in }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable { let id: String? }
+        let page: KeysetPage<Item> = try await client.runListKeyset(action: "list_todos_keyset")
+
+        XCTAssertEqual(page.results.count, 1)
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.limit, 5)
+        XCTAssertNil(page.after)
+        XCTAssertNil(page.before)
+        XCTAssertEqual(page.nextPage, "next-cursor")
+        XCTAssertEqual(page.previousPage, "prev-cursor")
+    }
+
+    func testRunListOffsetSendsPageParamsInRequestBody() async throws {
+        let captured = CapturedRequest()
+        let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":10,"count":null}}"#
+        let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable & Sendable {}
+        let _: OffsetPage<Item> = try await client.runListOffset(
+            action: "list_todos_offset",
+            page: OffsetPageParams(limit: 5, offset: 10)
+        )
+
+        let request = try XCTUnwrap(captured.value)
+        let body = try XCTUnwrap(request.httpBody)
+        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let page = try XCTUnwrap(parsed["page"] as? [String: Any])
+        XCTAssertEqual(page["limit"] as? Int, 5)
+        XCTAssertEqual(page["offset"] as? Int, 10)
+    }
+
+    func testRunListKeysetSendsPageParamsInRequestBody() async throws {
+        let captured = CapturedRequest()
+        let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"after":null,"before":null,"nextPage":null,"previousPage":null,"count":null}}"#
+        let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable & Sendable {}
+        let _: KeysetPage<Item> = try await client.runListKeyset(
+            action: "list_todos_keyset",
+            page: KeysetPageParams(limit: 5, after: "cursor-abc")
+        )
+
+        let request = try XCTUnwrap(captured.value)
+        let body = try XCTUnwrap(request.httpBody)
+        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let page = try XCTUnwrap(parsed["page"] as? [String: Any])
+        XCTAssertEqual(page["limit"] as? Int, 5)
+        XCTAssertEqual(page["after"] as? String, "cursor-abc")
+    }
+
+    func testRunListOffsetThrowsDecodingFailedForBareArray() async {
+        let json = #"{"success":true,"data":[{"id":"1"}]}"#
+        let stub = StubTransport(status: 200, body: Data(json.utf8)) { _ in }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable { let id: String? }
+        do {
+            let _: OffsetPage<Item> = try await client.runListOffset(action: "list_todos")
+            XCTFail("expected decodingFailed")
+        } catch AshRpcError.decodingFailed {
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
 }
 
 /// Reference box so the `@Sendable` capture can record the request the stub saw.

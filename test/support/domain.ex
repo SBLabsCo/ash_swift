@@ -6,6 +6,8 @@ defmodule AshSwift.Test.Domain do
   typescript_rpc do
     resource AshSwift.Test.Todo do
       rpc_action(:list_todos, :read)
+      rpc_action(:list_todos_offset, :list_offset_paginated)
+      rpc_action(:list_todos_keyset, :list_keyset_paginated)
       rpc_action(:get_todo, :get_by_id)
       rpc_action(:find_todo, :get_by_id, not_found_error?: false)
       rpc_action(:get_todo_by_score, :get_by_score)
