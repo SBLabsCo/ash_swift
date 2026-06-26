@@ -565,6 +565,13 @@ defmodule AshSwift.E2ETest do
                 request.value(forHTTPHeaderField: "Authorization"),
                 "Bearer secret-token"
             )
+            // Confirm the generated wrapper sent the right action name — the unique
+            // E2E value here vs. the runtime unit tests that already cover header
+            // forwarding.
+            let bodyJSON = try JSONSerialization.jsonObject(
+                with: try XCTUnwrap(request.httpBody)
+            ) as! [String: Any]
+            XCTAssertEqual(bodyJSON["action"] as? String, "list_todos")
         }
 
         // Story 25: when the backend returns {"success":false,"errors":[...]}, the
