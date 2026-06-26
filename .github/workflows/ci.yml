@@ -56,5 +56,11 @@ jobs:
       - name: Elixir tests (includes the Swift compile harness)
         run: mix test
 
+      # Docs build under :dev (ex_doc is a dev-only dep). --warnings-as-errors
+      # fails the build on broken refs or dead links so the published HexDocs
+      # stay first-class.
+      - name: Build docs (warnings as errors)
+        run: MIX_ENV=dev mix docs --warnings-as-errors
+
       - name: Swift runtime tests
         run: swift test

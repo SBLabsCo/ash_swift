@@ -2,6 +2,7 @@ defmodule AshSwift.MixProject do
   use Mix.Project
 
   @version "0.1.0"
+  @source_url "https://github.com/SBLabsCo/ash_swift"
 
   def project do
     [
@@ -10,8 +11,12 @@ defmodule AshSwift.MixProject do
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      name: "AshSwift",
       description: description(),
+      source_url: @source_url,
+      homepage_url: @source_url,
       package: package(),
+      docs: docs(),
       deps: deps(),
       aliases: aliases()
     ]
@@ -19,6 +24,17 @@ defmodule AshSwift.MixProject do
 
   defp description do
     "An Ash extension that generates a type-safe Swift client for Ash RPC actions."
+  end
+
+  # README is the package's landing page on HexDocs (the standard Hex convention).
+  # Design docs (docs/adr, docs/prd, CONTEXT.md) are deliberately left out: they
+  # are implementation/maintainer detail, not adopter-facing API documentation.
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md"],
+      source_ref: "v#{@version}"
+    ]
   end
 
   defp package do
@@ -46,7 +62,8 @@ defmodule AshSwift.MixProject do
       # Pinned to the minor we build the codegen against: it reads AshTypescript
       # internals (RPC entity shape, Resource.Info type_name accessor) that can
       # change across 0.x minors (ADR-0003).
-      {:ash_typescript, "~> 0.17"}
+      {:ash_typescript, "~> 0.17"},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end
 

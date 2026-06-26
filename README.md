@@ -23,7 +23,7 @@ and a TypeScript client stay wire-identical by construction.
 > and enum predicates plus `and`/`or`/`not` combinators), and typed **pagination**
 > (`OffsetPage`/`KeysetPage`) have landed; filter/sort/pagination composition is
 > next. Typed (narrowed) queries, embedded resources, hooks, and
-> real-time support are later milestones. See [`docs/prd/`](docs/prd/) for the
+> real-time support are later milestones. See [`docs/prd/`](https://github.com/SBLabsCo/ash_swift/tree/main/docs/prd) for the
 > roadmap and [GitHub Issues](https://github.com/SBLabsCo/ash_swift/issues) for
 > what's in flight.
 
@@ -70,7 +70,7 @@ and a TypeScript client stay wire-identical by construction.
 
 Filter/sort/pagination composition, typed (narrowed) queries, embedded resources,
 lifecycle hooks, and Phoenix Channel support are planned for upcoming milestones —
-see [`docs/prd/`](docs/prd/).
+see [`docs/prd/`](https://github.com/SBLabsCo/ash_swift/tree/main/docs/prd).
 
 ## Why
 
@@ -293,7 +293,7 @@ The architecture rests on a few fixed decisions:
 - One repo is both the Mix package and the Swift package; generated output is committed.
 - No Zod-equivalent runtime schema validation; `Codable` is the decode boundary.
 
-Domain terminology lives in [`CONTEXT.md`](CONTEXT.md).
+Domain terminology lives in [`CONTEXT.md`](https://github.com/SBLabsCo/ash_swift/blob/main/CONTEXT.md).
 
 ## Contributing
 
@@ -304,14 +304,14 @@ Domain terminology lives in [`CONTEXT.md`](CONTEXT.md).
 4. Open a pull request.
 
 Issues and triage happen in [GitHub Issues](https://github.com/SBLabsCo/ash_swift/issues);
-see [`docs/agents/`](docs/agents/) for how the issue tracker, triage labels, and
+see [`docs/agents/`](https://github.com/SBLabsCo/ash_swift/tree/main/docs/agents) for how the issue tracker, triage labels, and
 CI/AI automation are organized.
 
 ## Support
 
 - **Bugs and feature requests:** [GitHub Issues](https://github.com/SBLabsCo/ash_swift/issues)
-- **Roadmap and design rationale:** [`docs/prd/`](docs/prd/)
+- **Roadmap and design rationale:** [`docs/prd/`](https://github.com/SBLabsCo/ash_swift/tree/main/docs/prd)
 
 ## License
 
-Released under the MIT License. See [`LICENSE`](LICENSE) for details.
+Released under the MIT License. See [`LICENSE`](https://github.com/SBLabsCo/ash_swift/blob/main/LICENSE) for details.
