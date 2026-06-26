@@ -1044,6 +1044,124 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "filtered read with logical combinators: the Swift-encoded nested and/or map is what the pipeline accepts" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Seed todos that pin down a compound predicate combining `and` with a nested
+    # `or`. Distinct prefixes isolate this test's rows from anything else ETS holds.
+    #   filter ≡ completed == true AND (priority == high OR score > 8)
+    for attrs <- [
+          # completed AND priority high            -> matches via the OR's first arm
+          %{title: "CombE2E-Match1", completed: true, score: 1, priority: :high},
+          # completed AND score > 8                 -> matches via the OR's second arm
+          %{title: "CombE2E-Match2", completed: true, score: 9, priority: :low},
+          # not completed                           -> fails the outer AND
+          %{title: "CombE2E-NotDone", completed: false, score: 9, priority: :high},
+          # completed but neither OR arm holds      -> fails the inner OR
+          %{title: "CombE2E-NoOr", completed: true, score: 1, priority: :low}
+        ] do
+      Ash.create!(AshSwift.Test.Todo, attrs, domain: AshSwift.Test.Domain)
+    end
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # The exact nested map the generated `TodoFilter` below encodes to: an outer
+    # `and` whose second arm is a nested `or`. Probed live before wiring (issue #36).
+    filter_map = %{
+      "and" => [
+        %{"completed" => %{"eq" => true}},
+        %{
+          "or" => [
+            %{"priority" => %{"eq" => "high"}},
+            %{"score" => %{"greaterThan" => 8}}
+          ]
+        }
+      ]
+    }
+
+    params = %{
+      "action" => "list_todos",
+      "fields" => ["title", "completed", "score", "priority"],
+      "filter" => filter_map
+    }
+
+    result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+    assert result["success"] == true, inspect(result)
+    json = Jason.encode!(result)
+
+    expected_filter_json = Jason.encode!(filter_map)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Proves the logical combinators round-trip: the generated `TodoFilter`, with
+    // its `and`/`or` arrays populated by nested filters, encodes to the exact nested
+    // map the Elixir pipeline was given (and accepts), and only the rows the
+    // compound predicate selects come back, decoded through the generated model.
+    final class E2EFilterCombinatorTest: XCTestCase {
+        private func ours(_ todos: [Todo]) -> [String] {
+            todos.compactMap { $0.title }.filter { $0.hasPrefix("CombE2E-") }.sorted()
+        }
+
+        func testCombinatorsEncodeToTheNestedMapTheServerAccepts() throws {
+            // Build: completed == true AND (priority == high OR score > 8), the way
+            // a consumer composes nested typed filters via the combinator arrays.
+            var completedClause = TodoFilter()
+            completedClause.completed = EquatableOperators(eq: true)
+
+            var priorityClause = TodoFilter()
+            priorityClause.priority = NullableEnumOperators(eq: .high)
+
+            var scoreClause = TodoFilter()
+            scoreClause.score = NullableComparableOperators(greaterThan: 8)
+
+            var orClause = TodoFilter()
+            orClause.or = [priorityClause, scoreClause]
+
+            var filter = TodoFilter()
+            filter.and = [completedClause, orClause]
+
+            let encoded = try JSONEncoder().encode(filter)
+
+            // The generated encoding must equal the nested map the server was handed —
+            // same combinator keys, same per-attribute predicates, same nesting.
+            let encodedObj = try JSONSerialization.jsonObject(with: encoded) as! NSDictionary
+            let expected = #{inspect(expected_filter_json, binaries: :as_strings)}
+            let expectedObj =
+                try JSONSerialization.jsonObject(with: Data(expected.utf8)) as! NSDictionary
+            XCTAssertEqual(encodedObj, expectedObj)
+
+            // The server applied that compound filter: only the two matching rows
+            // come back (one via each arm of the inner OR), decoded through the model.
+            let json = #{inspect(json, binaries: :as_strings)}
+            struct ListEnvelope: Decodable { let success: Bool; let data: [Todo] }
+            let envelope = try JSONDecoder().decode(ListEnvelope.self, from: Data(json.utf8))
+            XCTAssertTrue(envelope.success)
+            XCTAssertEqual(ours(envelope.data), ["CombE2E-Match1", "CombE2E-Match2"])
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EFilterCombinatorTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EFilterCombinatorTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).
