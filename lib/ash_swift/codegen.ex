@@ -438,8 +438,7 @@ defmodule AshSwift.Codegen do
         str = to_string(c)
         swift_case = lower_camel(str)
 
-        safe_name =
-          if swift_case in @swift_reserved_keywords, do: "`#{swift_case}`", else: swift_case
+        safe_name = escape_swift_keyword(swift_case)
 
         if swift_case == str do
           "    case #{safe_name}"
