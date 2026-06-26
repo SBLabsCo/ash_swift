@@ -8,6 +8,8 @@ defmodule AshSwift.Codegen do
   deterministic, change-only writes.
   """
 
+  require Logger
+
   alias AshTypescript.FieldFormatter
   alias AshTypescript.Resource.Info, as: ResourceInfo
   alias AshTypescript.Rpc.Info, as: RpcInfo
@@ -379,8 +381,8 @@ defmodule AshSwift.Codegen do
   defp render_types(resources) do
     structs =
       Enum.map_join(resources, "\n\n", fn resource ->
-        %{type_name: type_name, fields: fields, enums: enums} = resource
-        input_structs = Map.get(resource, :input_structs, [])
+        %{type_name: type_name, fields: fields, enums: enums, input_structs: input_structs} =
+          resource
 
         enums_block =
           case enums do
@@ -423,7 +425,7 @@ defmodule AshSwift.Codegen do
   defp render_fields(fields) do
     fields
     |> Enum.map_join("\n", fn %{name: name, swift_type: type} ->
-      "    public var #{name}: #{type}?"
+      "    public var #{escape_swift_keyword(name)}: #{type}?"
     end)
     |> Kernel.<>("\n")
   end
@@ -585,7 +587,21 @@ defmodule AshSwift.Codegen do
     pk_param_list =
       Enum.map_join(pk_params, ", ", fn %{name: n, swift_type: t} -> "#{n}: #{t}" end)
 
-    pk_identity = pk_params |> List.first() |> Map.get(:name, "id")
+    pk_identity =
+      case List.first(pk_params) do
+        %{name: n} ->
+          if length(pk_params) > 1 do
+            Logger.warning(
+              "AshSwift: resource #{type_name} has a composite primary key; " <>
+                "update identity will only use the first field (#{n}) until multi-PK support lands."
+            )
+          end
+
+          n
+
+        nil ->
+          raise "AshSwift: update codegen requires a primary key on resource #{type_name}"
+      end
 
     """
     /// Calls the `#{rpc_name}` RPC action (update `#{type_name}` record).
@@ -603,14 +619,28 @@ defmodule AshSwift.Codegen do
            action_type: :destroy,
            primary_key_params: pk_params
          },
-         _type_name
+         type_name
        ) do
     func = lower_camel(rpc_name)
 
     pk_param_list =
       Enum.map_join(pk_params, ", ", fn %{name: n, swift_type: t} -> "#{n}: #{t}" end)
 
-    pk_identity = pk_params |> List.first() |> Map.get(:name, "id")
+    pk_identity =
+      case List.first(pk_params) do
+        %{name: n} ->
+          if length(pk_params) > 1 do
+            Logger.warning(
+              "AshSwift: resource #{type_name} has a composite primary key; " <>
+                "destroy identity will only use the first field (#{n}) until multi-PK support lands."
+            )
+          end
+
+          n
+
+        nil ->
+          raise "AshSwift: destroy codegen requires a primary key on resource #{type_name}"
+      end
 
     """
     /// Calls the `#{rpc_name}` RPC action (destroy record).
@@ -708,6 +738,12 @@ defmodule AshSwift.Codegen do
     |> Enum.flat_map(fn field_name ->
       case Map.get(attrs_map, field_name) do
         nil ->
+          Logger.warning(
+            "AshSwift: field #{inspect(field_name)} in #{inspect(ash_action.name)}.accept " <>
+              "is not a public attribute and will be omitted from the generated input struct. " <>
+              "Action arguments are not yet supported."
+          )
+
           []
 
         attr ->
@@ -739,31 +775,43 @@ defmodule AshSwift.Codegen do
   end
 
   defp render_input_struct(%{struct_name: name, fields: fields}) do
-    all_sorted = Enum.sort_by(fields, & &1.name)
-    required = fields |> Enum.filter(& &1.required?) |> Enum.sort_by(& &1.name)
-    optional = fields |> Enum.filter(&(!&1.required?)) |> Enum.sort_by(& &1.name)
+    all_sorted = fields
+    required = Enum.filter(fields, & &1.required?)
+    optional = Enum.filter(fields, &(!&1.required?))
 
     props_block =
       Enum.map_join(all_sorted, "\n", fn %{name: n, swift_type: t, required?: req?} ->
-        if req?, do: "    public var #{n}: #{t}", else: "    public var #{n}: #{t}?"
+        sn = escape_swift_keyword(n)
+        if req?, do: "    public var #{sn}: #{t}", else: "    public var #{sn}: #{t}?"
       end)
 
     init_params =
-      (Enum.map(required, fn %{name: n, swift_type: t} -> "#{n}: #{t}" end) ++
-         Enum.map(optional, fn %{name: n, swift_type: t} -> "#{n}: #{t}? = nil" end))
+      (Enum.map(required, fn %{name: n, swift_type: t} ->
+         "#{escape_swift_keyword(n)}: #{t}"
+       end) ++
+         Enum.map(optional, fn %{name: n, swift_type: t} ->
+           "#{escape_swift_keyword(n)}: #{t}? = nil"
+         end))
       |> Enum.join(", ")
 
     init_body =
-      Enum.map_join(all_sorted, "\n", fn %{name: n} -> "        self.#{n} = #{n}" end)
+      Enum.map_join(all_sorted, "\n", fn %{name: n} ->
+        sn = escape_swift_keyword(n)
+        "        self.#{sn} = #{sn}"
+      end)
 
     coding_keys_cases =
-      Enum.map_join(all_sorted, "\n", fn %{name: n} -> "        case #{n}" end)
+      Enum.map_join(all_sorted, "\n", fn %{name: n} ->
+        "        case #{escape_swift_keyword(n)}"
+      end)
 
     encode_body =
       Enum.map_join(all_sorted, "\n", fn %{name: n, required?: req?} ->
+        sn = escape_swift_keyword(n)
+
         if req?,
-          do: "        try container.encode(#{n}, forKey: .#{n})",
-          else: "        try container.encodeIfPresent(#{n}, forKey: .#{n})"
+          do: "        try container.encode(#{sn}, forKey: .#{sn})",
+          else: "        try container.encodeIfPresent(#{sn}, forKey: .#{sn})"
       end)
 
     """
@@ -784,6 +832,10 @@ defmodule AshSwift.Codegen do
         }
     }\
     """
+  end
+
+  defp escape_swift_keyword(n) do
+    if n in @swift_reserved_keywords, do: "`#{n}`", else: n
   end
 
   # snake_case to PascalCase (e.g. create_todo → CreateTodo).

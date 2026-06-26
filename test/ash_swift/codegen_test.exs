@@ -146,11 +146,29 @@ defmodule AshSwift.CodegenTest do
     test "update input struct has all-Optional fields", %{files: files} do
       types = files["AshRpcTypes.swift"]
 
-      # In the UpdateTodoInput section, title must be Optional
       assert types =~ "public struct UpdateTodoInput: Encodable, Sendable {"
-      # No non-optional title var should appear in UpdateTodoInput (it's all Optional)
-      # We verify the init uses = nil for title
+      # The stored property must be Optional (not non-optional like in CreateTodoInput)
+      assert Regex.match?(
+               ~r/public struct UpdateTodoInput: Encodable, Sendable \{[^}]*\n    public var title: String\?\n/s,
+               types
+             )
+
+      # The init parameter must also use = nil
       assert types =~ "title: String? = nil"
+    end
+
+    test "backtick-escapes Swift reserved keywords in input struct property and init", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+
+      # :default is a Swift reserved keyword; the property, init param, and CodingKey
+      # must all use the backtick-escaped form. The raw JSON key remains "default".
+      assert types =~ "public var `default`: String?"
+      assert types =~ "`default`: String? = nil"
+      assert types =~ "case `default`"
+      assert types =~ "encodeIfPresent(`default`, forKey: .`default`)"
+      refute types =~ "public var default:"
     end
 
     test "required create fields appear as mandatory init params", %{files: files} do
