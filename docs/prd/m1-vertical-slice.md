@@ -16,9 +16,9 @@ Tracks where the M1 slice stands. Each row is a `ready-for-agent` GitHub issue.
 | 6 | Create / update / destroy actions with typed inputs | ✅ done |
 | 7 | Custom headers + typed error handling | ✅ done |
 
-**M1 is complete.** Milestone 2 ("Powerful Reads") is underway — typed sorting (#34)
-and typed attribute/enum filtering (#35) have landed; filter combinators (#36) and
-filter/sort/pagination composition (#37) are next.
+**M1 is complete.** Milestone 2 ("Powerful Reads") is underway — typed sorting (#34),
+typed attribute/enum filtering (#35), filter combinators (#36), and filter/sort/pagination
+composition (#37, incl. page arguments for optional-pagination reads) have landed.
 
 **Discovered during M1 (now landed):**
 

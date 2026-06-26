@@ -59,6 +59,31 @@ enum ConsumerCheck {
         )
         let _ = pagedSorted
 
+        // Optional pagination (issue #37): a list read that *supports* but does not
+        // *require* pagination gets an overloaded paginated variant. Omitting `page`
+        // resolves to the bare `[Todo]` overload (M1 behavior); passing `page`
+        // resolves to the paginated overload returning `OffsetPage<Todo>`. The
+        // return type is static at each call site — no `[Todo] | OffsetPage<Todo>`
+        // union ever surfaces. filter + sort + page all compose on the overload.
+        let optionalBare: [Todo] = try await rpc.listTodos()
+        let _ = optionalBare
+        let optionalPaged: OffsetPage<Todo> = try await rpc.listTodos(
+            page: OffsetPageParams(limit: 10, offset: 0),
+            filter: { var f = TodoFilter(); f.completed = EquatableOperators(eq: true); return f }(),
+            sort: [SortField(.title, .descending)],
+            fields: ["id", "title"]
+        )
+        let _ = optionalPaged
+
+        // The keyset branch of the same overload pair: offset? is off on this
+        // action, so codegen picks keyset for the paginated variant.
+        let optionalKeyset: KeysetPage<Todo> = try await rpc.listTodosKeysetOptional(
+            page: KeysetPageParams(limit: 10),
+            sort: [SortField(.title)],
+            fields: ["id", "title"]
+        )
+        let _ = optionalKeyset
+
         // enable_sort?: false on this action drops the sort: parameter entirely,
         // so it isn't even offered here — calling it with one would not compile.
         let unsorted: [Todo] = try await rpc.listTodosNoSort()

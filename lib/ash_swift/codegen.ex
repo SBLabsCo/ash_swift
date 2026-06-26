@@ -275,6 +275,17 @@ defmodule AshSwift.Codegen do
               :none
             end
 
+          # Optional pagination (required?: false but offset?/keyset? supported) on a
+          # list read. These don't change the bare `[T]` function; they gain a second,
+          # *overloaded* paginated function (see method_specs/2). Get actions and
+          # required-pagination actions are excluded — :none means "no overload".
+          optional_pagination_type =
+            if ash_action.type == :read and not is_get? do
+              optional_action_pagination_type(ash_action)
+            else
+              :none
+            end
+
           not_found_error? =
             case Map.get(rpc_action, :not_found_error?) do
               nil -> AshTypescript.Rpc.not_found_error?()
@@ -317,6 +328,7 @@ defmodule AshSwift.Codegen do
             input_struct_name: input_struct_name,
             primary_key_params: primary_key_params,
             pagination_type: pagination_type,
+            optional_pagination_type: optional_pagination_type,
             sortable?: sortable?,
             filterable?: filterable?
           }
@@ -876,7 +888,9 @@ defmodule AshSwift.Codegen do
     methods =
       resources
       |> Enum.flat_map(fn %{type_name: type_name, actions: actions} ->
-        Enum.map(actions, &render_spec(method_spec(&1, type_name)))
+        Enum.flat_map(actions, fn action ->
+          action |> method_specs(type_name) |> Enum.map(&render_spec/1)
+        end)
       end)
       |> Enum.join("\n\n")
 
@@ -937,6 +951,56 @@ defmodule AshSwift.Codegen do
         #{return_kw}try await client.execute(#{spec.request_type}(#{args_str}))
     }\
     """
+  end
+
+  # Expands one action into the method spec(s) render_functions emits. Most
+  # actions map to a single spec. A list read with *optional* pagination maps to
+  # two: the unchanged bare `[T]` spec PLUS an overloaded paginated spec whose
+  # `page` argument is required. Swift resolves a `page:`-less call to the `[T]`
+  # overload and a `page:`-bearing call to the paginated one — the idiomatic-Swift
+  # mirror of AshTypescript's `ConditionalPaginatedResult` return type (the return
+  # type is conditional on whether a page argument is supplied). See ADR-0007's
+  # optional-pagination addendum.
+  defp method_specs(action, type_name) do
+    base = method_spec(action, type_name)
+
+    case Map.get(action, :optional_pagination_type, :none) do
+      :none ->
+        [base]
+
+      kind ->
+        [base, optional_paginated_spec(kind, action, type_name)]
+    end
+  end
+
+  # Builds the paginated *overload* spec for an optional-pagination read. Same RPC
+  # action, request type, and filter/sort threading as the required-pagination
+  # clauses of method_spec/2 — the one difference is the `page` argument is
+  # required (default: nil ⇒ no `= …` in the signature), which is what lets Swift
+  # overload resolution distinguish it from the bare `[T]` function.
+  defp optional_paginated_spec(kind, %{rpc_name: rpc_name} = action, type_name) do
+    {page_type, wrapper, request_type, label} =
+      case kind do
+        :offset -> {"OffsetPageParams", "OffsetPage", "OffsetPageRequest", "offset"}
+        :keyset -> {"KeysetPageParams", "KeysetPage", "KeysetPageRequest", "keyset"}
+      end
+
+    {filter_params, filter_args} = filter_entries(action.filterable?, type_name)
+    {sort_params, sort_args} = sort_entries(action.sortable?, type_name)
+
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "#{label}-paginated list of `#{type_name}` records",
+      params:
+        [%{name: "page", type: page_type, default: nil}] ++
+          filter_params ++ sort_params ++ [fields_param()],
+      return_type: "#{wrapper}<#{type_name}>",
+      request_type: request_type,
+      request_args:
+        [{"action", swift_string(rpc_name)}, {"page", "page"}] ++
+          filter_args ++ sort_args ++ [{"fields", "fields"}]
+    }
   end
 
   # Classifies an action into a method spec (pure data — no Swift syntax). One
@@ -1435,6 +1499,23 @@ defmodule AshSwift.Codegen do
     case maction.pagination do
       %{required?: true, offset?: true} -> :offset
       %{required?: true, keyset?: true} -> :keyset
+      _ -> :none
+    end
+  end
+
+  # The pagination type for a read action that *supports* offset/keyset but does
+  # NOT require it (ADR-0007's deferred gap). Returns :offset, :keyset, or :none.
+  #
+  # Required-pagination actions are handled by action_pagination_type/1 (they get a
+  # paginated return outright), so they're :none here. Prefers offset when both are
+  # supported — mirroring action_pagination_type/1 and keeping a single page type
+  # per action. The default ETS `:read` action carries offset?/keyset? true with
+  # required?: false, so plain list reads land in :offset here.
+  defp optional_action_pagination_type(ash_action) do
+    case ash_action.pagination do
+      %{required?: true} -> :none
+      %{offset?: true} -> :offset
+      %{keyset?: true} -> :keyset
       _ -> :none
     end
   end

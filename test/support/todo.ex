@@ -61,5 +61,12 @@ defmodule AshSwift.Test.Todo do
     read :list_keyset_paginated do
       pagination keyset?: true, required?: true, default_limit: 5
     end
+
+    # Optional keyset pagination (issue #37): supports keyset but does not require
+    # it. Exercises the keyset branch of the optional-pagination overload — offset?
+    # is off so codegen picks keyset rather than its default offset preference.
+    read :list_keyset_optional do
+      pagination keyset?: true, offset?: false, required?: false
+    end
   end
 end

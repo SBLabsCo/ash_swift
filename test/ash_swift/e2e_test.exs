@@ -690,6 +690,173 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "optional-pagination read composes filter + sort + page on a single call (issue #37)" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Seed rows in a unique high-score band so `score >= 1000` isolates this test's
+    # records from anything else ETS holds (other tests use single/double-digit
+    # scores). The incomplete row is excluded by the `completed == true` predicate,
+    # proving the filter composes with sort + page rather than being ignored.
+    for attrs <- [
+          %{title: "PageComboE2E-High1", completed: true, score: 1005},
+          %{title: "PageComboE2E-High2", completed: true, score: 1009},
+          %{title: "PageComboE2E-High3", completed: true, score: 1001},
+          %{title: "PageComboE2E-Incomplete", completed: false, score: 1100}
+        ] do
+      Ash.create!(AshSwift.Test.Todo, attrs, domain: AshSwift.Test.Domain)
+    end
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # The exact maps/strings the generated `listTodos(page:filter:sort:fields:)`
+    # overload assembles: an offset page, an AND of two predicates, and `-score`.
+    filter_map = %{
+      "completed" => %{"eq" => true},
+      "score" => %{"greaterThanOrEqual" => 1000}
+    }
+
+    base_params = %{
+      "action" => "list_todos",
+      "fields" => ["title", "completed", "score"],
+      "filter" => filter_map,
+      "sort" => "-score"
+    }
+
+    # Page 1: limit 2, offset 0 -> the two highest-scoring matches, hasMore true.
+    page1 =
+      AshTypescript.Rpc.run_action(
+        :ash_swift,
+        conn,
+        Map.put(base_params, "page", %{"limit" => 2, "offset" => 0})
+      )
+
+    assert page1["success"] == true, inspect(page1)
+
+    assert is_map(page1["data"]),
+           "expected the paginated envelope, got: #{inspect(page1["data"])}"
+
+    page1_json = Jason.encode!(page1)
+
+    # Page 2: offset 2 -> the single remaining match, hasMore false. Proves offset
+    # walks the filtered + sorted result set, not the unfiltered table.
+    page2 =
+      AshTypescript.Rpc.run_action(
+        :ash_swift,
+        conn,
+        Map.put(base_params, "page", %{"limit" => 2, "offset" => 2})
+      )
+
+    assert page2["success"] == true, inspect(page2)
+    page2_json = Jason.encode!(page2)
+
+    expected_filter_json = Jason.encode!(filter_map)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Proves filter + sort + page compose on the optional-pagination overload: the
+    // generated `listTodos(page:filter:sort:fields:)` request encodes to the exact
+    // page/filter/sort the pipeline accepts, and the paginated envelope decodes into
+    // OffsetPage<Todo> with correct metadata and correctly ordered, filtered rows.
+    final class E2EPageCompositionTest: XCTestCase {
+        func testFilterSortPageComposeOnOneCall() throws {
+            // 1. The request side: build the typed arguments exactly as a consumer
+            //    would, then assert each encodes to the wire shape the server got.
+            var filter = TodoFilter()
+            filter.completed = EquatableOperators(eq: true)
+            filter.score = NullableComparableOperators(greaterThanOrEqual: 1000)
+
+            let encodedFilter = try JSONEncoder().encode(filter)
+            let encodedFilterObj =
+                try JSONSerialization.jsonObject(with: encodedFilter) as! NSDictionary
+            let expectedFilter = #{inspect(expected_filter_json, binaries: :as_strings)}
+            let expectedFilterObj =
+                try JSONSerialization.jsonObject(with: Data(expectedFilter.utf8)) as! NSDictionary
+            XCTAssertEqual(encodedFilterObj, expectedFilterObj)
+
+            // The sort the overload assembles for [SortField(.score, .descending)].
+            XCTAssertEqual(
+                ashSortString([SortField(TodoSortField.score, .descending)]),
+                "-score"
+            )
+
+            // The whole request body the overload builds, assembled via the runtime
+            // request the generated function delegates to. It must carry page, sort,
+            // and filter together — the composition this slice adds.
+            let request = OffsetPageRequest<Todo>(
+                action: "list_todos",
+                page: OffsetPageParams(limit: 2, offset: 0),
+                filter: AnyEncodable(filter),
+                sort: ashSortString([SortField(TodoSortField.score, .descending)]),
+                fields: ["title", "completed", "score"]
+            )
+            let body = try JSONSerialization.jsonObject(
+                with: try JSONEncoder().encode(request.makeBody())
+            ) as! [String: Any]
+            XCTAssertEqual(body["action"] as? String, "list_todos")
+            XCTAssertEqual(body["sort"] as? String, "-score")
+            let page = try XCTUnwrap(body["page"] as? [String: Any])
+            XCTAssertEqual(page["limit"] as? Int, 2)
+            XCTAssertEqual(page["offset"] as? Int, 0)
+            XCTAssertNotNil(body["filter"])
+
+            // 2. The response side: decode the real paginated envelope.
+            struct PageEnvelope: Decodable {
+                let success: Bool
+                let data: OffsetPage<Todo>
+            }
+
+            let p1 = try JSONDecoder().decode(
+                PageEnvelope.self,
+                from: Data(#{inspect(page1_json, binaries: :as_strings)}.utf8)
+            )
+            XCTAssertTrue(p1.success)
+            // Metadata stays correct under the filtered + sorted query.
+            XCTAssertEqual(p1.data.limit, 2)
+            XCTAssertEqual(p1.data.offset, 0)
+            XCTAssertTrue(p1.data.hasMore)
+            // Sorted by -score, page 1 of the 3 matches: High2 (1009), High1 (1005).
+            XCTAssertEqual(
+                p1.data.results.compactMap { $0.title },
+                ["PageComboE2E-High2", "PageComboE2E-High1"]
+            )
+
+            let p2 = try JSONDecoder().decode(
+                PageEnvelope.self,
+                from: Data(#{inspect(page2_json, binaries: :as_strings)}.utf8)
+            )
+            XCTAssertTrue(p2.success)
+            XCTAssertEqual(p2.data.offset, 2)
+            XCTAssertFalse(p2.data.hasMore)
+            // The remaining match after the offset; the incomplete row never appears.
+            XCTAssertEqual(
+                p2.data.results.compactMap { $0.title },
+                ["PageComboE2E-High3"]
+            )
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EPageCompositionTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EPageCompositionTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   test "extended Ash types (Decimal, Date, UtcDatetime, UtcDatetimeUsec, Map) decode from real pipeline JSON" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)
