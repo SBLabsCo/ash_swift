@@ -327,11 +327,11 @@ defmodule AshSwift.Codegen do
 
     collision = MapSet.intersection(all_type_names, all_enum_type_names)
 
-    unless MapSet.size(collision) == 0 do
-      [name | _] = collision |> MapSet.to_list() |> Enum.sort()
+    unless Enum.empty?(collision) do
+      names = collision |> MapSet.to_list() |> Enum.sort() |> Enum.map_join(", ", &"\"#{&1}\"")
 
       Mix.raise(
-        "AshSwift codegen: enum type name \"#{name}\" conflicts with resource struct name — " <>
+        "AshSwift codegen: enum type name(s) #{names} conflict with resource struct name(s) — " <>
           "rename the field that generates this enum or rename the resource."
       )
     end

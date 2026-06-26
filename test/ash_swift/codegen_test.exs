@@ -325,18 +325,12 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "enum/struct type name collision detection" do
-    test "raises Mix.Error naming the colliding type when an enum type name matches a resource struct name" do
+    test "error message names the colliding type and suggests a rename" do
       assert_raise Mix.Error,
-                   ~r/enum type name "CollisionItemPriority" conflicts with resource struct name/,
+                   ~r/enum type name\(s\) "CollisionItemPriority" conflict.*rename/s,
                    fn ->
                      Codegen.build_files([AshSwift.Test.CollisionDomain])
                    end
-    end
-
-    test "error message suggests renaming the field or the resource" do
-      assert_raise Mix.Error, ~r/rename/, fn ->
-        Codegen.build_files([AshSwift.Test.CollisionDomain])
-      end
     end
 
     test "no-collision domains produce unchanged output (no regression)" do
