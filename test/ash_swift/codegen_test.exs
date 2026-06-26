@@ -100,7 +100,7 @@ defmodule AshSwift.CodegenTest do
                "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
-    test "offset-paginated read action returns OffsetPage<T> and calls runListOffset", %{
+    test "offset-paginated read action returns OffsetPage<T> via OffsetPageRequest", %{
       files: files
     } do
       functions = files["AshRpcFunctions.swift"]
@@ -108,10 +108,10 @@ defmodule AshSwift.CodegenTest do
       assert functions =~
                "public func listTodosOffset(page: OffsetPageParams? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
 
-      assert functions =~ ~s[client.runListOffset(action: "list_todos_offset",]
+      assert functions =~ ~s[client.execute(OffsetPageRequest(action: "list_todos_offset",]
     end
 
-    test "keyset-paginated read action returns KeysetPage<T> and calls runListKeyset", %{
+    test "keyset-paginated read action returns KeysetPage<T> via KeysetPageRequest", %{
       files: files
     } do
       functions = files["AshRpcFunctions.swift"]
@@ -119,7 +119,7 @@ defmodule AshSwift.CodegenTest do
       assert functions =~
                "public func listTodosKeyset(page: KeysetPageParams? = nil, fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
 
-      assert functions =~ ~s[client.runListKeyset(action: "list_todos_keyset",]
+      assert functions =~ ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset",]
     end
 
     test "create action emits typed input + return", %{files: files} do

@@ -21,6 +21,9 @@ private struct StubTransport: Transport {
     }
 }
 
+/// Integration tests for the one client entry point, `execute`. Every request
+/// shape crosses the same seam, so these construct a request value and assert on
+/// the wire round-trip and envelope handling.
 final class AshRpcClientTests: XCTestCase {
     private func config() -> AshRpcConfig {
         AshRpcConfig(
@@ -29,14 +32,14 @@ final class AshRpcClientTests: XCTestCase {
         )
     }
 
-    func testRunRawPostsToResolvedEndpointWithHeaders() async throws {
+    func testExecutePostsToResolvedEndpointWithHeaders() async throws {
         let captured = CapturedRequest()
         let stub = StubTransport(status: 200, body: Data(#"{"success":true,"data":[]}"#.utf8)) {
             captured.value = $0
         }
         let client = AshRpcClient(config: config(), transport: stub)
 
-        _ = try await client.runRaw(action: "list_todos")
+        try await client.execute(RawRequest(action: "list_todos"))
 
         let request = try XCTUnwrap(captured.value)
         XCTAssertEqual(request.url?.absoluteString, "https://example.com/rpc/run")
@@ -53,22 +56,22 @@ final class AshRpcClientTests: XCTestCase {
         XCTAssertEqual(trailing.runEndpointURL.absoluteString, "https://example.com/api/v1/rpc/run")
     }
 
-    func testRunRawReturnsBodyOnSuccess() async throws {
+    func testExecuteRawReturnsBodyOnSuccess() async throws {
         let body = Data(#"{"success":true,"data":{"id":"1"}}"#.utf8)
         let stub = StubTransport(status: 200, body: body) { _ in }
         let client = AshRpcClient(config: config(), transport: stub)
 
-        let data = try await client.runRaw(action: "get_todo")
+        let data = try await client.execute(RawRequest(action: "get_todo"))
         XCTAssertEqual(data, body)
     }
 
-    func testRunRawThrowsServerErrorOnFailureEnvelope() async {
+    func testExecuteThrowsServerErrorOnFailureEnvelope() async {
         let body = Data(#"{"success":false,"errors":[{"type":"invalid","message":"nope"}]}"#.utf8)
         let stub = StubTransport(status: 200, body: body) { _ in }
         let client = AshRpcClient(config: config(), transport: stub)
 
         do {
-            _ = try await client.runRaw(action: "create_todo")
+            try await client.execute(RawRequest(action: "create_todo"))
             XCTFail("expected an error")
         } catch let AshRpcError.server(errors) {
             XCTAssertEqual(errors.first?.message, "nope")
@@ -77,12 +80,12 @@ final class AshRpcClientTests: XCTestCase {
         }
     }
 
-    func testRunRawThrowsHttpStatusOnNon2xx() async {
+    func testExecuteThrowsHttpStatusOnNon2xx() async {
         let stub = StubTransport(status: 500, body: Data("boom".utf8)) { _ in }
         let client = AshRpcClient(config: config(), transport: stub)
 
         do {
-            _ = try await client.runRaw(action: "list_todos")
+            try await client.execute(RawRequest(action: "list_todos"))
             XCTFail("expected an error")
         } catch let AshRpcError.httpStatus(code, _) {
             XCTAssertEqual(code, 500)
@@ -91,13 +94,36 @@ final class AshRpcClientTests: XCTestCase {
         }
     }
 
-    func testRunListOffsetDecodesOffsetPageFromEnvelope() async throws {
+    func testExecuteListDecodesArrayFromEnvelope() async throws {
+        let json = #"{"success":true,"data":[{"id":"1","title":"A"},{"id":"2","title":"B"}]}"#
+        let stub = StubTransport(status: 200, body: Data(json.utf8)) { _ in }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable { let id: String?; let title: String? }
+        let items: [Item] = try await client.execute(ListRequest(action: "list_todos"))
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items.last?.title, "B")
+    }
+
+    func testExecuteGetOptionalDecodesNullDataAsNil() async throws {
+        let json = #"{"success":true,"data":null}"#
+        let stub = StubTransport(status: 200, body: Data(json.utf8)) { _ in }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable { let id: String? }
+        let item: Item? = try await client.execute(GetOptionalRequest(action: "find_todo"))
+
+        XCTAssertNil(item)
+    }
+
+    func testExecuteOffsetDecodesOffsetPageFromEnvelope() async throws {
         let json = #"{"success":true,"data":{"results":[{"id":"1","title":"Test"}],"hasMore":false,"limit":10,"offset":0,"count":null,"type":"offset"}}"#
         let stub = StubTransport(status: 200, body: Data(json.utf8)) { _ in }
         let client = AshRpcClient(config: config(), transport: stub)
 
         struct Item: Decodable { let id: String?; let title: String? }
-        let page: OffsetPage<Item> = try await client.runListOffset(action: "list_todos_offset")
+        let page: OffsetPage<Item> = try await client.execute(OffsetPageRequest(action: "list_todos_offset"))
 
         XCTAssertEqual(page.results.count, 1)
         XCTAssertEqual(page.results.first?.title, "Test")
@@ -107,13 +133,13 @@ final class AshRpcClientTests: XCTestCase {
         XCTAssertNil(page.count)
     }
 
-    func testRunListKeysetDecodesKeysetPageFromEnvelope() async throws {
+    func testExecuteKeysetDecodesKeysetPageFromEnvelope() async throws {
         let json = #"{"success":true,"data":{"results":[{"id":"1"}],"hasMore":true,"limit":5,"after":null,"before":null,"previousPage":"prev-cursor","nextPage":"next-cursor","count":null,"type":"keyset"}}"#
         let stub = StubTransport(status: 200, body: Data(json.utf8)) { _ in }
         let client = AshRpcClient(config: config(), transport: stub)
 
         struct Item: Decodable { let id: String? }
-        let page: KeysetPage<Item> = try await client.runListKeyset(action: "list_todos_keyset")
+        let page: KeysetPage<Item> = try await client.execute(KeysetPageRequest(action: "list_todos_keyset"))
 
         XCTAssertEqual(page.results.count, 1)
         XCTAssertTrue(page.hasMore)
@@ -124,16 +150,15 @@ final class AshRpcClientTests: XCTestCase {
         XCTAssertEqual(page.previousPage, "prev-cursor")
     }
 
-    func testRunListOffsetSendsPageParamsInRequestBody() async throws {
+    func testExecuteOffsetSendsPageParamsInRequestBody() async throws {
         let captured = CapturedRequest()
         let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":10,"count":null}}"#
         let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
         let client = AshRpcClient(config: config(), transport: stub)
 
         struct Item: Decodable & Sendable {}
-        let _: OffsetPage<Item> = try await client.runListOffset(
-            action: "list_todos_offset",
-            page: OffsetPageParams(limit: 5, offset: 10)
+        let _: OffsetPage<Item> = try await client.execute(
+            OffsetPageRequest(action: "list_todos_offset", page: OffsetPageParams(limit: 5, offset: 10))
         )
 
         let request = try XCTUnwrap(captured.value)
@@ -144,16 +169,15 @@ final class AshRpcClientTests: XCTestCase {
         XCTAssertEqual(page["offset"] as? Int, 10)
     }
 
-    func testRunListKeysetSendsPageParamsInRequestBody() async throws {
+    func testExecuteKeysetSendsPageParamsInRequestBody() async throws {
         let captured = CapturedRequest()
         let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"after":null,"before":null,"nextPage":null,"previousPage":null,"count":null}}"#
         let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
         let client = AshRpcClient(config: config(), transport: stub)
 
         struct Item: Decodable & Sendable {}
-        let _: KeysetPage<Item> = try await client.runListKeyset(
-            action: "list_todos_keyset",
-            page: KeysetPageParams(limit: 5, after: "cursor-abc")
+        let _: KeysetPage<Item> = try await client.execute(
+            KeysetPageRequest(action: "list_todos_keyset", page: KeysetPageParams(limit: 5, after: "cursor-abc"))
         )
 
         let request = try XCTUnwrap(captured.value)
@@ -164,14 +188,14 @@ final class AshRpcClientTests: XCTestCase {
         XCTAssertEqual(page["after"] as? String, "cursor-abc")
     }
 
-    func testRunListOffsetThrowsDecodingFailedForBareArray() async {
+    func testExecuteOffsetThrowsDecodingFailedForBareArray() async {
         let json = #"{"success":true,"data":[{"id":"1"}]}"#
         let stub = StubTransport(status: 200, body: Data(json.utf8)) { _ in }
         let client = AshRpcClient(config: config(), transport: stub)
 
         struct Item: Decodable { let id: String? }
         do {
-            let _: OffsetPage<Item> = try await client.runListOffset(action: "list_todos")
+            let _: OffsetPage<Item> = try await client.execute(OffsetPageRequest(action: "list_todos"))
             XCTFail("expected decodingFailed")
         } catch AshRpcError.decodingFailed {
         } catch {

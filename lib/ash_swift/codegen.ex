@@ -515,7 +515,7 @@ defmodule AshSwift.Codegen do
     methods =
       resources
       |> Enum.flat_map(fn %{type_name: type_name, actions: actions} ->
-        Enum.map(actions, &render_method(&1, type_name))
+        Enum.map(actions, &render_spec(method_spec(&1, type_name)))
       end)
       |> Enum.join("\n\n")
 
@@ -543,57 +543,98 @@ defmodule AshSwift.Codegen do
     ])
   end
 
+  # Renders a method spec into a Swift function. This is the single place any
+  # generated function's shape is expressed — header, return clause, and the
+  # `execute(SomeRequest(...))` body all live here. Per-shape variation comes in
+  # as data via method_spec/2, so changing the Swift template (attributes,
+  # docstring format, escaping) is a one-site edit rather than a six-clause audit.
+  #
+  # Spec keys:
+  #   rpc_name      — the RPC action name (backtick-quoted in the docstring)
+  #   func_name     — the Swift function name
+  #   doc           — the parenthetical summary after "RPC action "
+  #   params        — ordered [%{name, type, default}] (default nil = required)
+  #   return_type   — Swift return type, or nil for a void function
+  #   request_type  — the RpcRequest struct name passed to execute
+  #   request_args  — ordered [{label, value}] for the request initializer
+  defp render_spec(spec) do
+    params_str =
+      Enum.map_join(spec.params, ", ", fn
+        %{name: n, type: t, default: nil} -> "#{n}: #{t}"
+        %{name: n, type: t, default: d} -> "#{n}: #{t} = #{d}"
+      end)
+
+    args_str =
+      Enum.map_join(spec.request_args, ", ", fn {label, value} -> "#{label}: #{value}" end)
+
+    return_clause = if spec.return_type, do: " -> #{spec.return_type}", else: ""
+    return_kw = if spec.return_type, do: "return ", else: ""
+
+    """
+    /// Calls the `#{spec.rpc_name}` RPC action (#{spec.doc}).
+    public func #{spec.func_name}(#{params_str}) async throws#{return_clause} {
+        #{return_kw}try await client.execute(#{spec.request_type}(#{args_str}))
+    }\
+    """
+  end
+
+  # Classifies an action into a method spec (pure data — no Swift syntax). One
+  # clause per action shape; render_spec/1 turns any of them into a function.
+
   # List (non-get read) actions accept a FieldSelection list. Return type and
-  # runtime method depend on the action's pagination configuration:
-  #   - offset pagination → OffsetPage<TypeName> via runListOffset
-  #   - keyset pagination → KeysetPage<TypeName> via runListKeyset
-  #   - no pagination     → [TypeName] via runList
-  defp render_method(
+  # the RpcRequest shape depend on the action's pagination configuration:
+  #   - offset pagination → OffsetPage<TypeName> via OffsetPageRequest
+  #   - keyset pagination → KeysetPage<TypeName> via KeysetPageRequest
+  #   - no pagination     → [TypeName] via ListRequest
+  defp method_spec(
          %{rpc_name: rpc_name, action_type: :read, is_get?: false, pagination_type: :offset},
          type_name
        ) do
-    func = lower_camel(rpc_name)
-
-    """
-    /// Calls the `#{rpc_name}` RPC action (offset-paginated list of `#{type_name}` records).
-    public func #{func}(page: OffsetPageParams? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<#{type_name}> {
-        return try await client.runListOffset(action: "#{rpc_name}", page: page, fields: fields)
-    }\
-    """
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "offset-paginated list of `#{type_name}` records",
+      params: [%{name: "page", type: "OffsetPageParams?", default: "nil"}, fields_param()],
+      return_type: "OffsetPage<#{type_name}>",
+      request_type: "OffsetPageRequest",
+      request_args: [{"action", swift_string(rpc_name)}, {"page", "page"}, {"fields", "fields"}]
+    }
   end
 
-  defp render_method(
+  defp method_spec(
          %{rpc_name: rpc_name, action_type: :read, is_get?: false, pagination_type: :keyset},
          type_name
        ) do
-    func = lower_camel(rpc_name)
-
-    """
-    /// Calls the `#{rpc_name}` RPC action (keyset-paginated list of `#{type_name}` records).
-    public func #{func}(page: KeysetPageParams? = nil, fields: [FieldSelection] = []) async throws -> KeysetPage<#{type_name}> {
-        return try await client.runListKeyset(action: "#{rpc_name}", page: page, fields: fields)
-    }\
-    """
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "keyset-paginated list of `#{type_name}` records",
+      params: [%{name: "page", type: "KeysetPageParams?", default: "nil"}, fields_param()],
+      return_type: "KeysetPage<#{type_name}>",
+      request_type: "KeysetPageRequest",
+      request_args: [{"action", swift_string(rpc_name)}, {"page", "page"}, {"fields", "fields"}]
+    }
   end
 
-  defp render_method(
+  defp method_spec(
          %{rpc_name: rpc_name, action_type: :read, is_get?: false},
          type_name
        ) do
-    func = lower_camel(rpc_name)
-
-    """
-    /// Calls the `#{rpc_name}` RPC action (list `#{type_name}` records).
-    public func #{func}(fields: [FieldSelection] = []) async throws -> [#{type_name}] {
-        return try await client.runList(action: "#{rpc_name}", fields: fields)
-    }\
-    """
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "list `#{type_name}` records",
+      params: [fields_param()],
+      return_type: "[#{type_name}]",
+      request_type: "ListRequest",
+      request_args: [{"action", swift_string(rpc_name)}, {"fields", "fields"}]
+    }
   end
 
   # Get (single-record read) actions: typed lookup params and a typed return.
   # not_found_error? true → return T (throws on missing).
   # not_found_error? false → return T? (nil on missing).
-  defp render_method(
+  defp method_spec(
          %{
            rpc_name: rpc_name,
            action_type: :read,
@@ -604,63 +645,51 @@ defmodule AshSwift.Codegen do
          },
          type_name
        ) do
-    func = lower_camel(rpc_name)
-
-    param_list =
-      Enum.map_join(get_by_params, ", ", fn %{name: n, swift_type: t} -> "#{n}: #{t}" end)
-
-    params_str =
-      if param_list == "",
-        do: "fields: [FieldSelection] = []",
-        else: "#{param_list}, fields: [FieldSelection] = []"
-
     dict_entries =
       Enum.map_join(get_by_params, ", ", fn %{name: n} -> ~s("#{n}": #{n}) end)
 
-    {method_name, return_type} =
+    {request_type, return_type} =
       if not_found_error?,
-        do: {"runGet", type_name},
-        else: {"runGetOptional", "#{type_name}?"}
+        do: {"GetRequest", type_name},
+        else: {"GetOptionalRequest", "#{type_name}?"}
 
-    lookup_arg =
-      case location do
-        :input -> ~s(input: [#{dict_entries}])
-        :get_by -> ~s(getBy: [#{dict_entries}])
-      end
+    lookup_label = if location == :input, do: "input", else: "getBy"
 
-    lookup_str = if lookup_arg == "", do: "", else: "#{lookup_arg}, "
-
-    """
-    /// Calls the `#{rpc_name}` RPC action (get `#{type_name}` record).
-    public func #{func}(#{params_str}) async throws -> #{return_type} {
-        return try await client.#{method_name}(action: "#{rpc_name}", #{lookup_str}fields: fields)
-    }\
-    """
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "get `#{type_name}` record",
+      params: Enum.map(get_by_params, &field_param/1) ++ [fields_param()],
+      return_type: return_type,
+      request_type: request_type,
+      request_args: [
+        {"action", swift_string(rpc_name)},
+        {lookup_label, "[#{dict_entries}]"},
+        {"fields", "fields"}
+      ]
+    }
   end
 
   # Create actions: typed input struct + returns the created record.
-  defp render_method(
-         %{
-           rpc_name: rpc_name,
-           action_type: :create,
-           input_struct_name: struct_name
-         },
+  defp method_spec(
+         %{rpc_name: rpc_name, action_type: :create, input_struct_name: struct_name},
          type_name
        ) do
-    func = lower_camel(rpc_name)
-
-    """
-    /// Calls the `#{rpc_name}` RPC action (create `#{type_name}` record).
-    public func #{func}(input: #{struct_name}, fields: [FieldSelection] = []) async throws -> #{type_name} {
-        return try await client.runCreate(action: "#{rpc_name}", input: input, fields: fields)
-    }\
-    """
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "create `#{type_name}` record",
+      params: [%{name: "input", type: struct_name, default: nil}, fields_param()],
+      return_type: type_name,
+      request_type: "CreateRequest",
+      request_args: [{"action", swift_string(rpc_name)}, {"input", "input"}, {"fields", "fields"}]
+    }
   end
 
   # Update actions: primary-key params + typed input struct + returns the updated record.
   # M1: single primary-key field only; its value travels as the `identity` string
   # in the AshTypescript RPC wire protocol (ADR-0003).
-  defp render_method(
+  defp method_spec(
          %{
            rpc_name: rpc_name,
            action_type: :update,
@@ -669,84 +698,84 @@ defmodule AshSwift.Codegen do
          },
          type_name
        ) do
-    func = lower_camel(rpc_name)
-
-    pk_param_list =
-      Enum.map_join(pk_params, ", ", fn %{name: n, swift_type: t} -> "#{n}: #{t}" end)
-
-    pk_identity =
-      case List.first(pk_params) do
-        %{name: n} ->
-          if length(pk_params) > 1 do
-            Logger.warning(
-              "AshSwift: resource #{type_name} has a composite primary key; " <>
-                "update identity will only use the first field (#{n}) until multi-PK support lands."
-            )
-          end
-
-          n
-
-        nil ->
-          raise "AshSwift: update codegen requires a primary key on resource #{type_name}"
-      end
-
-    """
-    /// Calls the `#{rpc_name}` RPC action (update `#{type_name}` record).
-    public func #{func}(#{pk_param_list}, input: #{struct_name}, fields: [FieldSelection] = []) async throws -> #{type_name} {
-        return try await client.runUpdate(action: "#{rpc_name}", identity: #{pk_identity}, input: input, fields: fields)
-    }\
-    """
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "update `#{type_name}` record",
+      params:
+        Enum.map(pk_params, &field_param/1) ++
+          [%{name: "input", type: struct_name, default: nil}, fields_param()],
+      return_type: type_name,
+      request_type: "UpdateRequest",
+      request_args: [
+        {"action", swift_string(rpc_name)},
+        {"identity", pk_identity!(pk_params, type_name, "update")},
+        {"input", "input"},
+        {"fields", "fields"}
+      ]
+    }
   end
 
   # Destroy actions: primary-key param only, void return.
   # M1: single primary-key field only; its value travels as the `identity` string.
-  defp render_method(
-         %{
-           rpc_name: rpc_name,
-           action_type: :destroy,
-           primary_key_params: pk_params
-         },
+  defp method_spec(
+         %{rpc_name: rpc_name, action_type: :destroy, primary_key_params: pk_params},
          type_name
        ) do
-    func = lower_camel(rpc_name)
-
-    pk_param_list =
-      Enum.map_join(pk_params, ", ", fn %{name: n, swift_type: t} -> "#{n}: #{t}" end)
-
-    pk_identity =
-      case List.first(pk_params) do
-        %{name: n} ->
-          if length(pk_params) > 1 do
-            Logger.warning(
-              "AshSwift: resource #{type_name} has a composite primary key; " <>
-                "destroy identity will only use the first field (#{n}) until multi-PK support lands."
-            )
-          end
-
-          n
-
-        nil ->
-          raise "AshSwift: destroy codegen requires a primary key on resource #{type_name}"
-      end
-
-    """
-    /// Calls the `#{rpc_name}` RPC action (destroy record).
-    public func #{func}(#{pk_param_list}) async throws {
-        try await client.runDestroy(action: "#{rpc_name}", identity: #{pk_identity})
-    }\
-    """
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "destroy record",
+      params: Enum.map(pk_params, &field_param/1),
+      return_type: nil,
+      request_type: "DestroyRequest",
+      request_args: [
+        {"action", swift_string(rpc_name)},
+        {"identity", pk_identity!(pk_params, type_name, "destroy")}
+      ]
+    }
   end
 
   # Catch-all for any other action types not handled above.
-  defp render_method(%{rpc_name: rpc_name, action: action}, type_name) do
-    func = lower_camel(rpc_name)
+  defp method_spec(%{rpc_name: rpc_name, action: action}, type_name) do
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "`#{action}` on `#{type_name}`",
+      params: [],
+      return_type: nil,
+      request_type: "RawRequest",
+      request_args: [{"action", swift_string(rpc_name)}]
+    }
+  end
 
-    """
-    /// Calls the `#{rpc_name}` RPC action (`#{action}` on `#{type_name}`).
-    public func #{func}() async throws {
-        try await client.runRaw(action: "#{rpc_name}")
-    }\
-    """
+  # The `fields:` parameter every selectable action carries.
+  defp fields_param, do: %{name: "fields", type: "[FieldSelection]", default: "[]"}
+
+  # A lookup/primary-key field as a required Swift parameter.
+  defp field_param(%{name: n, swift_type: t}), do: %{name: n, type: t, default: nil}
+
+  # A string literal as it appears in emitted Swift source (quoted).
+  defp swift_string(s), do: ~s("#{s}")
+
+  # The primary-key field name used as the `identity` argument for update and
+  # destroy. Warns on composite keys (only the first field is used until multi-PK
+  # support lands) and raises when a resource has no primary key.
+  defp pk_identity!(pk_params, type_name, verb) do
+    case List.first(pk_params) do
+      %{name: n} ->
+        if length(pk_params) > 1 do
+          Logger.warning(
+            "AshSwift: resource #{type_name} has a composite primary key; " <>
+              "#{verb} identity will only use the first field (#{n}) until multi-PK support lands."
+          )
+        end
+
+        n
+
+      nil ->
+        raise "AshSwift: #{verb} codegen requires a primary key on resource #{type_name}"
+    end
   end
 
   # ---- helpers ----
@@ -834,7 +863,7 @@ defmodule AshSwift.Codegen do
     end
   end
 
-  # Maps a list of field atoms to the %{name, swift_type} shapes render_method uses.
+  # Maps a list of field atoms to the %{name, swift_type} shapes method_spec uses.
   defp build_get_by_params(fields, resource, formatter) do
     Enum.map(fields, fn field ->
       name = FieldFormatter.format_field_for_client(field, resource, formatter)
