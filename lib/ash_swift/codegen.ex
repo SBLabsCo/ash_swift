@@ -742,21 +742,19 @@ defmodule AshSwift.Codegen do
     """
   end
 
-  # Emits the typed {Resource}Filter struct. Every property is an Optional
-  # operator generic (from AshSwiftRuntime), so an unset attribute is simply
-  # omitted: Swift's synthesized Encodable encodes each Optional with
+  # Emits the typed {Resource}Filter struct. Each per-attribute predicate is an
+  # Optional operator generic (from AshSwiftRuntime), so an unset attribute is
+  # simply omitted: Swift's synthesized Encodable encodes each Optional with
   # `encodeIfPresent`, producing the `{field: {operator: value}}` map the
-  # `Ash.Query.filter_input` pipeline consumes (camelCase operator keys are
-  # confirmed against the live pipeline). Keyword-named fields are backtick-
+  # `Ash.Query.filter_input` pipeline consumes. Keyword-named fields are backtick-
   # escaped; the synthesized CodingKey still carries the unescaped wire name.
   #
-  # Every filter also carries the `and`/`or`/`not` logical combinators
-  # (@filter_combinators), each an optional array of the same filter type. They
-  # encode the same way — unset combinators omitted — yielding the nested
-  # `{"and": [...]}` maps the pipeline accepts. They are emitted even when the
-  # resource has no filterable attributes (the empty clause below): the filter
-  # surface is present-but-degenerate for such a resource, exactly as #35 chose to
-  # emit the empty struct rather than drop the filter parameter.
+  # Layout: predicate fields first, then the @filter_combinators arrays (see there
+  # for the wire-key and recursion rationale), then the no-arg init. The
+  # combinators are emitted even for a resource with no filterable attributes (the
+  # empty clause below): the filter surface is present-but-degenerate there,
+  # exactly as #35 chose to emit the empty struct rather than drop the filter
+  # parameter.
   defp render_filter_struct(%{type_name: name, fields: []}) do
     """
     public struct #{name}: Encodable, Sendable {

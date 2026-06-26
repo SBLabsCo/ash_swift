@@ -1044,7 +1044,7 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
-  test "filtered read with logical combinators: the Swift-encoded nested and/or map is what the pipeline accepts" do
+  test "filtered read with logical combinators: the Swift-encoded and/or/not maps are what the pipeline accepts" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)
     sources = Path.join([tmp, "Sources", "GeneratedClient"])
@@ -1097,6 +1097,23 @@ defmodule AshSwift.E2ETest do
 
     expected_filter_json = Jason.encode!(filter_map)
 
+    # Separate `not` arm against the same seeds. `not` *inverts* rather than
+    # accumulating like `and`/`or`, so a positive-results test doesn't cover it:
+    # NOT(completed == false) keeps only the completed rows, excluding the single
+    # incomplete one (CombE2E-NotDone).
+    not_filter_map = %{"not" => [%{"completed" => %{"eq" => false}}]}
+
+    not_result =
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
+        "action" => "list_todos",
+        "fields" => ["title", "completed", "score", "priority"],
+        "filter" => not_filter_map
+      })
+
+    assert not_result["success"] == true, inspect(not_result)
+    not_json = Jason.encode!(not_result)
+    expected_not_filter_json = Jason.encode!(not_filter_map)
+
     e2e_swift = """
     import XCTest
     import Foundation
@@ -1104,9 +1121,9 @@ defmodule AshSwift.E2ETest do
     import GeneratedClient
 
     // Proves the logical combinators round-trip: the generated `TodoFilter`, with
-    // its `and`/`or` arrays populated by nested filters, encodes to the exact nested
-    // map the Elixir pipeline was given (and accepts), and only the rows the
-    // compound predicate selects come back, decoded through the generated model.
+    // its `and`/`or`/`not` arrays populated by nested filters, encodes to the exact
+    // maps the Elixir pipeline was given (and accepts), and only the rows the
+    // predicate selects come back, decoded through the generated model.
     final class E2EFilterCombinatorTest: XCTestCase {
         private func ours(_ todos: [Todo]) -> [String] {
             todos.compactMap { $0.title }.filter { $0.hasPrefix("CombE2E-") }.sorted()
@@ -1147,6 +1164,35 @@ defmodule AshSwift.E2ETest do
             let envelope = try JSONDecoder().decode(ListEnvelope.self, from: Data(json.utf8))
             XCTAssertTrue(envelope.success)
             XCTAssertEqual(ours(envelope.data), ["CombE2E-Match1", "CombE2E-Match2"])
+        }
+
+        func testNotCombinatorInvertsAndExcludesRows() throws {
+            // `not` inverts: NOT(completed == false). The encode-equality check
+            // pins the `{"not": [...]}` wire shape; the decode check proves the
+            // server excluded the one incomplete row rather than included it.
+            var notClause = TodoFilter()
+            notClause.completed = EquatableOperators(eq: false)
+
+            var filter = TodoFilter()
+            filter.not = [notClause]
+
+            let encoded = try JSONEncoder().encode(filter)
+            let encodedObj = try JSONSerialization.jsonObject(with: encoded) as! NSDictionary
+            let expected = #{inspect(expected_not_filter_json, binaries: :as_strings)}
+            let expectedObj =
+                try JSONSerialization.jsonObject(with: Data(expected.utf8)) as! NSDictionary
+            XCTAssertEqual(encodedObj, expectedObj)
+
+            let json = #{inspect(not_json, binaries: :as_strings)}
+            struct ListEnvelope: Decodable { let success: Bool; let data: [Todo] }
+            let envelope = try JSONDecoder().decode(ListEnvelope.self, from: Data(json.utf8))
+            XCTAssertTrue(envelope.success)
+            // CombE2E-NotDone (completed == false) is excluded; the three completed
+            // rows remain — proving `not` excluded rather than selected.
+            XCTAssertEqual(
+                ours(envelope.data),
+                ["CombE2E-Match1", "CombE2E-Match2", "CombE2E-NoOr"]
+            )
         }
     }
     """
