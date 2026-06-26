@@ -100,7 +100,7 @@ defmodule AshSwift.CodegenTest do
                "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
-    test "offset-paginated read action returns OffsetPage<T> and calls runListOffset", %{
+    test "offset-paginated read action returns OffsetPage<T> via OffsetPageRequest", %{
       files: files
     } do
       functions = files["AshRpcFunctions.swift"]
@@ -108,10 +108,10 @@ defmodule AshSwift.CodegenTest do
       assert functions =~
                "public func listTodosOffset(page: OffsetPageParams? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
 
-      assert functions =~ ~s[client.runListOffset(action: "list_todos_offset",]
+      assert functions =~ ~s[client.execute(OffsetPageRequest(action: "list_todos_offset",]
     end
 
-    test "keyset-paginated read action returns KeysetPage<T> and calls runListKeyset", %{
+    test "keyset-paginated read action returns KeysetPage<T> via KeysetPageRequest", %{
       files: files
     } do
       functions = files["AshRpcFunctions.swift"]
@@ -119,7 +119,7 @@ defmodule AshSwift.CodegenTest do
       assert functions =~
                "public func listTodosKeyset(page: KeysetPageParams? = nil, fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
 
-      assert functions =~ ~s[client.runListKeyset(action: "list_todos_keyset",]
+      assert functions =~ ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset",]
     end
 
     test "create action emits typed input + return", %{files: files} do
@@ -267,6 +267,13 @@ defmodule AshSwift.CodegenTest do
     test "Ash.Type.Map maps to [String: AshJSON]", %{files: files} do
       types = files["AshRpcTypes.swift"]
       assert types =~ "public var metadata: [String: AshJSON]?"
+    end
+
+    test "backtick-escapes Swift reserved keywords used as function names", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      # :init is a Swift declaration keyword; bare `public func init(...)` is a syntax error.
+      assert functions =~ "public func `init`("
+      refute functions =~ "public func init("
     end
 
     test "is deterministic — same domains produce byte-identical output", %{files: files} do

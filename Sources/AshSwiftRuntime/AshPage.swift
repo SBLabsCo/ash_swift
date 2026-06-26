@@ -31,7 +31,7 @@ public struct KeysetPage<T: Decodable & Sendable>: Decodable, Sendable {
 
 /// Page navigation parameters for offset-paginated read actions.
 ///
-/// Pass to `runListOffset` (or generated wrappers) to control which page the
+/// Pass to `OffsetPageRequest` (or generated wrappers) to control which page the
 /// backend returns. Nil fields are omitted from the JSON body.
 public struct OffsetPageParams: Encodable, Sendable {
     public let limit: Int?
@@ -45,7 +45,7 @@ public struct OffsetPageParams: Encodable, Sendable {
 
 /// Page navigation parameters for keyset-paginated read actions.
 ///
-/// Pass to `runListKeyset` (or generated wrappers) to control which page the
+/// Pass to `KeysetPageRequest` (or generated wrappers) to control which page the
 /// backend returns. Nil fields are omitted from the JSON body.
 public struct KeysetPageParams: Encodable, Sendable {
     public let limit: Int?

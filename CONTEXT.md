@@ -24,3 +24,9 @@ The small hand-written Swift support package the generated client depends on at 
 
 **Transport**:
 The injectable Swift protocol the runtime uses to actually send a request. Default implementation is URLSession-based; callers may supply their own (e.g. Alamofire). _Avoid_: "HTTP client", "fetcher".
+
+**RpcRequest**:
+A typed request value describing one RPC call — its request body and how to decode its result. The generated client constructs an `RpcRequest` and hands it to the runtime's single `execute` entry point. The common case (unwrap the response's `data` key) is covered by the `DataEnvelopeRequest` refinement; only destroy (void) and raw (data) supply a custom decode. _Avoid_: "command", "operation".
+
+**execute**:
+The runtime's one entry point that runs any `RpcRequest`: encode the body, POST it, validate the `{success, errors}` envelope, decode the result. Replaces the per-shape `run*` family — new request shapes become new `RpcRequest` values, not new methods on the client. _Avoid_: "call", "dispatch".
