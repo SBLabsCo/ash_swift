@@ -324,6 +324,28 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
+  describe "enum/struct type name collision detection" do
+    test "raises Mix.Error naming the colliding type when an enum type name matches a resource struct name" do
+      assert_raise Mix.Error,
+                   ~r/enum type name "CollisionItemPriority" conflicts with resource struct name/,
+                   fn ->
+                     Codegen.build_files([AshSwift.Test.CollisionDomain])
+                   end
+    end
+
+    test "error message suggests renaming the field or the resource" do
+      assert_raise Mix.Error, ~r/rename/, fn ->
+        Codegen.build_files([AshSwift.Test.CollisionDomain])
+      end
+    end
+
+    test "no-collision domains produce unchanged output (no regression)" do
+      # Calling build_files/1 on the main domain must not raise
+      assert %{"AshRpcTypes.swift" => _, "AshRpcFunctions.swift" => _} =
+               Codegen.build_files([AshSwift.Test.Domain])
+    end
+  end
+
   describe "stale_files/2 (the --check staleness guard)" do
     setup do
       dir = Path.join(System.tmp_dir!(), "ash_swift_stale_#{System.unique_integer([:positive])}")
