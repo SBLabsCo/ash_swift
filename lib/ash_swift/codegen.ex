@@ -22,7 +22,6 @@ defmodule AshSwift.Codegen do
                          "Bool",
                          "Int",
                          "Double",
-                         "Decimal",
                          "Date",
                          "AshJSON"
                        ])
@@ -759,6 +758,11 @@ defmodule AshSwift.Codegen do
   # Handles: scalars ("String?"), arrays ("[Todo]?"), and dicts ("[String: AshJSON]").
   # The dict case strips the leading "[String: " and trailing "]" to get the
   # value type, then checks it independently.
+  #
+  # Known limitation: nested generics (e.g. "[String: [AshJSON]]") are not
+  # handled — stripping one bracket layer yields "[AshJSON]" as the value type,
+  # which won't match any entry in the builtin or type-name sets. No current code
+  # path generates such types, so this is a future-maintainer note, not a bug.
   defp swift_type_safe?(swift_type, all_type_names, all_enum_type_names) do
     bare =
       swift_type

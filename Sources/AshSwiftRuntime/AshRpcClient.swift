@@ -22,13 +22,13 @@ public struct AshRpcClient: Sendable {
     // back to the plain one so both variants decode cleanly.
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
-        let fmtFrac = ISO8601DateFormatter()
-        fmtFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let fmtPlain = ISO8601DateFormatter()
-        fmtPlain.formatOptions = [.withInternetDateTime]
         d.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let str = try container.decode(String.self)
+            let fmtFrac = ISO8601DateFormatter()
+            fmtFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let fmtPlain = ISO8601DateFormatter()
+            fmtPlain.formatOptions = [.withInternetDateTime]
             if let date = fmtFrac.date(from: str) { return date }
             if let date = fmtPlain.date(from: str) { return date }
             throw DecodingError.dataCorruptedError(

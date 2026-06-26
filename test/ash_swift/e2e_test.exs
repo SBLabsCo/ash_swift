@@ -769,9 +769,12 @@ defmodule AshSwift.E2ETest do
             }
 
             let decoder = JSONDecoder()
-            // Ash.Type.UtcDatetime and UtcDatetimeUsec arrive as ISO 8601 UTC
-            // strings; AshRpcClient configures the same strategy for production
-            // use, but this local decoder mirrors it for the test envelope.
+            // Note: this decoder mirrors the custom ISO 8601 strategy that AshRpcClient
+            // configures in production (AshRpcClient.swift). It proves the JSON payload
+            // is decodable, but does NOT exercise AshRpcClient's own decoder
+            // configuration. A regression in AshRpcClient.swift's dateDecodingStrategy
+            // would not be caught here — the in-process test setup has no HTTP path
+            // to route through the real client.
             let fmtFrac = ISO8601DateFormatter()
             fmtFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let fmtPlain = ISO8601DateFormatter()
