@@ -128,42 +128,72 @@ defmodule AshSwift.Codegen do
     |> Enum.map(fn %{resource: resource, rpc_actions: rpc_actions} ->
       type_name = ResourceInfo.typescript_type_name!(resource)
       {fields, enums} = collect_fields(resource, type_name)
+      formatter = AshTypescript.output_field_formatter() || :camel_case
+
+      # Build actions and, in the same pass, collect the input structs to emit.
+      {actions_unsorted, input_structs_unsorted} =
+        Enum.reduce(rpc_actions, {[], []}, fn rpc_action, {actions_acc, structs_acc} ->
+          ash_action = Ash.Resource.Info.action(resource, rpc_action.action)
+
+          {is_get?, get_by_params, get_by_location} =
+            if ash_action.type == :read do
+              build_get_info(ash_action, rpc_action, resource, formatter)
+            else
+              {false, [], nil}
+            end
+
+          not_found_error? =
+            case Map.get(rpc_action, :not_found_error?) do
+              nil -> AshTypescript.Rpc.not_found_error?()
+              value -> value
+            end
+
+          {input_struct_name, primary_key_params} =
+            case ash_action.type do
+              type when type in [:create, :update] ->
+                struct_name = pascal_case(rpc_action.name) <> "Input"
+
+                {struct_name,
+                 build_get_by_params(Ash.Resource.Info.primary_key(resource), resource, formatter)}
+
+              :destroy ->
+                {nil,
+                 build_get_by_params(Ash.Resource.Info.primary_key(resource), resource, formatter)}
+
+              _ ->
+                {nil, []}
+            end
+
+          action = %{
+            rpc_name: rpc_action.name,
+            action: rpc_action.action,
+            action_type: ash_action.type,
+            is_get?: is_get?,
+            get_by_params: get_by_params,
+            get_by_location: get_by_location,
+            not_found_error?: not_found_error?,
+            input_struct_name: input_struct_name,
+            primary_key_params: primary_key_params
+          }
+
+          new_struct =
+            if input_struct_name do
+              inputs = collect_action_inputs(ash_action, resource, type_name, formatter)
+              [%{struct_name: input_struct_name, fields: inputs}]
+            else
+              []
+            end
+
+          {[action | actions_acc], new_struct ++ structs_acc}
+        end)
 
       %{
         resource_module: resource,
         type_name: type_name,
         fields: fields,
         enums: enums,
-        actions:
-          rpc_actions
-          |> Enum.map(fn rpc_action ->
-            ash_action = Ash.Resource.Info.action(resource, rpc_action.action)
-            formatter = AshTypescript.output_field_formatter() || :camel_case
-
-            {is_get?, get_by_params, get_by_location} =
-              if ash_action.type == :read do
-                build_get_info(ash_action, rpc_action, resource, formatter)
-              else
-                {false, [], nil}
-              end
-
-            not_found_error? =
-              case Map.get(rpc_action, :not_found_error?) do
-                nil -> AshTypescript.Rpc.not_found_error?()
-                value -> value
-              end
-
-            %{
-              rpc_name: rpc_action.name,
-              action: rpc_action.action,
-              action_type: ash_action.type,
-              is_get?: is_get?,
-              get_by_params: get_by_params,
-              get_by_location: get_by_location,
-              not_found_error?: not_found_error?
-            }
-          end)
-          |> Enum.sort_by(& &1.rpc_name)
+        actions: Enum.sort_by(actions_unsorted, & &1.rpc_name),
+        input_structs: input_structs_unsorted |> Enum.sort_by(& &1.struct_name)
       }
     end)
     |> Enum.sort_by(& &1.type_name)
@@ -291,7 +321,8 @@ defmodule AshSwift.Codegen do
           type_name: type_name,
           fields: safe_fields,
           enums: enums,
-          actions: []
+          actions: [],
+          input_structs: []
         }
       end)
 
@@ -347,7 +378,10 @@ defmodule AshSwift.Codegen do
 
   defp render_types(resources) do
     structs =
-      Enum.map_join(resources, "\n\n", fn %{type_name: type_name, fields: fields, enums: enums} ->
+      Enum.map_join(resources, "\n\n", fn resource ->
+        %{type_name: type_name, fields: fields, enums: enums} = resource
+        input_structs = Map.get(resource, :input_structs, [])
+
         enums_block =
           case enums do
             [] ->
@@ -359,16 +393,26 @@ defmodule AshSwift.Codegen do
 
         fields_block = render_fields(fields)
 
-        enums_block <>
-          """
-          /// Generated model for the `#{type_name}` resource.
-          ///
-          /// Every selectable field is Optional so that ad-hoc field selection is
-          /// safe: unselected fields decode as `nil`.
-          public struct #{type_name}: Codable, Sendable, Equatable {
-          #{fields_block}    public init() {}
-          }\
-          """
+        model_struct =
+          enums_block <>
+            """
+            /// Generated model for the `#{type_name}` resource.
+            ///
+            /// Every selectable field is Optional so that ad-hoc field selection is
+            /// safe: unselected fields decode as `nil`.
+            public struct #{type_name}: Codable, Sendable, Equatable {
+            #{fields_block}    public init() {}
+            }\
+            """
+
+        case input_structs do
+          [] ->
+            model_struct
+
+          structs ->
+            input_block = Enum.map_join(structs, "\n\n", &render_input_struct/1)
+            model_struct <> "\n\n" <> input_block
+        end
       end)
 
     IO.iodata_to_binary([@header, "\n", "import Foundation\n", body_or_empty(structs)])
@@ -505,8 +549,78 @@ defmodule AshSwift.Codegen do
     """
   end
 
-  # All other action types (create, update, destroy) keep the simple signature
-  # for M1; typed inputs and returns land in later milestones.
+  # Create actions: typed input struct + returns the created record.
+  defp render_method(
+         %{
+           rpc_name: rpc_name,
+           action_type: :create,
+           input_struct_name: struct_name
+         },
+         type_name
+       ) do
+    func = lower_camel(rpc_name)
+
+    """
+    /// Calls the `#{rpc_name}` RPC action (create `#{type_name}` record).
+    public func #{func}(input: #{struct_name}, fields: [FieldSelection] = []) async throws -> #{type_name} {
+        return try await client.runCreate(action: "#{rpc_name}", input: input, fields: fields)
+    }\
+    """
+  end
+
+  # Update actions: primary-key params + typed input struct + returns the updated record.
+  # M1: single primary-key field only; its value travels as the `identity` string
+  # in the AshTypescript RPC wire protocol (ADR-0003).
+  defp render_method(
+         %{
+           rpc_name: rpc_name,
+           action_type: :update,
+           input_struct_name: struct_name,
+           primary_key_params: pk_params
+         },
+         type_name
+       ) do
+    func = lower_camel(rpc_name)
+
+    pk_param_list =
+      Enum.map_join(pk_params, ", ", fn %{name: n, swift_type: t} -> "#{n}: #{t}" end)
+
+    pk_identity = pk_params |> List.first() |> Map.get(:name, "id")
+
+    """
+    /// Calls the `#{rpc_name}` RPC action (update `#{type_name}` record).
+    public func #{func}(#{pk_param_list}, input: #{struct_name}, fields: [FieldSelection] = []) async throws -> #{type_name} {
+        return try await client.runUpdate(action: "#{rpc_name}", identity: #{pk_identity}, input: input, fields: fields)
+    }\
+    """
+  end
+
+  # Destroy actions: primary-key param only, void return.
+  # M1: single primary-key field only; its value travels as the `identity` string.
+  defp render_method(
+         %{
+           rpc_name: rpc_name,
+           action_type: :destroy,
+           primary_key_params: pk_params
+         },
+         _type_name
+       ) do
+    func = lower_camel(rpc_name)
+
+    pk_param_list =
+      Enum.map_join(pk_params, ", ", fn %{name: n, swift_type: t} -> "#{n}: #{t}" end)
+
+    pk_identity = pk_params |> List.first() |> Map.get(:name, "id")
+
+    """
+    /// Calls the `#{rpc_name}` RPC action (destroy record).
+    public func #{func}(#{pk_param_list}) async throws {
+        try await client.runDestroy(action: "#{rpc_name}", identity: #{pk_identity})
+    }\
+    """
+  end
+
+  # Catch-all for any other action types not handled above.
   defp render_method(%{rpc_name: rpc_name, action: action}, type_name) do
     func = lower_camel(rpc_name)
 
@@ -576,6 +690,105 @@ defmodule AshSwift.Codegen do
       name = FieldFormatter.format_field_for_client(field, resource, formatter)
       %{name: name, swift_type: "String"}
     end)
+  end
+
+  # Collects the accepted input fields for a create or update action, mapping
+  # each to its Swift type and whether it is required (create only).
+  #
+  # Only public attributes in the action's accept list are included; arguments
+  # and non-public attributes are skipped. All update fields are optional because
+  # update is always a partial operation.
+  defp collect_action_inputs(ash_action, resource, type_name, formatter) do
+    attrs_map =
+      resource
+      |> Ash.Resource.Info.public_attributes()
+      |> Map.new(fn attr -> {attr.name, attr} end)
+
+    ash_action.accept
+    |> Enum.flat_map(fn field_name ->
+      case Map.get(attrs_map, field_name) do
+        nil ->
+          []
+
+        attr ->
+          formatted_name = FieldFormatter.format_field_for_client(field_name, resource, formatter)
+
+          swift_type =
+            case extract_enum_cases(attr) do
+              {:ok, _} -> enum_type_name(type_name, formatted_name)
+              :not_enum -> ash_type_to_swift(attr.type)
+            end
+
+          required? = ash_action.type == :create && !attr.allow_nil? && is_nil(attr.default)
+          [%{name: formatted_name, swift_type: swift_type, required?: required?}]
+      end
+    end)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  # Emits a typed input struct for a create or update action. Required fields are
+  # non-optional stored properties and appear first in the init. Optional fields
+  # use `encodeIfPresent` so that unset fields are omitted from the JSON body
+  # rather than serialised as `null` (which would tell the backend to clear them).
+  defp render_input_struct(%{struct_name: name, fields: []}) do
+    """
+    public struct #{name}: Encodable, Sendable {
+        public init() {}
+    }\
+    """
+  end
+
+  defp render_input_struct(%{struct_name: name, fields: fields}) do
+    all_sorted = Enum.sort_by(fields, & &1.name)
+    required = fields |> Enum.filter(& &1.required?) |> Enum.sort_by(& &1.name)
+    optional = fields |> Enum.filter(&(!&1.required?)) |> Enum.sort_by(& &1.name)
+
+    props_block =
+      Enum.map_join(all_sorted, "\n", fn %{name: n, swift_type: t, required?: req?} ->
+        if req?, do: "    public var #{n}: #{t}", else: "    public var #{n}: #{t}?"
+      end)
+
+    init_params =
+      (Enum.map(required, fn %{name: n, swift_type: t} -> "#{n}: #{t}" end) ++
+         Enum.map(optional, fn %{name: n, swift_type: t} -> "#{n}: #{t}? = nil" end))
+      |> Enum.join(", ")
+
+    init_body =
+      Enum.map_join(all_sorted, "\n", fn %{name: n} -> "        self.#{n} = #{n}" end)
+
+    coding_keys_cases =
+      Enum.map_join(all_sorted, "\n", fn %{name: n} -> "        case #{n}" end)
+
+    encode_body =
+      Enum.map_join(all_sorted, "\n", fn %{name: n, required?: req?} ->
+        if req?,
+          do: "        try container.encode(#{n}, forKey: .#{n})",
+          else: "        try container.encodeIfPresent(#{n}, forKey: .#{n})"
+      end)
+
+    """
+    public struct #{name}: Encodable, Sendable {
+    #{props_block}
+
+        public init(#{init_params}) {
+    #{init_body}
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+    #{encode_body}
+        }
+
+        private enum CodingKeys: String, CodingKey {
+    #{coding_keys_cases}
+        }
+    }\
+    """
+  end
+
+  # snake_case to PascalCase (e.g. create_todo → CreateTodo).
+  defp pascal_case(name) do
+    name |> to_string() |> String.split("_", trim: true) |> Enum.map_join(&String.capitalize/1)
   end
 
   defp write_if_changed(path, content) do

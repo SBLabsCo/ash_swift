@@ -361,6 +361,139 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "create, update, and destroy actions encode correctly and return typed records" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # --- Create ---
+    create_params = %{
+      "action" => "create_todo",
+      "input" => %{"title" => "E2E Create Todo", "completed" => false},
+      "fields" => ["id", "title", "completed"]
+    }
+
+    create_result = AshTypescript.Rpc.run_action(:ash_swift, conn, create_params)
+    assert create_result["success"] == true
+    assert is_map(create_result["data"])
+    todo_id = create_result["data"]["id"]
+    assert todo_id != nil
+
+    create_json = Jason.encode!(create_result)
+
+    # --- Update ---
+    # The AshTypescript RPC wire protocol uses `identity` (not `input`) to
+    # identify the record for update/destroy actions (ADR-0003).
+    update_params = %{
+      "action" => "update_todo",
+      "identity" => todo_id,
+      "input" => %{"title" => "E2E Updated Todo"},
+      "fields" => ["id", "title", "completed"]
+    }
+
+    update_result = AshTypescript.Rpc.run_action(:ash_swift, conn, update_params)
+    assert update_result["success"] == true
+    assert update_result["data"]["title"] == "E2E Updated Todo"
+
+    update_json = Jason.encode!(update_result)
+
+    # --- Destroy ---
+    destroy_params = %{
+      "action" => "destroy_todo",
+      "identity" => todo_id
+    }
+
+    destroy_result = AshTypescript.Rpc.run_action(:ash_swift, conn, destroy_params)
+    assert destroy_result["success"] == true
+
+    destroy_json = Jason.encode!(destroy_result)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Verifies that create/update/destroy wire responses decode via generated types
+    // and that the generated input struct API compiles with typed, checked calls.
+    final class E2EMutationTest: XCTestCase {
+        func testCreateResponseDecodesIntoTypedRecord() throws {
+            let json = #{inspect(create_json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct CreateEnvelope: Decodable {
+                let success: Bool
+                let data: Todo
+            }
+
+            let envelope = try JSONDecoder().decode(CreateEnvelope.self, from: raw)
+            XCTAssertTrue(envelope.success)
+            XCTAssertEqual(envelope.data.title, "E2E Create Todo")
+            XCTAssertEqual(envelope.data.completed, false)
+            XCTAssertNotNil(envelope.data.id)
+        }
+
+        func testUpdateResponseDecodesIntoTypedRecord() throws {
+            let json = #{inspect(update_json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct UpdateEnvelope: Decodable {
+                let success: Bool
+                let data: Todo
+            }
+
+            let envelope = try JSONDecoder().decode(UpdateEnvelope.self, from: raw)
+            XCTAssertTrue(envelope.success)
+            XCTAssertEqual(envelope.data.title, "E2E Updated Todo")
+        }
+
+        func testDestroyResponseIsSuccess() throws {
+            let json = #{inspect(destroy_json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            // Destroy returns {"success": true, "data": {}}; ignore `data` by
+            // not including it in the struct — Codable silently skips extra keys.
+            struct DestroyEnvelope: Decodable {
+                let success: Bool
+            }
+
+            let envelope = try JSONDecoder().decode(DestroyEnvelope.self, from: raw)
+            XCTAssertTrue(envelope.success)
+        }
+
+        // Compile-time check: the generated input struct API must accept required
+        // and optional parameters correctly — the type checker is the real assertion.
+        func testInputStructsCompileWithTypedParams() {
+            let _create = CreateTodoInput(title: "Required title only")
+            let _createFull = CreateTodoInput(
+                title: "Full",
+                completed: true,
+                priority: .high
+            )
+            let _update = UpdateTodoInput(title: "Partial update")
+            let _updateEmpty = UpdateTodoInput()
+            let _createUser = CreateUserInput(email: "a@b.com", name: "Alice")
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EMutationTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EMutationTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).

@@ -37,6 +37,29 @@ public struct AshRpcClient: Sendable {
         let getBy: [String: String]?
     }
 
+    /// Request body for create actions. The typed `input` encodes directly into
+    /// the JSON; nil Optional properties are omitted via `encodeIfPresent`.
+    private struct CreateRequestBody<I: Encodable>: Encodable {
+        let action: String
+        let input: I
+        let fields: [FieldSelection]
+    }
+
+    /// Request body for update actions. `identity` is the primary-key string value
+    /// (the AshTypescript RPC protocol wire format — see ADR-0003).
+    private struct UpdateRequestBody<I: Encodable>: Encodable {
+        let action: String
+        let identity: String
+        let input: I
+        let fields: [FieldSelection]
+    }
+
+    /// Request body for destroy actions. `identity` is the primary-key string value.
+    private struct DestroyRequestBody: Encodable {
+        let action: String
+        let identity: String
+    }
+
     /// The envelope the runtime checks for success/failure before returning data.
     private struct Envelope: Decodable {
         let success: Bool
@@ -167,5 +190,49 @@ public struct AshRpcClient: Sendable {
         } catch {
             throw AshRpcError.decodingFailed(description: String(describing: error))
         }
+    }
+
+    /// Runs a create RPC action and decodes the returned record.
+    ///
+    /// The `input` value is encoded directly into the request body. Generated
+    /// create input structs use `encodeIfPresent` for Optional properties so that
+    /// unset fields are omitted from the JSON rather than sent as `null`.
+    public func runCreate<T: Decodable, I: Encodable>(
+        action: String,
+        input: I,
+        fields: [FieldSelection] = []
+    ) async throws -> T {
+        let raw = try await sendRequest(CreateRequestBody(action: action, input: input, fields: fields))
+        do {
+            return try decoder.decode(GetEnvelope<T>.self, from: raw).data
+        } catch {
+            throw AshRpcError.decodingFailed(description: String(describing: error))
+        }
+    }
+
+    /// Runs an update RPC action and decodes the returned record.
+    ///
+    /// `identity` is the primary-key value string (the AshTypescript RPC wire
+    /// protocol; see ADR-0003). For single-field UUID primary keys this is the
+    /// record's UUID. The typed `input` carries only the changed fields; nil
+    /// Optional properties are omitted from the JSON via `encodeIfPresent`.
+    public func runUpdate<T: Decodable, I: Encodable>(
+        action: String,
+        identity: String,
+        input: I,
+        fields: [FieldSelection] = []
+    ) async throws -> T {
+        let raw = try await sendRequest(UpdateRequestBody(action: action, identity: identity, input: input, fields: fields))
+        do {
+            return try decoder.decode(GetEnvelope<T>.self, from: raw).data
+        } catch {
+            throw AshRpcError.decodingFailed(description: String(describing: error))
+        }
+    }
+
+    /// Runs a destroy RPC action. `identity` is the primary-key value string.
+    /// No record data is returned on success.
+    public func runDestroy(action: String, identity: String) async throws {
+        _ = try await sendRequest(DestroyRequestBody(action: action, identity: identity))
     }
 }
