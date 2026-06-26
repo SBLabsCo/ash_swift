@@ -494,6 +494,113 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "custom headers are forwarded on generated calls; backend errors surface as typed AshRpcError" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # This test exercises the two acceptance criteria (stories 24, 25 in the PRD)
+    # through the *generated* AshRpc client, not the runtime directly:
+    #   1. A bearer token set in AshRpcConfig.headers reaches every request the
+    #      generated function sends (header forwarding).
+    #   2. When the backend returns {"success": false, ...}, the generated call
+    #      throws AshRpcError.server with the decoded error list (typed error).
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Verifies that AshRpcConfig.headers are forwarded on calls made through the
+    // generated AshRpc client, and that {"success":false} responses surface as a
+    // thrown AshRpcError.server value with the decoded server errors.
+    final class E2EHeadersAndErrorsTest: XCTestCase {
+        // Stub transport used in both tests: captures the outgoing request and
+        // returns a caller-supplied canned response.
+        private struct StubTransport: Transport {
+            let status: Int
+            let body: Data
+            let onRequest: @Sendable (URLRequest) -> Void
+
+            func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+                onRequest(request)
+                let http = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+                return (body, http)
+            }
+        }
+
+        private final class CapturedRequest: @unchecked Sendable {
+            var value: URLRequest?
+        }
+
+        // AshRpcConfig.headers must appear on every request the generated AshRpc
+        // function sends. This is story 24: callers set the bearer token once in
+        // config and every generated call carries it automatically.
+        func testAuthHeaderForwardedOnGeneratedListCall() async throws {
+            let captured = CapturedRequest()
+            let stub = StubTransport(
+                status: 200,
+                body: Data(#"{"success":true,"data":[]}"#.utf8)
+            ) { captured.value = $0 }
+
+            let config = AshRpcConfig(
+                baseURL: URL(string: "https://example.com")!,
+                headers: ["Authorization": "Bearer secret-token"]
+            )
+            let rpc = AshRpc(client: AshRpcClient(config: config, transport: stub))
+
+            let _: [Todo] = try await rpc.listTodos()
+
+            let request = try XCTUnwrap(captured.value)
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Authorization"),
+                "Bearer secret-token"
+            )
+        }
+
+        // Story 25: when the backend returns {"success":false,"errors":[...]}, the
+        // generated call must throw AshRpcError.server so callers can match on it
+        // in a do/catch block and inspect the typed server errors.
+        func testBackendErrorSurfacesAsTypedAshRpcError() async {
+            let errorBody = Data(#"{"success":false,"errors":[{"type":"unauthorized","message":"not allowed","field":null}]}"#.utf8)
+            let stub = StubTransport(status: 200, body: errorBody) { _ in }
+
+            let config = AshRpcConfig(baseURL: URL(string: "https://example.com")!)
+            let rpc = AshRpc(client: AshRpcClient(config: config, transport: stub))
+
+            do {
+                let _: [Todo] = try await rpc.listTodos()
+                XCTFail("expected AshRpcError.server to be thrown")
+            } catch let AshRpcError.server(errors) {
+                XCTAssertEqual(errors.first?.type, "unauthorized")
+                XCTAssertEqual(errors.first?.message, "not allowed")
+            } catch {
+                XCTFail("unexpected error type: \\(error)")
+            }
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EHeadersAndErrorsTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EHeadersAndErrorsTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).
