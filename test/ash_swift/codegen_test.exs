@@ -94,10 +94,10 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodos(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
 
       assert functions =~
-               "public func listUsers(sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> [User] {"
+               "public func listUsers(filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
     test "offset-paginated read action returns OffsetPage<T> via OffsetPageRequest", %{
@@ -106,7 +106,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosOffset(page: OffsetPageParams? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+               "public func listTodosOffset(page: OffsetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
 
       assert functions =~ ~s[client.execute(OffsetPageRequest(action: "list_todos_offset",]
     end
@@ -117,7 +117,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosKeyset(page: KeysetPageParams? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
+               "public func listTodosKeyset(page: KeysetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
 
       assert functions =~ ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset",]
     end
@@ -344,42 +344,43 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodos(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
 
       assert functions =~
-               ~s[client.execute(ListRequest(action: "list_todos", sort: ashSortString(sort), fields: fields))]
+               ~s[client.execute(ListRequest(action: "list_todos", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
     end
 
     test "offset-paginated read action threads sort alongside page", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosOffset(page: OffsetPageParams? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+               "public func listTodosOffset(page: OffsetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
 
       assert functions =~
-               ~s[client.execute(OffsetPageRequest(action: "list_todos_offset", page: page, sort: ashSortString(sort), fields: fields))]
+               ~s[client.execute(OffsetPageRequest(action: "list_todos_offset", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
     end
 
     test "keyset-paginated read action threads sort alongside page", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosKeyset(page: KeysetPageParams? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
+               "public func listTodosKeyset(page: KeysetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
 
       assert functions =~
-               ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset", page: page, sort: ashSortString(sort), fields: fields))]
+               ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
     end
 
     test "enable_sort?: false action is emitted WITHOUT a sort: parameter", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
+      # Filtering stays on for this action, so it keeps a filter: parameter but no sort:.
       assert functions =~
-               "public func listTodosNoSort(fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection] = []) async throws -> [Todo] {"
 
-      refute functions =~ "public func listTodosNoSort(sort:"
+      refute functions =~ "public func listTodosNoSort(filter: TodoFilter? = nil, sort:"
 
       assert functions =~
-               ~s[client.execute(ListRequest(action: "list_todos_no_sort", fields: fields))]
+               ~s[client.execute(ListRequest(action: "list_todos_no_sort", filter: filter.map { AnyEncodable($0) }, fields: fields))]
     end
 
     test "get actions do not gain a sort: parameter", %{files: files} do
@@ -389,6 +390,102 @@ defmodule AshSwift.CodegenTest do
                "public func getTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo {"
 
       refute functions =~ "public func getTodo(id: String, sort:"
+    end
+  end
+
+  describe "filter surface (issue #35)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    test "emits a {Resource}Filter struct per filterable resource", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public struct TodoFilter: Encodable, Sendable {"
+      assert types =~ "public struct UserFilter: Encodable, Sendable {"
+    end
+
+    test "a boolean attribute exposes only eq/notEq (EquatableOperators)", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # completed is a non-null Bool → equatable-only operator group, no isNil.
+      assert types =~ "public var completed: EquatableOperators<Bool>?"
+    end
+
+    test "a numeric attribute exposes the comparable operator group", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # score is a nullable Int → comparisons + in + isNil.
+      assert types =~ "public var score: NullableComparableOperators<Int>?"
+    end
+
+    test "a date/datetime attribute exposes the comparable operator group", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # dueAt is a nullable utc_datetime_usec (→ Date) → comparisons + in + isNil.
+      assert types =~ "public var dueAt: NullableComparableOperators<Date>?"
+      # Decimal/Date map to Swift String but stay in the comparable group (Ash type drives it).
+      assert types =~ "public var amount: NullableComparableOperators<String>?"
+    end
+
+    test "an enum attribute filters over the generated Swift enum", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public var priority: NullableEnumOperators<TodoPriority>?"
+      assert types =~ "public var status: NullableEnumOperators<TodoStatus>?"
+    end
+
+    test "a non-null string attribute uses the in-group without isNil", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # title is allow_nil?: false → EnumOperators (eq/notEq/in), no Nullable prefix.
+      assert types =~ "public var title: EnumOperators<String>?"
+    end
+
+    test "a nullable attribute adds isNil via the Nullable operator group", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `default` is a nullable String → NullableEnumOperators, and the keyword is escaped.
+      assert types =~ "public var `default`: NullableEnumOperators<String>?"
+      refute types =~ "public var default:"
+    end
+
+    test "excludes composite Ash.Type.Map attributes from the filter", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      filter_struct =
+        Regex.run(~r/public struct TodoFilter: Encodable, Sendable \{.*?\n\}/s, types) |> hd()
+
+      refute filter_struct =~ "metadata"
+    end
+
+    test "filter struct imports nothing extra — operator generics come from the runtime", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+      # The runtime import already present must cover the operator generics.
+      assert types =~ "import AshSwiftRuntime"
+    end
+
+    test "list read action gains an optional typed filter: parameter", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+
+      assert functions =~
+               ~s[client.execute(ListRequest(action: "list_todos", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
+    end
+
+    test "enable_filter?: false action is emitted WITHOUT a filter: parameter", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      # Sorting stays on for this action, so it keeps sort: but drops filter:.
+      assert functions =~
+               "public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+
+      refute functions =~ "public func listTodosNoFilter(filter:"
+
+      assert functions =~
+               ~s[client.execute(ListRequest(action: "list_todos_no_filter", sort: ashSortString(sort), fields: fields))]
+    end
+
+    test "get actions do not gain a filter: parameter", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      refute functions =~ "public func getTodo(id: String, filter:"
     end
   end
 

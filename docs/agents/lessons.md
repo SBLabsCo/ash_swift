@@ -60,6 +60,21 @@ or `pagination.offset?` (true) will incorrectly classify all list actions as pag
 correct signal is `pagination.required? == true`: that flag is only set when the Ash developer
 explicitly opts the action into mandatory pagination. See PR #29 (issue #16).
 
+### Filter/sort operator keys are camelCase on the wire — the pipeline formats nested map keys
+
+The reused RPC pipeline runs `AshTypescript.FieldFormatter.parse_input_fields`
+**recursively** over the whole params map, so it transforms not just top-level
+keys but every nested map key — including filter operator keys. That means the
+client sends camelCase operator keys (`notEq`, `greaterThan`, `greaterThanOrEqual`,
+`lessThan`, `lessThanOrEqual`, `isNil`, `in`, `eq`) and the pipeline lowers them to
+snake_case atoms (`:not_eq`, `:is_nil`, …) before `Ash.Query.filter_input`. So the
+generated Swift uses camelCase operator names directly (which double as the wire
+keys via Swift's synthesized `CodingKeys`) — no snake_case spelling in the client.
+Confirmed live against `AshTypescript.Rpc.run_action` with each operator (issue
+#35); re-probe before trusting it for the and/or/not combinators (#36). The Ash
+`FilterTypes` classification (`deps/ash_typescript/lib/ash_typescript/codegen/filter_types.ex`)
+is the authoritative operator-set-per-type source — use it, not examples.
+
 ### AshRpcTypes.swift needs `import AshSwiftRuntime` when model fields use runtime types
 
 `AshRpcFunctions.swift` has always imported `AshSwiftRuntime`, but `AshRpcTypes.swift` originally only imported `Foundation` — all generated model types were built-in Swift types (String, Bool, Int, Double). If you add a new Ash-to-Swift mapping whose Swift type lives in the runtime package (e.g., `AshJSON` for `Ash.Type.Map`), the generated types file must also import `AshSwiftRuntime` or Swift will emit "cannot find type 'X' in scope" errors during `swift build`. The `render_types` function in `codegen.ex` owns this import. See PR #30 (issue #17): the E2E swift test caught the missing import immediately.
