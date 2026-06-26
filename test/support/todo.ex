@@ -22,6 +22,13 @@ defmodule AshSwift.Test.Todo do
     attribute :status, AshSwift.Test.StatusType, public?: true
     attribute :score, :integer, public?: true
     attribute :default, :string, public?: true
+    # Issue #17: extended type mappings
+    attribute :deadline, :date, public?: true
+    attribute :scheduled_at, :utc_datetime, public?: true
+    attribute :due_at, :utc_datetime_usec, public?: true
+    attribute :started_at, :naive_datetime, public?: true
+    attribute :amount, :decimal, public?: true
+    attribute :metadata, :map, public?: true
     timestamps()
   end
 

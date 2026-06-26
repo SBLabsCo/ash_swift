@@ -13,7 +13,31 @@ public struct AshRpcClient: Sendable {
     // generated function, and a single coder is the natural seam for
     // configuring key/date strategies in a later slice.
     private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
+
+    // Configured at init time to decode Ash.Type.UtcDatetime and
+    // Ash.Type.UtcDatetimeUsec fields. Both arrive as ISO 8601 UTC strings:
+    //   UtcDatetime    → "2024-01-15T10:30:00Z"
+    //   UtcDatetimeUsec → "2024-01-15T10:30:00.123456Z" (with fractional seconds)
+    // The custom strategy tries the fractional-second formatter first, falling
+    // back to the plain one so both variants decode cleanly.
+    private let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let str = try container.decode(String.self)
+            let fmtFrac = ISO8601DateFormatter()
+            fmtFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let fmtPlain = ISO8601DateFormatter()
+            fmtPlain.formatOptions = [.withInternetDateTime]
+            if let date = fmtFrac.date(from: str) { return date }
+            if let date = fmtPlain.date(from: str) { return date }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "AshRpcClient: cannot parse Date from \"\(str)\""
+            )
+        }
+        return d
+    }()
 
     public init(config: AshRpcConfig, transport: Transport = URLSessionTransport()) {
         self.config = config

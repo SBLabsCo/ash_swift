@@ -690,6 +690,157 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "extended Ash types (Decimal, Date, UtcDatetime, UtcDatetimeUsec, Map) decode from real pipeline JSON" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Create a record with every extended-type field populated. Values chosen so
+    # each one round-trips through Jason.encode!/1 and reaches the Swift decoder.
+    #   deadline  → Ash.Type.Date       → JSON string "2024-06-15"
+    #   scheduled_at → Ash.Type.UtcDatetime → JSON string "2024-06-15T10:30:00Z"
+    #   due_at    → Ash.Type.UtcDatetimeUsec → JSON string "2024-06-15T10:30:00.123456Z"
+    #   started_at → Ash.Type.NaiveDatetime → JSON string "2024-06-15T09:00:00"
+    #   amount    → Ash.Type.Decimal    → JSON string "99.99"
+    #   metadata  → Ash.Type.Map        → JSON object {"label":"urgent","count":3}
+    Ash.create!(
+      AshSwift.Test.Todo,
+      %{
+        title: "Extended Types Todo",
+        deadline: ~D[2024-06-15],
+        scheduled_at: ~U[2024-06-15 10:30:00Z],
+        due_at: ~U[2024-06-15 10:30:00.123456Z],
+        started_at: ~N[2024-06-15 09:00:00],
+        amount: Decimal.new("99.99"),
+        metadata: %{"label" => "urgent", "count" => 3}
+      },
+      domain: AshSwift.Test.Domain
+    )
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    params = %{
+      "action" => "list_todos",
+      "fields" => [
+        "id",
+        "title",
+        "deadline",
+        "scheduledAt",
+        "dueAt",
+        "startedAt",
+        "amount",
+        "metadata"
+      ]
+    }
+
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+    assert rpc_result["success"] == true
+    data = rpc_result["data"]
+    assert is_list(data) and data != []
+
+    json = Jason.encode!(rpc_result)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Verifies that the extended Ash type mappings (issue #17) round-trip through
+    // the real RPC pipeline and decode cleanly into the generated Swift types:
+    //   Ash.Type.Decimal        → String  (JSON string "99.99")
+    //   Ash.Type.Date           → String  (ISO 8601 date "2024-06-15")
+    //   Ash.Type.UtcDatetime    → Date    (ISO 8601 UTC datetime)
+    //   Ash.Type.UtcDatetimeUsec → Date   (ISO 8601 UTC datetime with μs)
+    //   Ash.Type.NaiveDatetime  → String  (ISO 8601 no-timezone datetime)
+    //   Ash.Type.Map            → [String: AshJSON] (arbitrary JSON object)
+    final class E2EExtendedTypesTest: XCTestCase {
+        func testExtendedTypeFieldsDecodeFromRealPipelineJSON() throws {
+            let json = #{inspect(json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct ListEnvelope: Decodable {
+                let success: Bool
+                let data: [Todo]
+            }
+
+            let decoder = JSONDecoder()
+            // Note: this decoder mirrors the custom ISO 8601 strategy that AshRpcClient
+            // configures in production (AshRpcClient.swift). It proves the JSON payload
+            // is decodable, but does NOT exercise AshRpcClient's own decoder
+            // configuration. A regression in AshRpcClient.swift's dateDecodingStrategy
+            // would not be caught here — the in-process test setup has no HTTP path
+            // to route through the real client.
+            let fmtFrac = ISO8601DateFormatter()
+            fmtFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let fmtPlain = ISO8601DateFormatter()
+            fmtPlain.formatOptions = [.withInternetDateTime]
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let container = try decoder.singleValueContainer()
+                let str = try container.decode(String.self)
+                if let d = fmtFrac.date(from: str) { return d }
+                if let d = fmtPlain.date(from: str) { return d }
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Cannot decode Date from: \\(str)"
+                )
+            }
+
+            let envelope = try decoder.decode(ListEnvelope.self, from: raw)
+            XCTAssertTrue(envelope.success)
+
+            let todo = try XCTUnwrap(
+                envelope.data.first(where: { $0.title == "Extended Types Todo" })
+            )
+
+            // Decimal → String: raw decimal string preserved without precision loss
+            XCTAssertEqual(todo.amount, "99.99")
+
+            // Date (date-only) → String: ISO 8601 date
+            XCTAssertEqual(todo.deadline, "2024-06-15")
+
+            // UtcDatetime → Date: decoded via ISO8601DateFormatter
+            let scheduledAt = try XCTUnwrap(todo.scheduledAt)
+            // Round-trip: 2024-06-15T10:30:00Z — check year component as proxy
+            let cal = Calendar(identifier: .iso8601)
+            XCTAssertEqual(cal.component(.year, from: scheduledAt), 2024)
+
+            // UtcDatetimeUsec → Date: fractional-second variant also decodes
+            let dueAt = try XCTUnwrap(todo.dueAt)
+            XCTAssertEqual(cal.component(.year, from: dueAt), 2024)
+
+            // NaiveDatetime → String: no timezone, kept as raw ISO 8601 string
+            XCTAssertEqual(todo.startedAt, "2024-06-15T09:00:00")
+
+            // Map → [String: AshJSON]: heterogeneous JSON object
+            let meta = try XCTUnwrap(todo.metadata)
+            // String value
+            XCTAssertEqual(meta["label"], .string("urgent"))
+            // Numeric value (JSON number decodes as .number)
+            if case .number(let n) = meta["count"] {
+                XCTAssertEqual(Int(n), 3)
+            } else {
+                XCTFail("metadata[\\\"count\\\"] should be .number(3)")
+            }
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EExtendedTypesTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EExtendedTypesTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).
