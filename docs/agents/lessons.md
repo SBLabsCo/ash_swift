@@ -60,6 +60,21 @@ or `pagination.offset?` (true) will incorrectly classify all list actions as pag
 correct signal is `pagination.required? == true`: that flag is only set when the Ash developer
 explicitly opts the action into mandatory pagination. See PR #29 (issue #16).
 
+### Per-resource query types must handle the empty (no-eligible-attributes) case
+
+A query-surface slice that generates a per-resource type from a (possibly empty)
+attribute set — the sortable-field enum (#34), the filter struct (#35), and future
+combinator types (#36/#37) — must handle a resource with **zero** eligible
+attributes. An empty Encodable struct compiles fine
+(`public struct XFilter: Encodable, Sendable { public init() {} }`), but an empty
+raw-value enum does **not**: `public enum XSortField: String, Sendable {}` fails with
+"an enum with no cases cannot declare a raw type". A resource trips this when its
+only public attributes are non-eligible (e.g. all `Ash.Type.Map`, which both sort and
+filter exclude) or its primary key is non-public. Test the empty case with a minimal
+fixture — see `AshSwift.Test.MapOnly` (test/support/map_only.ex), used by the
+empty-filter-struct regression test. (The sort slice did not guard this — tracked
+separately.)
+
 ### Filter/sort operator keys are camelCase on the wire — the pipeline formats nested map keys
 
 The reused RPC pipeline runs `AshTypescript.FieldFormatter.parse_input_fields`
