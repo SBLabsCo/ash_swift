@@ -58,14 +58,22 @@ jobs:
                `gh api repos/${{ github.repository }}/pulls/<pr>/comments` (inline)
                and `.../reviews`.
             2. Address each actionable finding. Follow this repo's conventions:
-               CLAUDE.md, CONTEXT.md, docs/adr/, docs/prd/. Use the `/tdd` skill
-               where a fix has a natural test seam. If you intentionally skip a
-               finding (e.g. out of the issue's M1 scope), say so and why.
+               CLAUDE.md, CONTEXT.md, docs/adr/, docs/prd/. Read
+               `docs/agents/lessons.md` first — it captures non-obvious patterns
+               earlier runs got wrong, including the "known finite set →
+               authoritative source" rule that prevents partial fixes. Use the
+               `/tdd` skill where a fix has a natural test seam. If you
+               intentionally skip a finding (e.g. out of the issue's M1 scope),
+               say so and why.
             3. Run `mix deps.get`, then make every gate CI runs pass locally before
                pushing: `mix format`, `mix compile --warnings-as-errors`,
                `mix test`, and `swift test`. Keep generated codegen deterministic.
             4. Commit and push to this PR's branch, then reply with a concise
                summary of what you changed and anything you deliberately left.
+            5. Reflect: if your fix corrected a NON-OBVIOUS, RECURRING pattern
+               future agents would also miss AND it's not already in
+               `docs/agents/lessons.md`, append a short entry (≤2 paragraphs,
+               link this PR). Otherwise do nothing. Most runs add no entry.
 
             The maintainer who triggered this run may have added extra guidance in
             their comment (below). Treat it as high-priority direction on HOW to

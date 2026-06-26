@@ -2,6 +2,30 @@
 
 > Scope: Milestone 1 (the thin end-to-end happy path). M2–M4 are out of scope and become their own PRDs later. Architecture is fixed by ADR-0001 through ADR-0006; this PRD specifies the actionable M1 build.
 
+## Progress
+
+Tracks where the M1 slice stands. Each row is a `ready-for-agent` GitHub issue.
+
+| # | Issue | Status |
+|---|---|---|
+| 1 | Prefactor: monorepo skeleton + AshSwiftRuntime + codegen/compile test harness | ✅ done |
+| 2 | Read/list action tracer bullet: generated model + list function + E2E decode | ✅ done |
+| 3 | Nested relationship field selection | ✅ done |
+| 4 | Enums: backend enums to Swift enums | ✅ done |
+| 5 | Get action: single-record retrieval (`get?`, `get_by`, `not_found_error?`) | ✅ done |
+| 6 | Create / update / destroy actions with typed inputs | open, `ready-for-agent` |
+| 7 | Custom headers + typed error handling | open, `ready-for-agent` |
+
+**Discovered during M1 (open, separately tracked):**
+
+| # | Issue | Note |
+|---|---|---|
+| 16 | `runList` assumes an unpaginated array | latent bug; paginated reads break decoding |
+| 17 | Map non-core Ash types to real Swift types (Decimal, Date, DateTime, Map, …) | currently fall back to `String` |
+| 24 | Detect enum/struct type-name collision at generation time | landed as low-severity from #4 review |
+
+For the workflow that drives this — `mix ash_swift.codegen --check`, the implement/review/`/address-review` loop, and how an agent picks up the next ticket — see [`docs/agents/ai-automation.md`](../agents/ai-automation.md) and [`docs/agents/lessons.md`](../agents/lessons.md).
+
 ## Problem Statement
 
 A developer building a native Apple (iOS/macOS) app against an Elixir/Ash backend has no plug-n-play, type-safe way to talk to it. Today they hand-write Swift request/response models and networking code that mirror the backend's resources and actions. That hand-written layer drifts out of sync the moment the backend changes — a renamed attribute, a new required argument, a changed enum — and the mismatch surfaces as a runtime decode failure or a silently wrong request, not a compile error. AshTypescript solves exactly this for TypeScript web clients; Swift clients have no equivalent.

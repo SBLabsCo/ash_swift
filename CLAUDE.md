@@ -19,3 +19,7 @@ Single-context: one CONTEXT.md + docs/adr/ at the repo root. See `docs/agents/do
 ### CI & AI automation
 
 GitHub Actions run CI (Elixir + Swift) and Claude-driven review, triage, and issue implementation. See `docs/agents/ai-automation.md`.
+
+### Lessons from earlier runs
+
+Non-obvious patterns earlier implement / address-review runs got wrong are captured in `docs/agents/lessons.md`. Implement and `/address-review` prompts read it as context. Append to it only when you've hit a non-obvious, recurring pattern that isn't already there.

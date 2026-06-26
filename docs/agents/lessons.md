@@ -1,0 +1,82 @@
+# Lessons for agents
+
+Non-obvious, recurring patterns this project's automation has learned about its
+own work. Implement and `/address-review` runs read this as context.
+
+**Bar for adding a new entry:** the pattern is **non-obvious** (a fresh reader
+would miss it), will **recur** across tickets (not a one-off), and isn't
+**already** covered here. If unsure, don't add it. Two paragraphs max per
+entry; link to a real PR or issue when you can.
+
+---
+
+## Codegen patterns
+
+### When the review names a "known finite set," use the authoritative source
+
+When a review finding asks you to extend a list (Swift keywords, Ash types,
+reserved identifiers, …), don't grow the list with whatever the review's
+example mentioned — pull the **complete authoritative set** (e.g. Swift's
+Language Reference §Lexical Structure for keywords, `Ash.Type.*` modules for
+the type map) and add a regression test that exercises a previously-missing
+member. Otherwise the next domain that uses an unlisted value re-opens the
+same bug. See PR #23 (Swift keyword escaping landed twice: the first pass
+copied just the review's examples; the steered pass used the complete list).
+
+### Lookup-key parameter types are always `String`
+
+`get_by` / identity lookup values travel through the runtime as JSON in a
+`[String: String]` body (see `AshRpcClient.makeGetBody`). Generated parameter
+types for those keys must therefore be `String?` / `String` regardless of the
+Ash attribute's actual type (`:integer` primary keys, atom keys, …). If you
+let `ash_type_to_swift` flow into a get-action parameter, you get uncompilable
+Swift the moment a non-String key shows up. See PR #26.
+
+### Codegen output is sorted; keep new emitters in the same shape
+
+`build_files/1` and `collect_resources/1` sort by stable keys (type name,
+attribute name, rpc name) so regenerating with no schema change produces no
+diff. Any new emitter (relationships, calculations, …) must sort the same
+way before joining strings, or the deterministic-output test will start
+flapping. The cheapest check: run codegen twice in the test, assert byte
+equality.
+
+## Test patterns
+
+### Extend the fixture domain when the bug class needs it
+
+Each completed ticket grew `test/support/` with a new fixture surface aimed at
+its bug class — `StatusType` + `:case` for keyword escaping (#4); `Tag →
+Category → Publisher` for the 2-hop relationship guard (#3); a `score:
+:integer` attribute for non-String lookup keys (#5). When the review flags a
+correctness issue the existing fixture can't reproduce, **add a fixture
+slice that does**, then write the regression test against it. Don't rely
+on the next ticket "happening to" cover the gap.
+
+### CI green ≠ correct; the review is the second gate
+
+Both `#19` (2-hop relationship bug) and `#23` (incomplete keyword list)
+shipped CI-green from the implement workflow and only got caught by the
+auto-review. Treat the review as a real gate, not noise — and when its
+findings are a class (not a single case), extend the fixture so CI catches
+that class going forward.
+
+## Workflow patterns
+
+### Steer `/address-review` when the agent might converge on a partial fix
+
+The implement and address-review agents tend to copy-from-example: when the
+review shows one keyword or one type as an illustration, the fix often
+includes only that one. For findings that imply a *complete set*, comment
+`/address-review` with explicit completeness criteria: "use the COMPLETE set
+of X, not just the examples," and require a regression test for a member the
+original list missed. Without the steer, expect a second `/address-review`
+round. See PRs #23 and #26 for the pattern.
+
+### CI's gates are the agent's gates
+
+The implement and address-review prompts require running every CI gate
+locally before pushing (`mix format` → `mix compile --warnings-as-errors` →
+`mix test` → `swift test`). This is load-bearing: PR #14 shipped with a
+format failure exactly because the agent ran `mix test` but not `mix
+format`. If you add a new CI gate, mirror it in the prompts the same day.
