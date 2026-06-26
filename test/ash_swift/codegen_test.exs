@@ -497,27 +497,77 @@ defmodule AshSwift.CodegenTest do
       refute functions =~ "public func getTodo(id: String, filter:"
     end
 
-    test "a resource with no filterable attributes emits an empty but valid filter struct" do
+    test "a resource with no filterable attributes emits a valid filter struct with only combinators" do
       # MapOnly's only public attribute is an Ash.Type.Map (excluded from
       # filtering) and its primary key is non-public, so the filterable read
-      # produces a filter struct with no properties — just the no-arg init. The
-      # struct must still be valid, compilable Swift.
+      # produces a filter struct with no per-attribute predicates — only the
+      # and/or/not combinators (#36) and the no-arg init. The struct must still be
+      # valid, compilable Swift (an empty raw-value enum would not be — see the
+      # sort-enum bug, issue #41 — but a struct of optional arrays is fine).
       files = Codegen.build_files([AshSwift.Test.MapOnlyDomain])
       types = files["AshRpcTypes.swift"]
 
-      assert types =~
-               "public struct MapOnlyFilter: Encodable, Sendable {\n    public init() {}\n}"
+      assert types =~ """
+             public struct MapOnlyFilter: Encodable, Sendable {
+                 public var and: [MapOnlyFilter]?
+                 public var or: [MapOnlyFilter]?
+                 public var not: [MapOnlyFilter]?
 
-      # No attribute properties leaked in (metadata is excluded, id is non-public).
+                 public init() {}
+             }\
+             """
+
+      # No attribute predicates leaked in (metadata is excluded, id is non-public):
+      # the only `public var`s are the three combinators.
       filter_struct =
         Regex.run(~r/public struct MapOnlyFilter: Encodable, Sendable \{.*?\n\}/s, types) |> hd()
 
-      refute filter_struct =~ "public var"
+      refute filter_struct =~ "metadata"
+      refute filter_struct =~ "Operators<"
 
-      # The read function still threads the (empty) filter type — the parameter is
+      # The read function still threads the filter type — the parameter is
       # generated from the action's enable_filter?, not from whether fields exist.
       assert files["AshRpcFunctions.swift"] =~
                "public func listMapOnlys(filter: MapOnlyFilter? = nil, fields: [FieldSelection] = [])"
+    end
+  end
+
+  describe "filter logical combinators (issue #36)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    test "each filter type gains and/or/not arrays of the same filter type", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      assert types =~ "public var and: [TodoFilter]?"
+      assert types =~ "public var or: [TodoFilter]?"
+      assert types =~ "public var not: [TodoFilter]?"
+
+      assert types =~ "public var and: [UserFilter]?"
+      assert types =~ "public var or: [UserFilter]?"
+      assert types =~ "public var not: [UserFilter]?"
+    end
+
+    test "combinators sit after the per-attribute predicates, before init", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      todo_filter =
+        Regex.run(~r/public struct TodoFilter: Encodable, Sendable \{.*?\n\}/s, types) |> hd()
+
+      # A per-attribute predicate (title) precedes the combinators, which precede init.
+      assert todo_filter =~
+               ~r/public var title: EnumOperators<String>\?.*public var and: \[TodoFilter\]\?.*public var or: \[TodoFilter\]\?.*public var not: \[TodoFilter\]\?\n\n    public init\(\) \{\}/s
+    end
+
+    test "combinator keys are emitted verbatim — not run through the field formatter", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+      # The wire keys are literally and/or/not; no camelCasing or escaping applied.
+      refute types =~ "public var `and`:"
+      refute types =~ "public var `or`:"
+      refute types =~ "public var `not`:"
     end
   end
 

@@ -20,9 +20,9 @@ and a TypeScript client stay wire-identical by construction.
 > selection (incl. nested relationships), enums, typed get actions, custom headers,
 > typed error handling, and a zero-dependency URLSession runtime. Milestone 2
 > ("Powerful Reads") is in progress: typed **sorting**, typed **filtering** (attribute
-> and enum predicates), and typed **pagination** (`OffsetPage`/`KeysetPage`) have
-> landed; logical filter combinators (`and`/`or`/`not`) and filter/sort/pagination
-> composition are next. Typed (narrowed) queries, embedded resources, hooks, and
+> and enum predicates plus `and`/`or`/`not` combinators), and typed **pagination**
+> (`OffsetPage`/`KeysetPage`) have landed; filter/sort/pagination composition is
+> next. Typed (narrowed) queries, embedded resources, hooks, and
 > real-time support are later milestones. See [`docs/prd/`](docs/prd/) for the
 > roadmap and [GitHub Issues](https://github.com/SBLabsCo/ash_swift/issues) for
 > what's in flight.
@@ -45,7 +45,8 @@ and a TypeScript client stay wire-identical by construction.
 - **Typed filtering** — read actions take an optional, type-safe `{Resource}Filter`
   where each attribute exposes only the operators its type supports (equality for
   booleans, comparisons for numbers and dates, membership for strings and enums),
-  and nullable attributes add `isNil`. Filtering an action off (`enable_filter?: false`)
+  and nullable attributes add `isNil`. Compound predicates compose through typed
+  `and`/`or`/`not` combinators. Filtering an action off (`enable_filter?: false`)
   drops the parameter, so a forbidden filter is a compile error.
 - **Typed sorting** — read actions take a typed sort over a generated
   sortable-field enum, with ascending/descending and nils-first/last ordering,
@@ -67,9 +68,9 @@ and a TypeScript client stay wire-identical by construction.
 - **Deterministic, committable output** — regenerating with no schema change
   produces no diff.
 
-Logical filter combinators (`and`/`or`/`not`), filter/sort/pagination composition,
-typed (narrowed) queries, embedded resources, lifecycle hooks, and Phoenix Channel
-support are planned for upcoming milestones — see [`docs/prd/`](docs/prd/).
+Filter/sort/pagination composition, typed (narrowed) queries, embedded resources,
+lifecycle hooks, and Phoenix Channel support are planned for upcoming milestones —
+see [`docs/prd/`](docs/prd/).
 
 ## Why
 
@@ -215,6 +216,29 @@ let urgent: [Todo] = try await rpc.listTodos(
     sort: [SortField(.priority, .descending)],
     fields: ["id", "title", "priority"]
 )
+```
+
+Compound predicates compose through the `and`/`or`/`not` combinators — each an
+array of the same filter type, so they nest arbitrarily:
+
+```swift
+// completed == false AND (priority in [.high, .medium] OR score > 8)
+var done = TodoFilter()
+done.completed = EquatableOperators(eq: false)
+
+var byPriority = TodoFilter()
+byPriority.priority = NullableEnumOperators(in: [.high, .medium])
+
+var byScore = TodoFilter()
+byScore.score = NullableComparableOperators(greaterThan: 8)
+
+var anyUrgent = TodoFilter()
+anyUrgent.or = [byPriority, byScore]
+
+var filter = TodoFilter()
+filter.and = [done, anyUrgent]
+
+let actionable: [Todo] = try await rpc.listTodos(filter: filter, fields: ["id", "title"])
 ```
 
 Every selectable field on a generated model is `Optional` so that ad-hoc field

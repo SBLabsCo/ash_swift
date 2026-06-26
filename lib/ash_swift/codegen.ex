@@ -63,6 +63,17 @@ defmodule AshSwift.Codegen do
     actor async distributed isolated
   )
 
+  # The logical combinators every `{Resource}Filter` carries (issue #36). Each is
+  # rendered as an optional array of the SAME filter type — the idiomatic-Swift
+  # mirror of AshTypescript's `and?`/`or?`/`not?` operators. `and`/`or`/`not` are
+  # the literal wire keys `Ash.Query.filter_input` consumes (confirmed live against
+  # the RPC pipeline, including nested and predicate-adjacent forms): they are
+  # single words, so the field formatter leaves them untouched, and none is a Swift
+  # reserved keyword, so no escaping is needed. The fixed order keeps codegen
+  # deterministic. The self-recursion is legal because the array indirection gives
+  # the struct a fixed size.
+  @filter_combinators ~w(and or not)
+
   @types_file "AshRpcTypes.swift"
   @functions_file "AshRpcFunctions.swift"
 
@@ -306,8 +317,10 @@ defmodule AshSwift.Codegen do
   # to a hand-written operator generic from AshSwiftRuntime instantiated over the
   # attribute's Swift value type. Composite types (Ash.Type.Map → a JSON object)
   # are excluded — filtering a whole JSON blob by equality is a footgun the
-  # backend rejects, mirroring the sort-field exclusion. Relationship/aggregate/
-  # calculation filtering and the and/or/not combinators are out of M2 scope.
+  # backend rejects, mirroring the sort-field exclusion. The and/or/not logical
+  # combinators are added on top of these per-attribute predicates (issue #36, see
+  # render_filter_struct); relationship/aggregate/calculation filtering stays out
+  # of M2 scope.
   defp collect_filter_fields(resource, type_name, formatter) do
     resource
     |> Ash.Resource.Info.public_attributes()
@@ -729,16 +742,24 @@ defmodule AshSwift.Codegen do
     """
   end
 
-  # Emits the typed {Resource}Filter struct. Every property is an Optional
-  # operator generic (from AshSwiftRuntime), so an unset attribute is simply
-  # omitted: Swift's synthesized Encodable encodes each Optional with
+  # Emits the typed {Resource}Filter struct. Each per-attribute predicate is an
+  # Optional operator generic (from AshSwiftRuntime), so an unset attribute is
+  # simply omitted: Swift's synthesized Encodable encodes each Optional with
   # `encodeIfPresent`, producing the `{field: {operator: value}}` map the
-  # `Ash.Query.filter_input` pipeline consumes (camelCase operator keys are
-  # confirmed against the live pipeline). Keyword-named fields are backtick-
+  # `Ash.Query.filter_input` pipeline consumes. Keyword-named fields are backtick-
   # escaped; the synthesized CodingKey still carries the unescaped wire name.
+  #
+  # Layout: predicate fields first, then the @filter_combinators arrays (see there
+  # for the wire-key and recursion rationale), then the no-arg init. The
+  # combinators are emitted even for a resource with no filterable attributes (the
+  # empty clause below): the filter surface is present-but-degenerate there,
+  # exactly as #35 chose to emit the empty struct rather than drop the filter
+  # parameter.
   defp render_filter_struct(%{type_name: name, fields: []}) do
     """
     public struct #{name}: Encodable, Sendable {
+    #{filter_combinator_props(name)}
+
         public init() {}
     }\
     """
@@ -754,9 +775,22 @@ defmodule AshSwift.Codegen do
     public struct #{name}: Encodable, Sendable {
     #{props_block}
 
+    #{filter_combinator_props(name)}
+
         public init() {}
     }\
     """
+  end
+
+  # The `and`/`or`/`not` combinator property lines for a filter type, each an
+  # optional array of that same type. See @filter_combinators for the wire-key
+  # and recursion rationale. No `escape_swift_keyword` here: none of the three is
+  # a Swift keyword, and they double as the literal wire keys — escaping would be
+  # both unnecessary and (if one were a keyword) a CodingKey hazard to reason about.
+  defp filter_combinator_props(name) do
+    Enum.map_join(@filter_combinators, "\n", fn combinator ->
+      "    public var #{combinator}: [#{name}]?"
+    end)
   end
 
   defp render_functions(resources) do
