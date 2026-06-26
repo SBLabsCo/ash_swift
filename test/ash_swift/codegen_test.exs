@@ -311,6 +311,26 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public enum UserSortField: String, Sendable {"
     end
 
+    test "excludes non-sortable composite types (Ash.Type.Map) from the sort field set", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+      # `metadata` is an Ash.Type.Map (→ [String: AshJSON]); the backend can't sort
+      # by a JSON object, so it must not appear as a typed sort field.
+      assert Regex.match?(
+               ~r/public enum TodoSortField: String, Sendable \{(?:(?!\}).)*\}/s,
+               types
+             )
+
+      sort_enum =
+        Regex.run(~r/public enum TodoSortField: String, Sendable \{.*?\n\}/s, types) |> hd()
+
+      refute sort_enum =~ "case metadata"
+      # Comparable scalars and enums are still included.
+      assert sort_enum =~ "case amount"
+      assert sort_enum =~ "case status"
+    end
+
     test "backtick-escapes Swift reserved keywords in sortable-field cases", %{files: files} do
       types = files["AshRpcTypes.swift"]
       # :default is a Swift keyword; the case must be escaped (raw value stays "default").

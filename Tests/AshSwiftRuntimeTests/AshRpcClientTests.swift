@@ -284,6 +284,23 @@ final class AshRpcClientTests: XCTestCase {
         XCTAssertNil(parsed["sort"])
     }
 
+    func testExecuteOffsetOmitsSortKeyWhenNil() async throws {
+        // PagedBody<P>.sort uses the same synthesized encodeIfPresent as
+        // ActionFieldsBody, so a nil sort must leave no `sort` key in the body.
+        let captured = CapturedRequest()
+        let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":0,"count":null}}"#
+        let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
+        let client = AshRpcClient(config: config(), transport: stub)
+
+        struct Item: Decodable & Sendable {}
+        let _: OffsetPage<Item> = try await client.execute(OffsetPageRequest(action: "list_todos_offset"))
+
+        let request = try XCTUnwrap(captured.value)
+        let body = try XCTUnwrap(request.httpBody)
+        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNil(parsed["sort"])
+    }
+
     func testExecuteOffsetSendsSortAlongsidePage() async throws {
         let captured = CapturedRequest()
         let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":0,"count":null}}"#

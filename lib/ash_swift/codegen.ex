@@ -26,6 +26,12 @@ defmodule AshSwift.Codegen do
                          "AshJSON"
                        ])
 
+  # The comparable scalar Swift types the backend can sort a read by. An
+  # attribute mapping to one of these (or an enum) is emitted as a sort field;
+  # composite types (e.g. Ash.Type.Map → "[String: AshJSON]") are not — see
+  # sortable_attribute?/1.
+  @sortable_swift_types MapSet.new(["String", "Bool", "Int", "Double", "Date"])
+
   # Complete set of Swift reserved keywords (Swift Language Reference §Lexical Structure).
   # Enum case names matching any of these must be backtick-escaped to produce valid Swift.
   #
@@ -245,14 +251,30 @@ defmodule AshSwift.Codegen do
   defp collect_sortable_fields(resource, formatter) do
     resource
     |> Ash.Resource.Info.public_attributes()
+    |> Enum.filter(&sortable_attribute?/1)
     |> Enum.map(fn attr ->
       FieldFormatter.format_field_for_client(attr.name, resource, formatter)
     end)
     |> Enum.sort()
   end
 
+  # Whether the backend can order a read by this attribute. Enum attributes and
+  # comparable scalars (the types that map to String/Bool/Int/Double/Date) are
+  # sortable; composite types like `Ash.Type.Map` (a JSON object → `[String:
+  # AshJSON]`) are not — Ash returns an error when asked to sort by them, so
+  # emitting them as typed sort fields would be a runtime footgun with no valid
+  # use. Relationship/aggregate/calculation sorting stays out of scope for M2.
+  defp sortable_attribute?(attr) do
+    case extract_enum_cases(attr) do
+      {:ok, _} -> true
+      :not_enum -> MapSet.member?(@sortable_swift_types, ash_type_to_swift(attr.type))
+    end
+  end
+
   # Reads the RPC action's `enable_sort?` flag, defaulting to true (the
-  # AshTypescript default) when unset.
+  # AshTypescript default) when unset. This relies on AshTypescript's Spark
+  # entity carrying the option through on the rpc_action struct — the same
+  # pass-through contract `not_found_error?` above depends on.
   defp sort_enabled?(rpc_action), do: Map.get(rpc_action, :enable_sort?, true)
 
   # Returns a tuple {fields, enums} for the resource.
