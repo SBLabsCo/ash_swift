@@ -35,6 +35,8 @@ final class AshFilterTests: XCTestCase {
             try encoded(ops),
             #"{"greaterThan":3,"greaterThanOrEqual":4,"lessThan":1,"lessThanOrEqual":2}"#
         )
+        // ComparableOperators also carries `in`; pin its wire key here too.
+        XCTAssertEqual(try encoded(ComparableOperators(in: [1, 5])), #"{"in":[1,5]}"#)
     }
 
     func testNullableOperatorsSpellIsNil() throws {

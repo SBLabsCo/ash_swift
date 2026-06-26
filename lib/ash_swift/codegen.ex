@@ -540,6 +540,8 @@ defmodule AshSwift.Codegen do
   #   Map            → JSON object {…} — AshJSON handles any JSON value shape
   defp ash_type_to_swift(Ash.Type.UUID), do: "String"
   defp ash_type_to_swift(Ash.Type.String), do: "String"
+  # CiString is a case-insensitive string; the wire value is a plain JSON string.
+  defp ash_type_to_swift(Ash.Type.CiString), do: "String"
   defp ash_type_to_swift(Ash.Type.Boolean), do: "Bool"
   defp ash_type_to_swift(Ash.Type.Integer), do: "Int"
   defp ash_type_to_swift(Ash.Type.Float), do: "Double"

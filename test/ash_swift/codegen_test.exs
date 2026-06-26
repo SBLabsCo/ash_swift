@@ -269,6 +269,15 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public var metadata: [String: AshJSON]?"
     end
 
+    test "Ash.Type.CiString maps to String (plain JSON string wire format)", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # CiString has an explicit mapping, so codegen emits String without the
+      # unmapped-type fallback warning.
+      assert types =~ "public var username: String?"
+      # And it joins the equality+membership filter group like other strings.
+      assert types =~ "public var username: NullableEnumOperators<String>?"
+    end
+
     test "backtick-escapes Swift reserved keywords used as function names", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
       # :init is a Swift declaration keyword; bare `public func init(...)` is a syntax error.
