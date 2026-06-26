@@ -39,7 +39,7 @@ final class AshRpcClientTests: XCTestCase {
         }
         let client = AshRpcClient(config: config(), transport: stub)
 
-        try await client.execute(RawRequest(action: "list_todos"))
+        _ = try await client.execute(RawRequest(action: "list_todos"))
 
         let request = try XCTUnwrap(captured.value)
         XCTAssertEqual(request.url?.absoluteString, "https://example.com/rpc/run")
@@ -186,6 +186,14 @@ final class AshRpcClientTests: XCTestCase {
         let page = try XCTUnwrap(parsed["page"] as? [String: Any])
         XCTAssertEqual(page["limit"] as? Int, 5)
         XCTAssertEqual(page["after"] as? String, "cursor-abc")
+    }
+
+    func testExecuteDestroyReturnsOnSuccessEnvelope() async throws {
+        let body = Data(#"{"success":true}"#.utf8)
+        let stub = StubTransport(status: 200, body: body) { _ in }
+        let client = AshRpcClient(config: config(), transport: stub)
+        // must not throw; Void result is discarded
+        try await client.execute(DestroyRequest(action: "destroy_todo", identity: "uuid-1"))
     }
 
     func testExecuteOffsetThrowsDecodingFailedForBareArray() async {

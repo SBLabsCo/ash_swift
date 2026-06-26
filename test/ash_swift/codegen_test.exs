@@ -269,6 +269,13 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public var metadata: [String: AshJSON]?"
     end
 
+    test "backtick-escapes Swift reserved keywords used as function names", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      # :init is a Swift declaration keyword; bare `public func init(...)` is a syntax error.
+      assert functions =~ "public func `init`("
+      refute functions =~ "public func init("
+    end
+
     test "is deterministic — same domains produce byte-identical output", %{files: files} do
       assert Codegen.build_files(@domains) == files
     end

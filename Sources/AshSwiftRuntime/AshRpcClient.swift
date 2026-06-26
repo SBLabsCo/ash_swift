@@ -59,7 +59,6 @@ public struct AshRpcClient: Sendable {
     /// Throws `AshRpcError.httpStatus` for non-2xx responses, `AshRpcError.server`
     /// when the backend reports failure, and `AshRpcError.decodingFailed` when the
     /// envelope or the data payload is unintelligible.
-    @discardableResult
     public func execute<R: RpcRequest>(_ request: R) async throws -> R.Output {
         let raw = try await sendRequest(request.makeBody())
         do {

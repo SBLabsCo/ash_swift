@@ -572,7 +572,7 @@ defmodule AshSwift.Codegen do
 
     """
     /// Calls the `#{spec.rpc_name}` RPC action (#{spec.doc}).
-    public func #{spec.func_name}(#{params_str}) async throws#{return_clause} {
+    public func #{escape_swift_keyword(spec.func_name)}(#{params_str}) async throws#{return_clause} {
         #{return_kw}try await client.execute(#{spec.request_type}(#{args_str}))
     }\
     """

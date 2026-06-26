@@ -55,6 +55,20 @@ final class RpcRequestTests: XCTestCase {
         XCTAssertEqual(page["offset"] as? Int, 10)
     }
 
+    func testKeysetPageRequestOmitsPageWhenNil() throws {
+        let json = try encodedBody(KeysetPageRequest<Stub>(action: "list_todos_keyset"))
+        XCTAssertNil(json["page"], "nil page must be omitted so the backend uses its default")
+    }
+
+    func testKeysetPageRequestCarriesPageParams() throws {
+        let json = try encodedBody(
+            KeysetPageRequest<Stub>(action: "list_todos_keyset", page: KeysetPageParams(limit: 5, after: "cursor"))
+        )
+        let page = try XCTUnwrap(json["page"] as? [String: Any])
+        XCTAssertEqual(page["limit"] as? Int, 5)
+        XCTAssertEqual(page["after"] as? String, "cursor")
+    }
+
     func testCreateRequestBodyCarriesInput() throws {
         let json = try encodedBody(CreateRequest<Stub, StubInput>(action: "create_todo", input: StubInput(title: "New")))
         XCTAssertEqual(json["action"] as? String, "create_todo")
