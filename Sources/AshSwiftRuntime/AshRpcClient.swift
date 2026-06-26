@@ -71,6 +71,16 @@ public struct AshRpcClient: Sendable {
         let data: [T]
     }
 
+    /// Typed envelope for decoding an offset-paginated data payload.
+    private struct OffsetPageEnvelope<T: Decodable & Sendable>: Decodable where T: Decodable {
+        let data: OffsetPage<T>
+    }
+
+    /// Typed envelope for decoding a keyset-paginated data payload.
+    private struct KeysetPageEnvelope<T: Decodable & Sendable>: Decodable where T: Decodable {
+        let data: KeysetPage<T>
+    }
+
     /// Typed envelope for decoding a single non-optional record.
     private struct GetEnvelope<T: Decodable>: Decodable {
         let data: T
@@ -131,6 +141,30 @@ public struct AshRpcClient: Sendable {
         let raw = try await runRaw(action: action, fields: fields)
         do {
             return try decoder.decode(ListEnvelope<T>.self, from: raw).data
+        } catch {
+            throw AshRpcError.decodingFailed(description: String(describing: error))
+        }
+    }
+
+    /// Runs an offset-paginated list RPC action and decodes the response into
+    /// `OffsetPage<T>`. Use for read actions with `pagination offset?: true,
+    /// required?: true` — the backend always returns the paginated envelope shape.
+    public func runListOffset<T: Decodable & Sendable>(action: String, fields: [FieldSelection] = []) async throws -> OffsetPage<T> {
+        let raw = try await runRaw(action: action, fields: fields)
+        do {
+            return try decoder.decode(OffsetPageEnvelope<T>.self, from: raw).data
+        } catch {
+            throw AshRpcError.decodingFailed(description: String(describing: error))
+        }
+    }
+
+    /// Runs a keyset-paginated list RPC action and decodes the response into
+    /// `KeysetPage<T>`. Use for read actions with `pagination keyset?: true,
+    /// required?: true` — the backend always returns the paginated envelope shape.
+    public func runListKeyset<T: Decodable & Sendable>(action: String, fields: [FieldSelection] = []) async throws -> KeysetPage<T> {
+        let raw = try await runRaw(action: action, fields: fields)
+        do {
+            return try decoder.decode(KeysetPageEnvelope<T>.self, from: raw).data
         } catch {
             throw AshRpcError.decodingFailed(description: String(describing: error))
         }

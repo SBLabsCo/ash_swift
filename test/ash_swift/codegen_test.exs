@@ -100,6 +100,17 @@ defmodule AshSwift.CodegenTest do
                "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
+    test "offset-paginated read action returns OffsetPage<T> and calls runListOffset", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func listTodosOffset(fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+
+      assert functions =~ ~s[client.runListOffset(action: "list_todos_offset",]
+    end
+
     test "create action emits typed input + return", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 

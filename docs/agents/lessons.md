@@ -51,6 +51,15 @@ The AshTypescript RPC wire protocol sends the primary-key value for update and
 destroy actions under a top-level `identity` key (a plain string), **not** in
 the `input` dict. Sending `{"action": "update_todo", "input": {"id": "...", "title": "..."}}` returns `missing_identity`; the correct shape is `{"action": "update_todo", "identity": "<uuid>", "input": {"title": "..."}}`. The same applies to destroy: `{"action": "destroy_todo", "identity": "<uuid>"}`. Probe with `AshTypescript.Rpc.run_action` and inspect the response before wiring up the Swift runtime or generating call sites. See PR #28.
 
+### Pagination detection must check `required?: true`, not just presence of a pagination struct
+
+Every Ash read action carries an `Ash.Resource.Actions.Read.Pagination` struct — including the
+default `:read` action on ETS-backed resources, which ships with `offset?: true, keyset?: true`
+by default (the ETS data layer supports both). Checking only `ash_action.pagination` (non-nil)
+or `pagination.offset?` (true) will incorrectly classify all list actions as paginated. The
+correct signal is `pagination.required? == true`: that flag is only set when the Ash developer
+explicitly opts the action into mandatory pagination. See PR #29 (issue #16).
+
 ## Test patterns
 
 ### Extend the fixture domain when the bug class needs it
