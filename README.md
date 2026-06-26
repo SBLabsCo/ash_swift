@@ -16,11 +16,12 @@ HTTP to the *same* RPC endpoint AshTypescript already serves, so a Swift client
 and a TypeScript client stay wire-identical by construction.
 
 > **Status: early.** Milestone 1 (the thin end-to-end happy path) is the current
-> scope — core CRUD action types, ad-hoc field selection, and a zero-dependency
-> URLSession runtime. Filters/sorting/pagination, typed queries, enums, hooks,
-> and real-time support are later milestones. See
-> [`docs/prd/m1-vertical-slice.md`](docs/prd/m1-vertical-slice.md) for the full
-> roadmap and out-of-scope list.
+> scope — core CRUD action types, ad-hoc field selection (incl. nested
+> relationships), enums, typed get actions, and a zero-dependency URLSession
+> runtime. Filters/sorting/pagination, typed (narrowed) queries, embedded
+> resources, hooks, and real-time support are later milestones. See the
+> [PRD](docs/prd/m1-vertical-slice.md) for the full roadmap (progress section
+> tracks what's landed).
 
 ## Features
 
@@ -30,12 +31,16 @@ and a TypeScript client stay wire-identical by construction.
 - **Reuses your existing RPC config** — reads the domain's `typescript_rpc`
   configuration, so you don't maintain a second list of exposed actions for Swift.
 - **Core action types** — generates a callable function for each exposed
-  read/list, get, create, update, and destroy action. In M1, list/read actions
-  are fully typed (`async throws -> [T]` with field selection); get, create,
-  update, and destroy emit callable stubs — typed inputs and return values land
-  in a later milestone.
-- **Ad-hoc field selection** — request only the fields a screen needs; every model
-  field is `Optional`, so unselected fields safely decode as `nil`.
+  read/list, get, create, update, and destroy action. List/read actions are
+  fully typed (`async throws -> [T]` with field selection); get actions reflect
+  `get?` / `get_by` / `not_found_error?` and return `T` or `T?` accordingly.
+  Create/update/destroy emit callable stubs — typed inputs land in a later
+  M1 slice.
+- **Ad-hoc field selection** — request only the fields a screen needs, including
+  fields on nested relationships. Every model field is `Optional`, so unselected
+  fields safely decode as `nil`.
+- **Backend enums become Swift enums** — exhaustive `switch` handling and
+  autocomplete; reserved-keyword values are backtick-escaped.
 - **Idiomatic Swift** — backend field and action names become Swift `camelCase`.
 - **Zero-dependency runtime** — `AshSwiftRuntime` is hand-written over URLSession
   with no third-party dependencies, adding no supply-chain surface.
@@ -44,7 +49,7 @@ and a TypeScript client stay wire-identical by construction.
 - **Deterministic, committable output** — regenerating with no schema change
   produces no diff.
 
-Filters/sorting/pagination, typed (narrowed) queries, enums, embedded resources,
+Filters/sorting/pagination, typed (narrowed) queries, embedded resources,
 lifecycle hooks, and Phoenix Channel support are planned for later milestones —
 see [`docs/prd/m1-vertical-slice.md`](docs/prd/m1-vertical-slice.md).
 

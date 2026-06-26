@@ -62,7 +62,9 @@ jobs:
 
             1. Read it: `gh issue view ${{ inputs.issue_number }}`.
             2. Follow this repo's conventions: CLAUDE.md, CONTEXT.md, docs/adr/,
-               docs/prd/m1-vertical-slice.md. Use the domain vocabulary in CONTEXT.md.
+               docs/prd/m1-vertical-slice.md. Read `docs/agents/lessons.md` —
+               it captures non-obvious patterns earlier runs got wrong. Use the
+               domain vocabulary in CONTEXT.md.
             3. Scope strictly to this issue's acceptance criteria — do not pull in
                later-milestone work. Work test-first where there is a natural seam.
             4. Before committing, make every gate CI runs pass locally, in this
@@ -73,6 +75,12 @@ jobs:
             5. Create a branch `issue-${{ inputs.issue_number }}-<short-slug>`, commit,
                push, and open a PR whose body starts with
                "Closes #${{ inputs.issue_number }}". Do NOT merge — leave it for review.
+            6. Reflect: did you hit a pattern future agents would also miss?
+               Only if you can name a NON-OBVIOUS, RECURRING pattern that is
+               NOT already in `docs/agents/lessons.md`, append a short entry
+               (≤2 paragraphs, link an issue/PR) under the appropriate section
+               and include the doc change in your PR. If unsure, do nothing.
+               Most runs add no entry; noise is worse than missing a lesson.
           # Unlike tag mode (read-only + git), an implementer needs to run the
           # build/test toolchain, edit files, and use git/gh. Grant an explicit
           # tool allowlist (auditable, and scoped to this dispatch-only,

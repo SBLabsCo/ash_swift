@@ -80,6 +80,12 @@ These steps require account/repo admin and can't be done from a code PR:
   workflow's `--allowedTools`. We vendor `implement`, `tdd`, and `triage`; the
   implement/triage prompts invoke them by name. Re-sync from upstream by copying
   the skill folder in again.
+- **Lessons compound across runs.** `docs/agents/lessons.md` captures
+  non-obvious patterns earlier runs got wrong (e.g. the "use the authoritative
+  source for known finite sets" rule that prevents partial-fix loops). The
+  implement and address-review prompts read it as context and may append a new
+  entry — strictly gated to non-obvious, recurring patterns not already covered
+  so the file doesn't become noise. Maintainers can prune or rewrite entries.
 - **Model + visibility.** All workflows pin `--model` (the action's default
   resolves to an invalid id). The implement workflow runs with
   `show_full_output: true` + `--verbose` so its turn-by-turn log is inspectable;
