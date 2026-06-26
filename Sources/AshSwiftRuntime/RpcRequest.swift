@@ -43,19 +43,23 @@ private struct DataEnvelope<D: Decodable>: Decodable {
 
 // MARK: - Request bodies
 
-/// Body for list, raw, and any void action: just the action name and field
-/// selection. Wire-identical to the M1 `RequestBody`.
+/// Body for list, raw, and any void action: the action name, field selection,
+/// and an optional sort string. `sort` is the assembled Ash sort string (see
+/// AshSort.swift), omitted from the JSON when nil — so a raw/void action, or a
+/// list with no sort, stays wire-identical to the M1 `RequestBody`.
 public struct ActionFieldsBody: Encodable, Sendable {
     let action: String
     let fields: [FieldSelection]
+    let sort: String?
 }
 
-/// Body for paginated list actions. `page` is omitted from the JSON when nil
-/// (the backend then returns its default page).
+/// Body for paginated list actions. `page` and `sort` are each omitted from the
+/// JSON when nil (the backend then returns its default page / order).
 public struct PagedBody<P: Encodable & Sendable>: Encodable, Sendable {
     let action: String
     let fields: [FieldSelection]
     let page: P?
+    let sort: String?
 }
 
 /// Body for get actions. `input` carries native get_by field values; `getBy`
@@ -105,7 +109,7 @@ public struct RawRequest: RpcRequest {
     }
 
     public func makeBody() -> ActionFieldsBody {
-        ActionFieldsBody(action: action, fields: fields)
+        ActionFieldsBody(action: action, fields: fields, sort: nil)
     }
 
     public func decode(from data: Data, using decoder: JSONDecoder) throws -> Data {
@@ -114,19 +118,23 @@ public struct RawRequest: RpcRequest {
 }
 
 /// A list (non-get read) action with no required pagination: decodes the
-/// `data` array into `[T]`.
+/// `data` array into `[T]`. `sort` is the assembled Ash sort string (build it
+/// from a typed sort with `ashSortString` — see AshSort.swift); nil leaves the
+/// pre-sort wire shape unchanged.
 public struct ListRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = [T]
     let action: String
+    let sort: String?
     let fields: [FieldSelection]
 
-    public init(action: String, fields: [FieldSelection] = []) {
+    public init(action: String, sort: String? = nil, fields: [FieldSelection] = []) {
         self.action = action
+        self.sort = sort
         self.fields = fields
     }
 
     public func makeBody() -> ActionFieldsBody {
-        ActionFieldsBody(action: action, fields: fields)
+        ActionFieldsBody(action: action, fields: fields, sort: sort)
     }
 }
 
@@ -136,16 +144,23 @@ public struct OffsetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = OffsetPage<T>
     let action: String
     let page: OffsetPageParams?
+    let sort: String?
     let fields: [FieldSelection]
 
-    public init(action: String, page: OffsetPageParams? = nil, fields: [FieldSelection] = []) {
+    public init(
+        action: String,
+        page: OffsetPageParams? = nil,
+        sort: String? = nil,
+        fields: [FieldSelection] = []
+    ) {
         self.action = action
         self.page = page
+        self.sort = sort
         self.fields = fields
     }
 
     public func makeBody() -> PagedBody<OffsetPageParams> {
-        PagedBody(action: action, fields: fields, page: page)
+        PagedBody(action: action, fields: fields, page: page, sort: sort)
     }
 }
 
@@ -155,16 +170,23 @@ public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = KeysetPage<T>
     let action: String
     let page: KeysetPageParams?
+    let sort: String?
     let fields: [FieldSelection]
 
-    public init(action: String, page: KeysetPageParams? = nil, fields: [FieldSelection] = []) {
+    public init(
+        action: String,
+        page: KeysetPageParams? = nil,
+        sort: String? = nil,
+        fields: [FieldSelection] = []
+    ) {
         self.action = action
         self.page = page
+        self.sort = sort
         self.fields = fields
     }
 
     public func makeBody() -> PagedBody<KeysetPageParams> {
-        PagedBody(action: action, fields: fields, page: page)
+        PagedBody(action: action, fields: fields, page: page, sort: sort)
     }
 }
 

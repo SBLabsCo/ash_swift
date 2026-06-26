@@ -841,6 +841,109 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "sorted read action: the Swift-assembled sort string is what the pipeline accepts" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Seed three todos with distinct, prefixed titles and a nullable score, so the
+    # ordering assertions can isolate this test's records from any others ETS holds.
+    for {title, score} <- [{"SortE2E-Alpha", 2}, {"SortE2E-Bravo", nil}, {"SortE2E-Charlie", 1}] do
+      Ash.create!(AshSwift.Test.Todo, %{title: title, score: score}, domain: AshSwift.Test.Domain)
+    end
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # The sort strings below are exactly what `ashSortString` produces in Swift for
+    # the typed sorts asserted in the XCTest — `-title` and `++score`. Sending the
+    # literal string here and asserting equality with the helper in Swift proves
+    # both sides agree on the wire format the server parses.
+    desc_params = %{
+      "action" => "list_todos",
+      "fields" => ["title", "score"],
+      "sort" => "-title"
+    }
+
+    desc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, desc_params)
+    assert desc_result["success"] == true
+    desc_json = Jason.encode!(desc_result)
+
+    nils_first_params = %{
+      "action" => "list_todos",
+      "fields" => ["title", "score"],
+      "sort" => "++score"
+    }
+
+    nils_first_result = AshTypescript.Rpc.run_action(:ash_swift, conn, nils_first_params)
+    assert nils_first_result["success"] == true
+    nils_first_json = Jason.encode!(nils_first_result)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Proves the sort surface round-trips: the Swift-side `ashSortString` produces
+    // the exact string the Elixir pipeline was given, and the records come back in
+    // the order that string requests, decoded through the generated Todo model.
+    final class E2ESortTest: XCTestCase {
+        // Keep only this test's seeded records, in the order the server returned them.
+        private func ours(_ todos: [Todo]) -> [String] {
+            todos.compactMap { $0.title }.filter { $0.hasPrefix("SortE2E-") }
+        }
+
+        func testDescendingTitleSortRoundTrips() throws {
+            // The generated client would assemble this exact string for the typed sort.
+            XCTAssertEqual(
+                ashSortString([SortField(TodoSortField.title, .descending)]),
+                "-title"
+            )
+
+            let json = #{inspect(desc_json, binaries: :as_strings)}
+            struct ListEnvelope: Decodable { let success: Bool; let data: [Todo] }
+            let envelope = try JSONDecoder().decode(ListEnvelope.self, from: Data(json.utf8))
+            XCTAssertTrue(envelope.success)
+
+            // Descending title: Charlie, Bravo, Alpha.
+            XCTAssertEqual(
+                ours(envelope.data),
+                ["SortE2E-Charlie", "SortE2E-Bravo", "SortE2E-Alpha"]
+            )
+        }
+
+        func testNilsFirstScoreSortRoundTrips() throws {
+            XCTAssertEqual(
+                ashSortString([SortField(TodoSortField.score, .ascendingNilsFirst)]),
+                "++score"
+            )
+
+            let json = #{inspect(nils_first_json, binaries: :as_strings)}
+            struct ListEnvelope: Decodable { let success: Bool; let data: [Todo] }
+            let envelope = try JSONDecoder().decode(ListEnvelope.self, from: Data(json.utf8))
+            XCTAssertTrue(envelope.success)
+
+            // Ascending score with nils first: Bravo (nil), Charlie (1), Alpha (2).
+            XCTAssertEqual(
+                ours(envelope.data),
+                ["SortE2E-Bravo", "SortE2E-Charlie", "SortE2E-Alpha"]
+            )
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2ESortTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2ESortTest"], cd: tmp, stderr_to_stdout: true)
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).

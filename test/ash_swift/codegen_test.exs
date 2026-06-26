@@ -94,10 +94,10 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodos(fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodos(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
 
       assert functions =~
-               "public func listUsers(fields: [FieldSelection] = []) async throws -> [User] {"
+               "public func listUsers(sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> [User] {"
     end
 
     test "offset-paginated read action returns OffsetPage<T> via OffsetPageRequest", %{
@@ -106,7 +106,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosOffset(page: OffsetPageParams? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+               "public func listTodosOffset(page: OffsetPageParams? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
 
       assert functions =~ ~s[client.execute(OffsetPageRequest(action: "list_todos_offset",]
     end
@@ -117,7 +117,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosKeyset(page: KeysetPageParams? = nil, fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
+               "public func listTodosKeyset(page: KeysetPageParams? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
 
       assert functions =~ ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset",]
     end
@@ -289,6 +289,106 @@ defmodule AshSwift.CodegenTest do
       # :pending is not a keyword — emitted without backticks
       assert types =~ "    case pending"
       refute types =~ "    case `pending`"
+    end
+  end
+
+  describe "sort surface (issue #34)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    test "emits a typed sortable-field enum per resource covering public attributes", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+      assert types =~ "public enum TodoSortField: String, Sendable {"
+      # Public attributes appear as camelCased cases (raw value inferred from name).
+      assert types =~ "    case completed"
+      assert types =~ "    case dueAt"
+      assert types =~ "    case scheduledAt"
+      assert types =~ "    case title"
+      # Users get their own sortable-field enum too.
+      assert types =~ "public enum UserSortField: String, Sendable {"
+    end
+
+    test "excludes non-sortable composite types (Ash.Type.Map) from the sort field set", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+      # `metadata` is an Ash.Type.Map (→ [String: AshJSON]); the backend can't sort
+      # by a JSON object, so it must not appear as a typed sort field.
+      assert Regex.match?(
+               ~r/public enum TodoSortField: String, Sendable \{(?:(?!\}).)*\}/s,
+               types
+             )
+
+      sort_enum =
+        Regex.run(~r/public enum TodoSortField: String, Sendable \{.*?\n\}/s, types) |> hd()
+
+      refute sort_enum =~ "case metadata"
+      # Comparable scalars and enums are still included.
+      assert sort_enum =~ "case amount"
+      assert sort_enum =~ "case status"
+    end
+
+    test "backtick-escapes Swift reserved keywords in sortable-field cases", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # :default is a Swift keyword; the case must be escaped (raw value stays "default").
+      assert Regex.match?(
+               ~r/public enum TodoSortField: String, Sendable \{[^}]*\n    case `default`\n/s,
+               types
+             )
+    end
+
+    test "list read action gains an optional typed sort: parameter", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func listTodos(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+
+      assert functions =~
+               ~s[client.execute(ListRequest(action: "list_todos", sort: ashSortString(sort), fields: fields))]
+    end
+
+    test "offset-paginated read action threads sort alongside page", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func listTodosOffset(page: OffsetPageParams? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+
+      assert functions =~
+               ~s[client.execute(OffsetPageRequest(action: "list_todos_offset", page: page, sort: ashSortString(sort), fields: fields))]
+    end
+
+    test "keyset-paginated read action threads sort alongside page", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func listTodosKeyset(page: KeysetPageParams? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
+
+      assert functions =~
+               ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset", page: page, sort: ashSortString(sort), fields: fields))]
+    end
+
+    test "enable_sort?: false action is emitted WITHOUT a sort: parameter", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func listTodosNoSort(fields: [FieldSelection] = []) async throws -> [Todo] {"
+
+      refute functions =~ "public func listTodosNoSort(sort:"
+
+      assert functions =~
+               ~s[client.execute(ListRequest(action: "list_todos_no_sort", fields: fields))]
+    end
+
+    test "get actions do not gain a sort: parameter", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func getTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo {"
+
+      refute functions =~ "public func getTodo(id: String, sort:"
     end
   end
 

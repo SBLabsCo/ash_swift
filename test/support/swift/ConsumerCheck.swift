@@ -39,6 +39,31 @@ enum ConsumerCheck {
         ])
         let _ = withUser
 
+        // Typed sort: choose fields from the generated TodoSortField set and a
+        // direction per field. The default direction is ascending. The compiler
+        // rejects fields that aren't on the resource — type safety is the point.
+        let sorted: [Todo] = try await rpc.listTodos(
+            sort: [
+                SortField(.title, .descending),
+                SortField(.score, .ascendingNilsFirst),
+                SortField(.dueAt),
+            ],
+            fields: ["id", "title"]
+        )
+        let _ = sorted
+
+        // Sort composes with pagination on the paginated read variants.
+        let pagedSorted: OffsetPage<Todo> = try await rpc.listTodosOffset(
+            page: OffsetPageParams(limit: 20),
+            sort: [SortField(.completed), SortField(.title, .descendingNilsLast)]
+        )
+        let _ = pagedSorted
+
+        // enable_sort?: false on this action drops the sort: parameter entirely,
+        // so it isn't even offered here — calling it with one would not compile.
+        let unsorted: [Todo] = try await rpc.listTodosNoSort()
+        let _ = unsorted
+
         // Get actions return a typed single record; id is the lookup key.
         let todo: Todo = try await rpc.getTodo(id: "some-uuid")
         let _ = todo
