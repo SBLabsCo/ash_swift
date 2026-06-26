@@ -72,10 +72,18 @@ jobs:
                `mix compile --warnings-as-errors`, `mix test`, and `swift test`.
                Keep generated codegen output deterministic. Do not open the PR
                until all four are green.
-            5. Create a branch `issue-${{ inputs.issue_number }}-<short-slug>`, commit,
+            5. Keep the docs in sync with your change, in the SAME PR. If the work
+               changes anything the docs assert — README features/status/roadmap,
+               public API or usage examples, CONTEXT.md domain vocabulary, or an
+               ADR/PRD's stated scope — update those docs too. A shipped feature
+               still listed as "planned"/"next"/"in progress" in the README is a
+               doc bug, not a follow-up. Any example code you add or touch must
+               compile against the generated client. When in doubt, grep the docs
+               for the terms your change affects and reconcile each hit.
+            6. Create a branch `issue-${{ inputs.issue_number }}-<short-slug>`, commit,
                push, and open a PR whose body starts with
                "Closes #${{ inputs.issue_number }}". Do NOT merge — leave it for review.
-            6. Reflect: did you hit a pattern future agents would also miss?
+            7. Reflect: did you hit a pattern future agents would also miss?
                Only if you can name a NON-OBVIOUS, RECURRING pattern that is
                NOT already in `docs/agents/lessons.md`, append a short entry
                (≤2 paragraphs, link an issue/PR) under the appropriate section
