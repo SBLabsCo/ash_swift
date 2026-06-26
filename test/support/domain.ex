@@ -7,6 +7,9 @@ defmodule AshSwift.Test.Domain do
     resource AshSwift.Test.Todo do
       rpc_action(:list_todos, :read)
       rpc_action(:init, :read)
+      # Sorting is on by default; this action turns it off so codegen must emit
+      # the read function WITHOUT a sort: parameter (compile-time gating).
+      rpc_action(:list_todos_no_sort, :read, enable_sort?: false)
       rpc_action(:list_todos_offset, :list_offset_paginated)
       rpc_action(:list_todos_keyset, :list_keyset_paginated)
       rpc_action(:get_todo, :get_by_id)
