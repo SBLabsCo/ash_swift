@@ -72,13 +72,29 @@ public struct AshRpcClient: Sendable {
     }
 
     /// Typed envelope for decoding an offset-paginated data payload.
-    private struct OffsetPageEnvelope<T: Decodable & Sendable>: Decodable where T: Decodable {
+    private struct OffsetPageEnvelope<T: Decodable & Sendable>: Decodable {
         let data: OffsetPage<T>
     }
 
     /// Typed envelope for decoding a keyset-paginated data payload.
-    private struct KeysetPageEnvelope<T: Decodable & Sendable>: Decodable where T: Decodable {
+    private struct KeysetPageEnvelope<T: Decodable & Sendable>: Decodable {
         let data: KeysetPage<T>
+    }
+
+    /// Request body for offset-paginated list actions. `page` is omitted from
+    /// the JSON when nil (Swift synthesises `encodeIfPresent` for Optional).
+    private struct PagedOffsetRequestBody: Encodable {
+        let action: String
+        let fields: [FieldSelection]
+        let page: OffsetPageParams?
+    }
+
+    /// Request body for keyset-paginated list actions. `page` is omitted from
+    /// the JSON when nil.
+    private struct PagedKeysetRequestBody: Encodable {
+        let action: String
+        let fields: [FieldSelection]
+        let page: KeysetPageParams?
     }
 
     /// Typed envelope for decoding a single non-optional record.
@@ -149,8 +165,13 @@ public struct AshRpcClient: Sendable {
     /// Runs an offset-paginated list RPC action and decodes the response into
     /// `OffsetPage<T>`. Use for read actions with `pagination offset?: true,
     /// required?: true` — the backend always returns the paginated envelope shape.
-    public func runListOffset<T: Decodable & Sendable>(action: String, fields: [FieldSelection] = []) async throws -> OffsetPage<T> {
-        let raw = try await runRaw(action: action, fields: fields)
+    /// Pass `page` to control which page the backend returns (limit, offset).
+    public func runListOffset<T: Decodable & Sendable>(
+        action: String,
+        page: OffsetPageParams? = nil,
+        fields: [FieldSelection] = []
+    ) async throws -> OffsetPage<T> {
+        let raw = try await sendRequest(PagedOffsetRequestBody(action: action, fields: fields, page: page))
         do {
             return try decoder.decode(OffsetPageEnvelope<T>.self, from: raw).data
         } catch {
@@ -161,8 +182,13 @@ public struct AshRpcClient: Sendable {
     /// Runs a keyset-paginated list RPC action and decodes the response into
     /// `KeysetPage<T>`. Use for read actions with `pagination keyset?: true,
     /// required?: true` — the backend always returns the paginated envelope shape.
-    public func runListKeyset<T: Decodable & Sendable>(action: String, fields: [FieldSelection] = []) async throws -> KeysetPage<T> {
-        let raw = try await runRaw(action: action, fields: fields)
+    /// Pass `page` to control which page the backend returns (limit, after/before cursors).
+    public func runListKeyset<T: Decodable & Sendable>(
+        action: String,
+        page: KeysetPageParams? = nil,
+        fields: [FieldSelection] = []
+    ) async throws -> KeysetPage<T> {
+        let raw = try await sendRequest(PagedKeysetRequestBody(action: action, fields: fields, page: page))
         do {
             return try decoder.decode(KeysetPageEnvelope<T>.self, from: raw).data
         } catch {

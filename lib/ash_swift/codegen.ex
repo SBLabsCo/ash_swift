@@ -507,8 +507,8 @@ defmodule AshSwift.Codegen do
 
     """
     /// Calls the `#{rpc_name}` RPC action (offset-paginated list of `#{type_name}` records).
-    public func #{func}(fields: [FieldSelection] = []) async throws -> OffsetPage<#{type_name}> {
-        return try await client.runListOffset(action: "#{rpc_name}", fields: fields)
+    public func #{func}(page: OffsetPageParams? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<#{type_name}> {
+        return try await client.runListOffset(action: "#{rpc_name}", page: page, fields: fields)
     }\
     """
   end
@@ -521,8 +521,8 @@ defmodule AshSwift.Codegen do
 
     """
     /// Calls the `#{rpc_name}` RPC action (keyset-paginated list of `#{type_name}` records).
-    public func #{func}(fields: [FieldSelection] = []) async throws -> KeysetPage<#{type_name}> {
-        return try await client.runListKeyset(action: "#{rpc_name}", fields: fields)
+    public func #{func}(page: KeysetPageParams? = nil, fields: [FieldSelection] = []) async throws -> KeysetPage<#{type_name}> {
+        return try await client.runListKeyset(action: "#{rpc_name}", page: page, fields: fields)
     }\
     """
   end

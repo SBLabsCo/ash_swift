@@ -33,6 +33,9 @@ know the pagination shape — it is determined by the generated function signatu
 ## Consequences
 
 - The generated function signature expresses pagination semantics statically (compile-time).
+- Generated offset functions accept an `OffsetPageParams?` argument (limit, offset); generated
+  keyset functions accept a `KeysetPageParams?` argument (limit, after, before). Both default to
+  nil, which sends no `page` key in the request body and lets the backend use its default page.
 - Optional pagination (required?: false) still returns `[T]`; no page param is sent, so the
   backend returns a bare array. Callers that want to pass a page param to optional-pagination
   actions are not yet supported — that is a future ticket.

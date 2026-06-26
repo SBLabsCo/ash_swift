@@ -667,10 +667,10 @@ defmodule AshSwift.E2ETest do
             XCTAssertTrue(envelope.success)
             XCTAssertFalse(envelope.data.results.isEmpty)
 
-            // Pagination metadata must be present and sane.
-            XCTAssertNotNil(envelope.data.limit)
-            XCTAssertNotNil(envelope.data.offset)
+            // Pagination metadata must match the requested page params.
+            XCTAssertEqual(envelope.data.limit, 2)
             XCTAssertEqual(envelope.data.offset, 0)
+            XCTAssertLessThanOrEqual(envelope.data.results.count, 2)
 
             let first = try XCTUnwrap(envelope.data.results.first)
             XCTAssertNotNil(first.id)
