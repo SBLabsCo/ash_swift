@@ -784,7 +784,9 @@ defmodule AshSwift.Codegen do
 
   # The `and`/`or`/`not` combinator property lines for a filter type, each an
   # optional array of that same type. See @filter_combinators for the wire-key
-  # and recursion rationale.
+  # and recursion rationale. No `escape_swift_keyword` here: none of the three is
+  # a Swift keyword, and they double as the literal wire keys — escaping would be
+  # both unnecessary and (if one were a keyword) a CodingKey hazard to reason about.
   defp filter_combinator_props(name) do
     Enum.map_join(@filter_combinators, "\n", fn combinator ->
       "    public var #{combinator}: [#{name}]?"
