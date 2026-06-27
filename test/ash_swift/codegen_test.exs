@@ -84,10 +84,17 @@ defmodule AshSwift.CodegenTest do
       types = files["AshRpcTypes.swift"]
       # User's aggregates over :todos (issue #51). Each is selectable like any
       # other field and decodes through the same Optional struct member.
-      # count → Int, exists → Bool, max(:score) → Int (the field's Swift type).
+      # count → Int, exists → Bool.
       assert types =~ "public var todoCount: Int?"
       assert types =~ "public var hasTodos: Bool?"
+      # The complete set of field-typed numeric aggregates, all sharing the scalar
+      # gate → ash_type_to_swift path. max/min/sum preserve the field's type (:integer
+      # → Int); avg promotes to :float → Double, so the assertion pins that :float
+      # stays mapped (and in @derived_scalar_kinds) rather than being skipped.
       assert types =~ "public var highestScore: Int?"
+      assert types =~ "public var lowestScore: Int?"
+      assert types =~ "public var totalScore: Int?"
+      assert types =~ "public var averageScore: Double?"
     end
 
     test "emits a Swift enum for an aggregate whose resolved type is an enum",
@@ -98,9 +105,15 @@ defmodule AshSwift.CodegenTest do
       # field plus a per-resource generated enum.
       assert types =~ "public var topPriority: UserTopPriority?"
       assert types =~ "public enum UserTopPriority: String, Codable, Sendable, Equatable {"
-      assert types =~ "    case high"
-      assert types =~ "    case low"
-      assert types =~ "    case medium"
+
+      # Scope the case assertions to the UserTopPriority block. Asserting `case high`
+      # against the whole file would be vacuous — TodoPriority carries the same cases
+      # in the same string — so extract this enum's body and check the cases there,
+      # making the assertion load-bearing if UserTopPriority's cases ever regress.
+      enum_block = Regex.run(~r/public enum UserTopPriority:.*?\n\}/s, types) |> List.first()
+      assert enum_block =~ "case high"
+      assert enum_block =~ "case low"
+      assert enum_block =~ "case medium"
     end
 
     test "skips an aggregate whose resolved type doesn't map to a Swift scalar/enum",

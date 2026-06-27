@@ -123,6 +123,14 @@ concrete scalar/enum (a `list` aggregate is `kind: :array, module: nil`) — a w
 silently mis-decodes, whereas omission is safe. See `@derived_scalar_kinds` /
 `collect_aggregate_fields` in `codegen.ex` (issue #51).
 
+One sharp edge to expect, not fix: an enum-typed derived field (e.g. `first :top_priority, :todos,
+:priority`) emits a *per-resource* enum (`UserTopPriority`) with the same raw cases as the source
+attribute's enum (`TodoPriority`), following the existing per-field enum-naming convention. The two
+types don't unify, so a caller must compare via `.rawValue`. This is consistent with attribute
+enums but the semantic coupling is tighter for a derived field over an enum column — #52's
+calculations will hit the same thing. Reusing the source enum across resources is a deliberate
+non-goal here (it'd require cross-resource enum identity), so don't "fix" it as a one-off.
+
 ## Test patterns
 
 ### Extend the fixture domain when the bug class needs it

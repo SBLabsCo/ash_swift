@@ -609,7 +609,11 @@ defmodule AshSwift.Codegen do
           {[%{name: formatted_name, swift_type: en_name} | fields_acc], [enum | enums_acc]}
 
         nil ->
-          if field.type.kind in @derived_scalar_kinds do
+          # Guard on a concrete module too: the gate's intent is skip-when-uncertain,
+          # and ash_type_to_swift/1 String-fallbacks an unknown/nil module — exactly
+          # the silent mis-decode this gate exists to prevent. Ash populates module
+          # for standard scalars, so this only excludes genuinely unresolvable types.
+          if field.type.kind in @derived_scalar_kinds and not is_nil(field.type.module) do
             field_map = %{name: formatted_name, swift_type: ash_type_to_swift(field.type.module)}
             {[field_map | fields_acc], enums_acc}
           else

@@ -231,14 +231,17 @@ public enum UserTopPriority: String, Codable, Sendable, Equatable {
 /// Every selectable field is Optional so that ad-hoc field selection is
 /// safe: unselected fields decode as `nil`.
 public struct User: Codable, Sendable, Equatable {
+    public var averageScore: Double?
     public var email: String?
     public var hasTodos: Bool?
     public var highestScore: Int?
     public var id: String?
+    public var lowestScore: Int?
     public var name: String?
     public var todoCount: Int?
     public var todos: [Todo]?
     public var topPriority: UserTopPriority?
+    public var totalScore: Int?
     public init() {}
 }
 

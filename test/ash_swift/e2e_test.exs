@@ -1559,7 +1559,16 @@ defmodule AshSwift.E2ETest do
 
     params = %{
       "action" => "list_users",
-      "fields" => ["id", "name", "todoCount", "hasTodos", "highestScore"]
+      "fields" => [
+        "id",
+        "name",
+        "todoCount",
+        "hasTodos",
+        "highestScore",
+        "lowestScore",
+        "totalScore",
+        "averageScore"
+      ]
     }
 
     rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
@@ -1574,9 +1583,10 @@ defmodule AshSwift.E2ETest do
     import AshSwiftRuntime
     import GeneratedClient
 
-    // Proves derived fields are wire-compatible: a count/exists/max aggregate,
-    // selected like any attribute, decodes into the generated User model with the
-    // correct Swift types (Int?/Bool?/Int?) and values (issue #51).
+    // Proves derived fields are wire-compatible: count/exists/max/min/sum/avg
+    // aggregates, selected like any attribute, decode into the generated User model
+    // with the correct Swift types — including avg → Double, a distinct decode path
+    // from the Int-typed aggregates — and the right values (issue #51).
     final class E2EAggregateTest: XCTestCase {
         func testAggregateFieldsDecodeIntoGeneratedModel() throws {
             let json = #{inspect(json, binaries: :as_strings)}
@@ -1599,8 +1609,13 @@ defmodule AshSwift.E2ETest do
             XCTAssertEqual(owner.todoCount, 2)
             // exists aggregate → Bool
             XCTAssertEqual(owner.hasTodos, true)
-            // max(:score) aggregate → the field's Swift type, Int
+            // max/min/sum(:score) aggregates → the field's Swift type, Int
             XCTAssertEqual(owner.highestScore, 7)
+            XCTAssertEqual(owner.lowestScore, 3)
+            XCTAssertEqual(owner.totalScore, 10)
+            // avg(:score) aggregate → Double (7 + 3) / 2 == 5.0 — proves the
+            // promoted-type field decodes from the wire, not just the Int ones.
+            XCTAssertEqual(owner.averageScore, 5.0)
         }
     }
     """

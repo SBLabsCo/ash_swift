@@ -38,7 +38,14 @@ defmodule AshSwift.Test.User do
   aggregates do
     count :todo_count, :todos, public?: true
     exists :has_todos, :todos, public?: true
+    # The full set of field-typed numeric aggregates — all share the scalar gate +
+    # ash_type_to_swift(field.type.module) path, but Ash resolves their result type
+    # differently: max/min/sum preserve the field's type (:integer → Int), while
+    # avg promotes (locking in that :float/:decimal stay in @derived_scalar_kinds).
     max :highest_score, :todos, :score, public?: true
+    min :lowest_score, :todos, :score, public?: true
+    sum :total_score, :todos, :score, public?: true
+    avg :average_score, :todos, :score, public?: true
     first :top_priority, :todos, :priority, public?: true
     list :todo_titles, :todos, :title, public?: true
     count :secret_count, :todos
