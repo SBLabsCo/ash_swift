@@ -16,4 +16,9 @@ public struct AshRpc: Sendable {
     public func listTags(filter: TagFilter? = nil, sort: [SortField<TagSortField>] = [], fields: [FieldSelection] = []) async throws -> [Tag] {
         return try await client.execute(ListRequest(action: "list_tags", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
+
+    /// Calls the `list_tags` RPC action (offset-paginated list of `Tag` records).
+    public func listTags(page: OffsetPageParams, filter: TagFilter? = nil, sort: [SortField<TagSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Tag> {
+        return try await client.execute(OffsetPageRequest(action: "list_tags", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
+    }
 }

@@ -21,8 +21,8 @@ and a TypeScript client stay wire-identical by construction.
 > typed error handling, and a zero-dependency URLSession runtime. Milestone 2
 > ("Powerful Reads") is in progress: typed **sorting**, typed **filtering** (attribute
 > and enum predicates plus `and`/`or`/`not` combinators), and typed **pagination**
-> (`OffsetPage`/`KeysetPage`) have landed; filter/sort/pagination composition is
-> next. Typed (narrowed) queries, embedded resources, hooks, and
+> (`OffsetPage`/`KeysetPage`, composing with filter and sort on one call) have
+> landed. Typed (narrowed) queries, embedded resources, hooks, and
 > real-time support are later milestones. See [`docs/prd/`](https://github.com/SBLabsCo/ash_swift/tree/main/docs/prd) for the
 > roadmap and [GitHub Issues](https://github.com/SBLabsCo/ash_swift/issues) for
 > what's in flight.
@@ -52,7 +52,10 @@ and a TypeScript client stay wire-identical by construction.
   sortable-field enum, with ascending/descending and nils-first/last ordering,
   gated per action by `enable_sort?`.
 - **Typed pagination** — read actions with required pagination return
-  `OffsetPage<T>` / `KeysetPage<T>` with typed page params and metadata.
+  `OffsetPage<T>` / `KeysetPage<T>` with typed page params and metadata. Reads that
+  *support* pagination without requiring it gain an overloaded paginated variant:
+  omit `page` for the bare `[T]` result, or pass `page` for the typed page — with
+  `filter` and `sort` composing alongside `page` on the same call.
 - **Faithful type mappings** — extended Ash types map to real Swift types
   (`Decimal`/`Date` → `String` for precision and format fidelity,
   `UtcDatetime` → `Date`, `Map` → typed JSON) rather than a blanket `String` fallback.
@@ -68,7 +71,7 @@ and a TypeScript client stay wire-identical by construction.
 - **Deterministic, committable output** — regenerating with no schema change
   produces no diff.
 
-Filter/sort/pagination composition, typed (narrowed) queries, embedded resources,
+Typed (narrowed) queries, embedded resources,
 lifecycle hooks, and Phoenix Channel support are planned for upcoming milestones —
 see [`docs/prd/`](https://github.com/SBLabsCo/ash_swift/tree/main/docs/prd).
 

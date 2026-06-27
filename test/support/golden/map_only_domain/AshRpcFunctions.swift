@@ -16,4 +16,9 @@ public struct AshRpc: Sendable {
     public func listMapOnlys(filter: MapOnlyFilter? = nil, fields: [FieldSelection] = []) async throws -> [MapOnly] {
         return try await client.execute(ListRequest(action: "list_map_onlys", filter: filter.map { AnyEncodable($0) }, fields: fields))
     }
+
+    /// Calls the `list_map_onlys` RPC action (offset-paginated list of `MapOnly` records).
+    public func listMapOnlys(page: OffsetPageParams, filter: MapOnlyFilter? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<MapOnly> {
+        return try await client.execute(OffsetPageRequest(action: "list_map_onlys", page: page, filter: filter.map { AnyEncodable($0) }, fields: fields))
+    }
 }

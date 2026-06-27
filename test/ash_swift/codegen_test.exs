@@ -571,6 +571,101 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
+  describe "optional pagination overload (issue #37)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    test "a list read with optional pagination keeps its bare [T] overload unchanged", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      # The M1 bare-list function is byte-identical — omitting page preserves it,
+      # so existing `[Todo]` call sites do not regress.
+      assert functions =~
+               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+    end
+
+    test "a list read with optional offset pagination gains a paginated overload", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      # The overload's `page` is REQUIRED (no `= nil`), which is what makes Swift
+      # resolve `listTodos(page:)` here and bare `listTodos()` to the [Todo] form.
+      assert functions =~
+               "public func listTodos(page: OffsetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+
+      # Filter + sort + page all compose on the single paginated call.
+      assert functions =~
+               ~s[client.execute(OffsetPageRequest(action: "list_todos", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
+    end
+
+    test "the overload pair is emitted for every optional-pagination list read", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      # list_users is a plain default read too: it gets the same bare + paginated pair.
+      assert functions =~
+               "public func listUsers(filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> [User] {"
+
+      assert functions =~
+               "public func listUsers(page: OffsetPageParams, filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<User> {"
+    end
+
+    test "an optional-pagination read with sort/filter disabled omits those params on both overloads",
+         %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      # enable_sort?: false ⇒ no sort: on either overload; filter still present.
+      assert functions =~
+               "public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection] = []) async throws -> [Todo] {"
+
+      assert functions =~
+               "public func listTodosNoSort(page: OffsetPageParams, filter: TodoFilter? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+
+      # enable_filter?: false ⇒ no filter: on either overload; sort still present.
+      assert functions =~
+               "public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+
+      assert functions =~
+               "public func listTodosNoFilter(page: OffsetPageParams, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+    end
+
+    test "an action supporting only keyset gets a keyset overload, not offset", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func listTodosKeysetOptional(page: KeysetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
+
+      assert functions =~
+               ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset_optional", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
+    end
+
+    test "required-pagination actions get no extra overload (single function only)", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      # list_todos_offset requires pagination, so it has exactly one function and no
+      # bare [Todo] sibling — count the `func listTodosOffset(` occurrences.
+      occurrences =
+        functions
+        |> String.split("public func listTodosOffset(")
+        |> length()
+        |> Kernel.-(1)
+
+      assert occurrences == 1
+    end
+
+    test "get actions never gain a paginated overload", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      refute functions =~ "public func getTodo(page:"
+      refute functions =~ "public func findTodoByTitle(page:"
+    end
+  end
+
   describe "2-hop relationship guard" do
     setup do
       %{files: Codegen.build_files([AshSwift.Test.TagDomain])}

@@ -40,3 +40,36 @@ know the pagination shape — it is determined by the generated function signatu
   backend returns a bare array. Callers that want to pass a page param to optional-pagination
   actions are not yet supported — that is a future ticket.
 - Unpaginated actions are unaffected (no regression to `[T]` callers).
+
+## Addendum (issue #37): page arguments for optional-pagination reads
+
+The "future ticket" above. This closes the gap for read actions that **support** offset/keyset
+pagination but do not **require** it (`pagination offset?: true`/`keyset?: true`, `required?: false`)
+— including the default ETS `:read`, whose data layer turns both flags on by default.
+
+**Probed wire behavior** (live, via `AshTypescript.Rpc.run_action`): the response shape of an
+optional-pagination action depends on the request. With **no** `page` key, the pipeline returns a
+bare array (`{"data": [...]}`); with a `page` key, it returns the offset/keyset envelope
+(`{"data": {"results": [...], "hasMore": ..., ...}}`). So the shape genuinely diverges per call —
+the same un-Swifty `[T] | Page<T>` union AshTypescript surfaces in TypeScript (via a
+`ConditionalPaginatedResult<Page, [T], Page<T>>` type whose result is conditional on the `page`
+type argument).
+
+**Decision:** mirror that conditional return in idiomatic Swift via **function overloading** rather
+than a runtime union. An optional-pagination read emits two functions with the same name:
+
+- `list(filter:sort:fields:) -> [T]` — the unchanged M1 bare-list function.
+- `list(page:filter:sort:fields:) -> OffsetPage<T>` (or `KeysetPage<T>`) — the paginated overload,
+  whose `page` argument is **required** (no default).
+
+The required `page` is load-bearing: it's what makes Swift overload resolution pick the paginated
+overload only when a caller passes `page:`, and the `[T]` overload otherwise. Each call site
+resolves to exactly one static return type — no union ever surfaces to the caller. Omitting `page`
+is byte-identical to M1, so existing `[T]` callers do not regress. When an action supports both
+offset and keyset, the overload prefers offset (matching the required-pagination rule above); a
+keyset-only action gets a `KeysetPage<T>` overload.
+
+No runtime changes: the paginated overload reuses the existing `OffsetPageRequest`/`KeysetPageRequest`,
+which already decode the envelope (the extra `type` discriminator key the pipeline adds is ignored
+by `Codable`). `filter:` and `sort:` thread through both overloads unchanged, so all three compose
+on the single paginated call.
