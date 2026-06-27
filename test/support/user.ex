@@ -59,6 +59,9 @@ defmodule AshSwift.Test.User do
   # reused RPC pipeline rejects ANY argument-bearing calc (even all-optional)
   # without an args-bearing selection shape, which is deferred to M3.
   #   display_name → zero-argument scalar :string → emitted (String?)
+  #   name_size    → zero-argument :atom with one_of → emitted as a per-resource
+  #                  Swift enum (UserNameSize), exercising emit_derived_fields'
+  #                  enum branch from the *calculation* path (not just aggregates)
   #   greeting     → one *optional* arg (has a default) → SKIPPED. The PRD assumed
   #                  optional args were zero-arg-selectable; the live pipeline
   #                  rejects them with "Calculation requires arguments", so this is
@@ -70,6 +73,10 @@ defmodule AshSwift.Test.User do
   #   secret_label → private → must NOT appear (public-only scope)
   calculations do
     calculate :display_name, :string, expr(name <> " <" <> email <> ">"), public?: true
+
+    calculate :name_size, :atom, AshSwift.Test.User.NameSize,
+      constraints: [one_of: [:short, :long]],
+      public?: true
 
     calculate :greeting, :string, expr(^arg(:salutation) <> ", " <> name) do
       # Optional argument (has a default). Even so, the RPC pipeline demands the
@@ -91,6 +98,26 @@ defmodule AshSwift.Test.User do
 
   actions do
     defaults [:read, :destroy, create: :*, update: :*]
+  end
+end
+
+defmodule AshSwift.Test.User.NameSize do
+  @moduledoc """
+  A zero-argument enum-returning calculation (issue #52): its `:atom` type with a
+  `one_of` constraint resolves to an enum, so codegen emits a per-resource Swift
+  enum (`UserNameSize`) — proving emit_derived_fields/5's enum branch is reached
+  from the calculation path, not only from the aggregate path.
+  """
+  use Ash.Resource.Calculation
+
+  @impl true
+  def load(_query, _opts, _context), do: [:name]
+
+  @impl true
+  def calculate(records, _opts, _context) do
+    Enum.map(records, fn record ->
+      if String.length(record.name) > 10, do: :long, else: :short
+    end)
   end
 end
 

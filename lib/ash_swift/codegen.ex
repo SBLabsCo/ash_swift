@@ -624,8 +624,12 @@ defmodule AshSwift.Codegen do
     |> emit_derived_fields(type_name, resource, formatter, types)
   end
 
+  # The manifest represents a zero-argument calculation with `arguments: []`, so
+  # `[]` is the real zero-arg signal; the `|| []` only guards a defensively-nil
+  # field (the per-argument `required?` being nil — see lessons.md — is a separate
+  # thing and doesn't enter here).
   defp calculation_takes_arguments?(field) do
-    field.arguments not in [nil, []]
+    not Enum.empty?(field.arguments || [])
   end
 
   # Maps a list of derived (aggregate/calculation) manifest Fields to

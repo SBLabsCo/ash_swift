@@ -140,6 +140,24 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public var displayName: String?"
     end
 
+    test "emits a Swift enum for a zero-argument calculation whose type is an enum",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `name_size` is a zero-arg :atom calculation with a one_of constraint, so it
+      # resolves to an enum and is emitted like an enum attribute: a typed field
+      # plus a per-resource generated enum. This exercises emit_derived_fields/5's
+      # enum branch from the *calculation* path (aggregates cover it too, but only
+      # indirectly for calcs).
+      assert types =~ "public var nameSize: UserNameSize?"
+      assert types =~ "public enum UserNameSize: String, Codable, Sendable, Equatable {"
+
+      # Scope the case assertions to the UserNameSize block so they stay
+      # load-bearing (a whole-file `case short` could be satisfied elsewhere).
+      enum_block = Regex.run(~r/public enum UserNameSize:.*?\n\}/s, types) |> List.first()
+      assert enum_block =~ "case long"
+      assert enum_block =~ "case short"
+    end
+
     test "skips a calculation with an optional argument (deferred to M3)",
          %{files: files} do
       types = files["AshRpcTypes.swift"]
@@ -162,9 +180,9 @@ defmodule AshSwift.CodegenTest do
 
     test "skips a calculation returning a non-scalar (map) type", %{files: files} do
       types = files["AshRpcTypes.swift"]
-      # `name_summary` returns :map. Unlike a :map *attribute* (which emits AshJSON),
-      # a derived field's computed type is dropped when it isn't a concrete
-      # scalar/enum — omission is safe; a wrong guess silently mis-decodes.
+      # `name_summary` returns :map. Unlike a :map *attribute* (which emits
+      # [String: AshJSON]), a derived field's computed type is dropped when it isn't
+      # a concrete scalar/enum — omission is safe; a wrong guess silently mis-decodes.
       refute types =~ "nameSummary"
     end
 
