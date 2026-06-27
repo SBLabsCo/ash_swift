@@ -25,6 +25,25 @@ defmodule AshSwift.Test.User do
     has_many :todos, AshSwift.Test.Todo, public?: true
   end
 
+  # Aggregates exercise codegen's derived-field surface (issue #51):
+  #   todo_count    → count   → Int?   (scalar, emitted)
+  #   has_todos     → exists  → Bool?  (scalar, emitted)
+  #   highest_score → max     → Int?   (field-typed from :score, emitted)
+  #   top_priority  → first   → resolves to the :priority enum type → emits a
+  #                            per-resource Swift enum (UserTopPriority)
+  #   todo_titles   → list    → [String] (array result — must be SKIPPED, not
+  #                            String-fallbacked; an aggregate type is derived,
+  #                            so a wrong guess is worse than omission)
+  #   secret_count  → count, private → must NOT appear (public-only scope)
+  aggregates do
+    count :todo_count, :todos, public?: true
+    exists :has_todos, :todos, public?: true
+    max :highest_score, :todos, :score, public?: true
+    first :top_priority, :todos, :priority, public?: true
+    list :todo_titles, :todos, :title, public?: true
+    count :secret_count, :todos
+  end
+
   actions do
     defaults [:read, :destroy, create: :*, update: :*]
   end
