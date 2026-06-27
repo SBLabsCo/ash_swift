@@ -263,7 +263,7 @@ defmodule AshSwift.Codegen do
       # each action's `sortable?` mirrors how `enable_sort?: false` drops the sort
       # surface (issue #41).
       sortable_fields = collect_sortable_fields(mres, formatter, manifest.types)
-      has_sortable_fields? = sortable_fields != []
+      has_sortable_fields? = not Enum.empty?(sortable_fields)
 
       # Build actions and, in the same pass, collect the input structs to emit.
       {actions_unsorted, input_structs_unsorted} =
