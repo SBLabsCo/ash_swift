@@ -280,8 +280,8 @@ defmodule AshSwift.Codegen do
           # *overloaded* paginated function (see method_specs/2). Get actions and
           # required-pagination actions are excluded — :none means "no overload".
           optional_pagination_type =
-            if ash_action.type == :read and not is_get? do
-              optional_action_pagination_type(ash_action)
+            if maction.type == :read and not is_get? do
+              optional_action_pagination_type(maction)
             else
               :none
             end
@@ -1511,8 +1511,8 @@ defmodule AshSwift.Codegen do
   # supported — mirroring action_pagination_type/1 and keeping a single page type
   # per action. The default ETS `:read` action carries offset?/keyset? true with
   # required?: false, so plain list reads land in :offset here.
-  defp optional_action_pagination_type(ash_action) do
-    case ash_action.pagination do
+  defp optional_action_pagination_type(maction) do
+    case maction.pagination do
       %{required?: true} -> :none
       %{offset?: true} -> :offset
       %{keyset?: true} -> :keyset
