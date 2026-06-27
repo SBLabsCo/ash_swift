@@ -148,6 +148,39 @@ arg-bearing calc is skipped, not emitted. See `collect_calculation_fields` in `c
 (issue #52). This is the canonical "probe the wire before trusting the spec" case — the PRD was
 wrong about runtime behavior.
 
+### Generic-action inputs are action *arguments*, not resource attributes
+
+A generic (`:action`-type) action's inputs are action **arguments**, which the
+manifest exposes as `Argument` structs carrying their own `type` (a manifest
+`Type`) and a populated `required?`. They are NOT resource attributes — so the
+create/update input path (`collect_action_inputs`, which resolves each input
+against `manifest_attributes` and **drops anything that isn't a public attribute
+with a warning**) silently produces an empty input struct for them. Generic
+actions need their own collector that maps each argument straight from
+`input.type.module` (through `ash_type_to_swift`) with optionality from
+`input.required?` (the presence flag the `Argument` moduledoc points consumers
+at). See `collect_generic_action_inputs` in `codegen.ex` (issue #54). A generic
+action's **return** is computed, so gate it like derived fields: nil → void,
+scalar/`map` → typed, anything else (resource/struct/array/union/enum) → skip
+with a warning, never a String guess (`generic_action_return`, reusing
+`@derived_scalar_kinds`).
+
+### Generic-action wire shapes (probed): input key, no `fields`, void returns `{}`
+
+Probed live against `AshTypescript.Rpc.run_action` (issue #54): a generic action
+sends its arguments under the top-level `input` key (like create), and `fields`
+is **optional and omitted** for void/scalar/map returns — so the request body is
+just `{action, input?}` (no `fields`), and a no-argument action sends no `input`
+at all. A void (no-`returns`) action responds `{"data": {}, "success": true}` —
+note `data` is an empty object, not null — so the Swift decode is a no-op like
+destroy. A scalar/map return is the usual `{"data": <value>}` `DataEnvelope`
+unwrap. The catch: a **typed-record return** (a generic action returning a
+struct/resource, e.g. `returns :struct, constraints: [instance_of: __MODULE__]`)
+**requires** `fields` — the pipeline rejects it with `missing_required_parameter:
+fields`. That's why field-selection-bearing returns (Tier C) are deferred and
+skipped, not emitted: wiring them needs the `FieldSelection` machinery in the
+generic-action body. Re-probe before building Tier C.
+
 ## Test patterns
 
 ### Extend the fixture domain when the bug class needs it

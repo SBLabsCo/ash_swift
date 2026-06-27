@@ -92,6 +92,38 @@ final class RpcRequestTests: XCTestCase {
         XCTAssertNil(json["fields"], "destroy carries no field selection")
     }
 
+    func testGenericActionRequestBodyCarriesInput() throws {
+        let json = try encodedBody(
+            GenericActionRequest<Stub, StubInput>(action: "echo", input: StubInput(title: "hi"))
+        )
+        XCTAssertEqual(json["action"] as? String, "echo")
+        let input = try XCTUnwrap(json["input"] as? [String: Any])
+        XCTAssertEqual(input["title"] as? String, "hi")
+        XCTAssertNil(json["fields"], "generic actions in this slice carry no field selection")
+    }
+
+    func testGenericActionRequestOmitsInputWhenNil() throws {
+        // A no-argument action: `input` is nil and must not reach the wire.
+        let json = try encodedBody(GenericActionRequest<Stub, EmptyActionInput>(action: "ping"))
+        XCTAssertEqual(json["action"] as? String, "ping")
+        XCTAssertNil(json["input"], "a no-arg generic action sends no input key")
+    }
+
+    func testVoidActionRequestBodyCarriesInput() throws {
+        let json = try encodedBody(
+            VoidActionRequest<StubInput>(action: "request_magic_link", input: StubInput(title: "a@b.com"))
+        )
+        XCTAssertEqual(json["action"] as? String, "request_magic_link")
+        let input = try XCTUnwrap(json["input"] as? [String: Any])
+        XCTAssertEqual(input["title"] as? String, "a@b.com")
+    }
+
+    func testVoidActionRequestOmitsInputWhenNil() throws {
+        let json = try encodedBody(VoidActionRequest<EmptyActionInput>(action: "ping"))
+        XCTAssertEqual(json["action"] as? String, "ping")
+        XCTAssertNil(json["input"], "a no-arg void action sends no input key")
+    }
+
     // MARK: decode
 
     func testDataEnvelopeRequestUnwrapsDataKey() throws {
@@ -99,6 +131,22 @@ final class RpcRequestTests: XCTestCase {
         let items = try ListRequest<Stub>(action: "list_todos").decode(from: data, using: JSONDecoder())
         XCTAssertEqual(items.count, 2)
         XCTAssertEqual(items.last?.id, "2")
+    }
+
+    func testGenericActionRequestUnwrapsScalarData() throws {
+        // A scalar-returning generic action unwraps the `data` key (here a String).
+        let data = Data(#"{"data":"pong"}"#.utf8)
+        let result = try GenericActionRequest<String, EmptyActionInput>(action: "ping")
+            .decode(from: data, using: JSONDecoder())
+        XCTAssertEqual(result, "pong")
+    }
+
+    func testVoidActionRequestDecodeIgnoresData() throws {
+        // A void action's decode is a no-op — the `{"data":{}}` envelope a void
+        // generic action returns must decode without throwing.
+        let data = Data(#"{"data":{}}"#.utf8)
+        try VoidActionRequest<EmptyActionInput>(action: "request_magic_link")
+            .decode(from: data, using: JSONDecoder())
     }
 }
 

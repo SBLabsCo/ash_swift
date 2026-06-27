@@ -270,128 +270,272 @@ defmodule AshSwift.Codegen do
         Enum.reduce(rpc_actions, {[], []}, fn rpc_action, {actions_acc, structs_acc} ->
           maction = Map.fetch!(manifest.actions, {resource, rpc_action.action})
 
-          {is_get?, get_by_params, get_by_location} =
-            if maction.type == :read do
-              build_get_info(maction, rpc_action, resource, formatter, mres)
-            else
-              {false, [], nil}
-            end
-
-          pagination_type =
-            if maction.type == :read do
-              action_pagination_type(maction)
-            else
-              :none
-            end
-
-          # Optional pagination (required?: false but offset?/keyset? supported) on a
-          # list read. These don't change the bare `[T]` function; they gain a second,
-          # *overloaded* paginated function (see method_specs/2). Get actions and
-          # required-pagination actions are excluded — :none means "no overload".
-          optional_pagination_type =
-            if maction.type == :read and not is_get? do
-              optional_action_pagination_type(maction)
-            else
-              :none
-            end
-
-          not_found_error? =
-            case Map.get(rpc_action, :not_found_error?) do
-              nil -> AshTypescript.Rpc.not_found_error?()
-              value -> value
-            end
-
-          # Sorting is offered only on list (non-get) read actions whose RPC
-          # action leaves `enable_sort?` at its default of true. A false flag
-          # drops the sort: parameter so a forbidden sort is a compile error.
-          # Also requires the resource to actually have sortable fields — a sort
-          # over an empty SortField enum is meaningless and won't compile (#41).
-          sortable? =
-            maction.type == :read and not is_get? and sort_enabled?(rpc_action) and
-              has_sortable_fields?
-
-          # Filtering is offered on the same surface as sorting — list (non-get)
-          # read actions whose RPC action leaves `enable_filter?` at its default
-          # of true. A false flag drops the filter: parameter so a forbidden
-          # filter is a compile error, not a silently-ignored argument.
-          filterable? = maction.type == :read and not is_get? and filter_enabled?(rpc_action)
-
-          {input_struct_name, primary_key_params} =
-            case maction.type do
-              type when type in [:create, :update] ->
-                struct_name = pascal_case(rpc_action.name) <> "Input"
-
-                {struct_name, build_get_by_params(mres.primary_key, resource, formatter)}
-
-              :destroy ->
-                {nil, build_get_by_params(mres.primary_key, resource, formatter)}
-
-              _ ->
-                {nil, []}
-            end
-
-          action = %{
-            rpc_name: rpc_action.name,
-            action: rpc_action.action,
-            action_type: maction.type,
-            is_get?: is_get?,
-            get_by_params: get_by_params,
-            get_by_location: get_by_location,
-            not_found_error?: not_found_error?,
-            input_struct_name: input_struct_name,
-            primary_key_params: primary_key_params,
-            pagination_type: pagination_type,
-            optional_pagination_type: optional_pagination_type,
-            sortable?: sortable?,
-            filterable?: filterable?
-          }
-
-          new_struct =
-            if input_struct_name do
-              inputs = collect_action_inputs(maction, mres, type_name, formatter, manifest.types)
-              [%{struct_name: input_struct_name, fields: inputs}]
-            else
-              []
-            end
-
-          {[action | actions_acc], new_struct ++ structs_acc}
+          # Generic (`:action`-type) actions are shaped differently from CRUD —
+          # their inputs are action *arguments* (not attributes) and their return
+          # is nil (void) or a custom type — so they get their own collector that
+          # may also skip an action whose return needs field selection (#54).
+          if maction.type == :action do
+            collect_generic_action(
+              maction,
+              rpc_action,
+              resource,
+              formatter,
+              {actions_acc, structs_acc}
+            )
+          else
+            collect_crud_action(
+              maction,
+              rpc_action,
+              resource,
+              mres,
+              type_name,
+              formatter,
+              manifest.types,
+              has_sortable_fields?,
+              {actions_acc, structs_acc}
+            )
+          end
         end)
 
-      # A resource needs a typed sortable-field enum only when at least one of its
-      # actions actually exposes sorting. Because `sortable?` already requires
-      # `has_sortable_fields?`, this is false when there are no sortable fields, so
-      # no empty enum is emitted (#41). Reuses the fields computed above.
-      sort_field =
-        if Enum.any?(actions_unsorted, & &1.sortable?) do
-          %{type_name: type_name <> "SortField", fields: sortable_fields}
-        else
-          nil
-        end
-
-      # A resource needs a typed {Resource}Filter only when at least one of its
-      # actions exposes filtering; otherwise the struct would be dead code.
-      filter_struct =
-        if Enum.any?(actions_unsorted, & &1.filterable?) do
-          %{
-            type_name: type_name <> "Filter",
-            fields: collect_filter_fields(mres, type_name, formatter, manifest.types)
-          }
-        else
-          nil
-        end
-
-      %{
-        resource_module: resource,
-        type_name: type_name,
-        fields: fields,
-        enums: enums,
-        actions: Enum.sort_by(actions_unsorted, & &1.rpc_name),
-        input_structs: input_structs_unsorted |> Enum.sort_by(& &1.struct_name),
-        sort_field: sort_field,
-        filter_struct: filter_struct
-      }
+      collect_query_surface(
+        actions_unsorted,
+        input_structs_unsorted,
+        resource,
+        type_name,
+        fields,
+        enums,
+        mres,
+        formatter,
+        manifest.types,
+        sortable_fields
+      )
     end)
     |> Enum.sort_by(& &1.type_name)
+  end
+
+  # The CRUD (read/create/update/destroy) per-action collector: unchanged from the
+  # original inline reduce body, extracted so the generic-action path can sit
+  # beside it (#54).
+  defp collect_crud_action(
+         maction,
+         rpc_action,
+         resource,
+         mres,
+         type_name,
+         formatter,
+         types,
+         has_sortable_fields?,
+         {actions_acc, structs_acc}
+       ) do
+    {is_get?, get_by_params, get_by_location} =
+      if maction.type == :read do
+        build_get_info(maction, rpc_action, resource, formatter, mres)
+      else
+        {false, [], nil}
+      end
+
+    pagination_type =
+      if maction.type == :read do
+        action_pagination_type(maction)
+      else
+        :none
+      end
+
+    # Optional pagination (required?: false but offset?/keyset? supported) on a
+    # list read. These don't change the bare `[T]` function; they gain a second,
+    # *overloaded* paginated function (see method_specs/2). Get actions and
+    # required-pagination actions are excluded — :none means "no overload".
+    optional_pagination_type =
+      if maction.type == :read and not is_get? do
+        optional_action_pagination_type(maction)
+      else
+        :none
+      end
+
+    not_found_error? =
+      case Map.get(rpc_action, :not_found_error?) do
+        nil -> AshTypescript.Rpc.not_found_error?()
+        value -> value
+      end
+
+    # Sorting is offered only on list (non-get) read actions whose RPC
+    # action leaves `enable_sort?` at its default of true. A false flag
+    # drops the sort: parameter so a forbidden sort is a compile error.
+    # Also requires the resource to actually have sortable fields — a sort
+    # over an empty SortField enum is meaningless and won't compile (#41).
+    sortable? =
+      maction.type == :read and not is_get? and sort_enabled?(rpc_action) and
+        has_sortable_fields?
+
+    # Filtering is offered on the same surface as sorting — list (non-get)
+    # read actions whose RPC action leaves `enable_filter?` at its default
+    # of true. A false flag drops the filter: parameter so a forbidden
+    # filter is a compile error, not a silently-ignored argument.
+    filterable? = maction.type == :read and not is_get? and filter_enabled?(rpc_action)
+
+    {input_struct_name, primary_key_params} =
+      case maction.type do
+        type when type in [:create, :update] ->
+          struct_name = pascal_case(rpc_action.name) <> "Input"
+
+          {struct_name, build_get_by_params(mres.primary_key, resource, formatter)}
+
+        :destroy ->
+          {nil, build_get_by_params(mres.primary_key, resource, formatter)}
+
+        _ ->
+          {nil, []}
+      end
+
+    action = %{
+      rpc_name: rpc_action.name,
+      action: rpc_action.action,
+      action_type: maction.type,
+      is_get?: is_get?,
+      get_by_params: get_by_params,
+      get_by_location: get_by_location,
+      not_found_error?: not_found_error?,
+      input_struct_name: input_struct_name,
+      primary_key_params: primary_key_params,
+      pagination_type: pagination_type,
+      optional_pagination_type: optional_pagination_type,
+      sortable?: sortable?,
+      filterable?: filterable?
+    }
+
+    new_struct =
+      if input_struct_name do
+        inputs = collect_action_inputs(maction, mres, type_name, formatter, types)
+        [%{struct_name: input_struct_name, fields: inputs}]
+      else
+        []
+      end
+
+    {[action | actions_acc], new_struct ++ structs_acc}
+  end
+
+  # Per-action collector for generic (`:action`-type) actions (#54). Inputs are
+  # action *arguments* mapped straight from their manifest type (not resource
+  # attributes); the return is classified by generic_action_return/1. An action
+  # whose return needs field selection or is an unmapped type is skipped with a
+  # warning rather than emitted with a wrong decode — the accumulator passes
+  # through unchanged.
+  defp collect_generic_action(
+         maction,
+         rpc_action,
+         resource,
+         formatter,
+         {actions_acc, structs_acc}
+       ) do
+    case generic_action_return(maction.returns) do
+      :unsupported ->
+        Logger.warning(
+          "AshSwift: generic action #{inspect(maction.name)} returns " <>
+            "#{inspect(maction.returns && maction.returns.kind)}, which needs field selection " <>
+            "or maps to no Swift type; skipping. Typed-record returns with field selection are " <>
+            "a follow-up to issue #54."
+        )
+
+        {actions_acc, structs_acc}
+
+      gen_return ->
+        inputs = collect_generic_action_inputs(maction, resource, formatter)
+
+        input_struct_name =
+          if inputs == [], do: nil, else: pascal_case(rpc_action.name) <> "Input"
+
+        action = %{
+          rpc_name: rpc_action.name,
+          action: rpc_action.action,
+          action_type: :action,
+          is_get?: false,
+          get_by_params: [],
+          get_by_location: nil,
+          not_found_error?: false,
+          input_struct_name: input_struct_name,
+          primary_key_params: [],
+          pagination_type: :none,
+          optional_pagination_type: :none,
+          sortable?: false,
+          filterable?: false,
+          generic_return: gen_return
+        }
+
+        new_struct =
+          if input_struct_name,
+            do: [%{struct_name: input_struct_name, fields: inputs}],
+            else: []
+
+        {[action | actions_acc], new_struct ++ structs_acc}
+    end
+  end
+
+  # Maps a generic action's arguments to input-struct fields. Unlike create/update
+  # inputs (resolved against resource attributes), a generic action's inputs are
+  # action arguments carrying their own manifest type, so the Swift type comes
+  # straight from `input.type.module` and optionality from `input.required?` (the
+  # presence flag the Argument moduledoc points consumers at).
+  defp collect_generic_action_inputs(maction, resource, formatter) do
+    maction.inputs
+    |> Enum.map(fn input ->
+      %{
+        name: FieldFormatter.format_field_for_client(input.name, resource, formatter),
+        swift_type: ash_type_to_swift(input.type.module),
+        required?: input.required?
+      }
+    end)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  # Builds a resource's query-surface types (sortable-field enum, filter struct)
+  # from its collected actions, and assembles the final resource map the renderers
+  # consume. Extracted from collect_resources/2 so the per-action reduce can route
+  # CRUD and generic actions to separate collectors (#54).
+  defp collect_query_surface(
+         actions_unsorted,
+         input_structs_unsorted,
+         resource,
+         type_name,
+         fields,
+         enums,
+         mres,
+         formatter,
+         types,
+         sortable_fields
+       ) do
+    # A resource needs a typed sortable-field enum only when at least one of its
+    # actions actually exposes sorting. Because `sortable?` already requires
+    # `has_sortable_fields?`, this is false when there are no sortable fields, so
+    # no empty enum is emitted (#41). Reuses the fields computed above.
+    sort_field =
+      if Enum.any?(actions_unsorted, & &1.sortable?) do
+        %{type_name: type_name <> "SortField", fields: sortable_fields}
+      else
+        nil
+      end
+
+    # A resource needs a typed {Resource}Filter only when at least one of its
+    # actions exposes filtering; otherwise the struct would be dead code.
+    filter_struct =
+      if Enum.any?(actions_unsorted, & &1.filterable?) do
+        %{
+          type_name: type_name <> "Filter",
+          fields: collect_filter_fields(mres, type_name, formatter, types)
+        }
+      else
+        nil
+      end
+
+    %{
+      resource_module: resource,
+      type_name: type_name,
+      fields: fields,
+      enums: enums,
+      actions: Enum.sort_by(actions_unsorted, & &1.rpc_name),
+      input_structs: input_structs_unsorted |> Enum.sort_by(& &1.struct_name),
+      sort_field: sort_field,
+      filter_struct: filter_struct
+    }
   end
 
   # Collects a resource's public-attribute names (client-formatted, sorted) for
@@ -594,6 +738,23 @@ defmodule AshSwift.Codegen do
   @derived_scalar_kinds ~w(string ci_string atom uuid integer float decimal
                            boolean date utc_datetime utc_datetime_usec
                            naive_datetime)a
+
+  # Classifies a generic action's return into what the codegen can emit. Like a
+  # derived field's type (see emit_derived_fields), the return is *computed*, so
+  # this gates on `kind` and skips anything uncertain rather than String-guessing:
+  #   nil           -> :void (a side-effecting action)
+  #   map           -> {:typed, "[String: AshJSON]"}
+  #   mapped scalar -> {:typed, swift_type} (reuses @derived_scalar_kinds)
+  #   anything else -> :unsupported (resource/struct/array/union/enum/…)
+  # Resource/struct returns additionally need field selection (Tier C), deferred (#54).
+  defp generic_action_return(nil), do: :void
+  defp generic_action_return(%{kind: :map}), do: {:typed, "[String: AshJSON]"}
+
+  defp generic_action_return(%{kind: kind, module: module})
+       when kind in @derived_scalar_kinds and not is_nil(module),
+       do: {:typed, ash_type_to_swift(module)}
+
+  defp generic_action_return(_), do: :unsupported
 
   # Public aggregates as Optional model fields. The manifest already excludes
   # private aggregates, so this is public-only by construction. Emission rules are
@@ -1295,6 +1456,59 @@ defmodule AshSwift.Codegen do
         {"action", swift_string(rpc_name)},
         {"identity", pk_identity!(pk_params, type_name, "destroy")}
       ]
+    }
+  end
+
+  # Generic (`:action`-type) actions (#54). Inputs are action arguments collected
+  # into an input struct (nil when the action takes none); the return is :void or
+  # {:typed, swift_type} (scalar/map — typed-record returns are skipped upstream).
+  # The body is just {action, input?} — no field selection in this slice. When the
+  # action takes no arguments the request's input generic has nothing to infer it
+  # from, so it's pinned explicitly to the runtime's EmptyActionInput sentinel.
+  defp method_spec(
+         %{
+           rpc_name: rpc_name,
+           action_type: :action,
+           input_struct_name: struct_name,
+           generic_return: gen_return
+         },
+         _type_name
+       ) do
+    {params, input_args} =
+      if struct_name do
+        {[%{name: "input", type: struct_name, default: nil}], [{"input", "input"}]}
+      else
+        {[], []}
+      end
+
+    {return_type, request_type} =
+      case {gen_return, struct_name} do
+        # Void: I is inferred from `input:` when present, else pinned explicitly.
+        {:void, nil} ->
+          {nil, "VoidActionRequest<EmptyActionInput>"}
+
+        {:void, _} ->
+          {nil, "VoidActionRequest"}
+
+        # Typed + no input: O can't infer through execute without an `input:` to
+        # anchor I, so both generics are explicit.
+        {{:typed, swift_type}, nil} ->
+          {swift_type, "GenericActionRequest<#{swift_type}, EmptyActionInput>"}
+
+        # Typed + input: I infers from `input:`, O from the return position through
+        # execute (as create/update infer their record type).
+        {{:typed, swift_type}, _} ->
+          {swift_type, "GenericActionRequest"}
+      end
+
+    %{
+      rpc_name: rpc_name,
+      func_name: lower_camel(rpc_name),
+      doc: "generic action",
+      params: params,
+      return_type: return_type,
+      request_type: request_type,
+      request_args: [{"action", swift_string(rpc_name)}] ++ input_args
     }
   end
 

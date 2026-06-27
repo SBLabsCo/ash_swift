@@ -71,5 +71,47 @@ defmodule AshSwift.Test.Todo do
     read :list_keyset_optional do
       pagination keyset?: true, offset?: false, required?: false
     end
+
+    # Generic actions (issue #54): command-style `:action`-type actions whose
+    # inputs are action *arguments* (not attributes) and whose return is either
+    # nil (void) or a custom type. These exercise the generic-action codegen path.
+
+    # Void return + a required argument — the canonical auth-bootstrap shape
+    # (mirrors SwingClips' requestMagicLink(email)).
+    action :request_magic_link do
+      argument :email, :string, allow_nil?: false
+      run fn _input, _ctx -> :ok end
+    end
+
+    # Scalar return + a required argument and an optional one — exercises both the
+    # required (non-optional, plain encode) and optional (encodeIfPresent) branches
+    # of the generated input struct.
+    action :echo, :string do
+      argument :message, :string, allow_nil?: false
+      argument :loud, :boolean, allow_nil?: true
+
+      run fn input, _ctx ->
+        msg = input.arguments.message
+        {:ok, if(input.arguments[:loud], do: String.upcase(msg), else: msg)}
+      end
+    end
+
+    # Scalar return, no arguments — exercises the no-input generated function.
+    action :ping, :string do
+      run fn _input, _ctx -> {:ok, "pong"} end
+    end
+
+    # Map return, no arguments — exercises the [String: AshJSON] return mapping.
+    action :stats, :map do
+      run fn _input, _ctx -> {:ok, %{"count" => 0}} end
+    end
+
+    # Struct return — a typed record return needs field selection (Tier C), which
+    # this slice defers. Codegen must warn-and-skip it rather than emit a broken
+    # function. Regression guard for the skip path.
+    action :summarize, :struct do
+      constraints instance_of: __MODULE__
+      run fn _input, _ctx -> {:ok, nil} end
+    end
   end
 end

@@ -98,6 +98,25 @@ public struct DestroyBody: Encodable, Sendable {
     let identity: String
 }
 
+/// Body for generic (`:action`-type) actions: the action name plus the typed
+/// `input` when the action takes arguments. `input` is omitted from the JSON
+/// when nil (the synthesized `encodeIfPresent`), so a no-argument generic action
+/// sends just `{"action": …}`. Generic actions in this slice carry no field
+/// selection (typed-record returns that would need it are deferred), so there is
+/// no `fields` key — wire-confirmed against the RPC pipeline (issue #54).
+public struct GenericActionBody<I: Encodable & Sendable>: Encodable, Sendable {
+    let action: String
+    let input: I?
+}
+
+/// The input type for a generic action that takes no arguments. Pins the input
+/// generic of `GenericActionRequest` / `VoidActionRequest` at the call site
+/// (where there is no `input` value to infer it from); it never reaches the wire
+/// because the body's `input` stays nil.
+public struct EmptyActionInput: Encodable, Sendable {
+    public init() {}
+}
+
 // MARK: - Requests
 
 /// Runs an action and returns the raw, envelope-validated response bytes.
@@ -327,5 +346,49 @@ public struct DestroyRequest: RpcRequest {
 
     public func decode(from data: Data, using decoder: JSONDecoder) throws {
         // Success is already validated by `execute`; destroy returns no record.
+    }
+}
+
+/// A generic (`:action`-type) action that returns a value: encodes the optional
+/// typed `input` and decodes the response's `data` into `O` (a scalar or a
+/// `[String: AshJSON]` map). For a no-argument action, pin `I` to
+/// `EmptyActionInput` and leave `input` nil. See issue #54.
+public struct GenericActionRequest<O: Decodable & Sendable, I: Encodable & Sendable>:
+    DataEnvelopeRequest
+{
+    public typealias Output = O
+    let action: String
+    let input: I?
+
+    public init(action: String, input: I? = nil) {
+        self.action = action
+        self.input = input
+    }
+
+    public func makeBody() -> GenericActionBody<I> {
+        GenericActionBody(action: action, input: input)
+    }
+}
+
+/// A generic (`:action`-type) action that returns nothing (an Ash action with no
+/// `returns` — e.g. a side-effecting command like requesting a magic link).
+/// Encodes the optional typed `input` and returns Void on success. For a
+/// no-argument action, pin `I` to `EmptyActionInput` and leave `input` nil.
+public struct VoidActionRequest<I: Encodable & Sendable>: RpcRequest {
+    public typealias Output = Void
+    let action: String
+    let input: I?
+
+    public init(action: String, input: I? = nil) {
+        self.action = action
+        self.input = input
+    }
+
+    public func makeBody() -> GenericActionBody<I> {
+        GenericActionBody(action: action, input: input)
+    }
+
+    public func decode(from data: Data, using decoder: JSONDecoder) throws {
+        // Success is already validated by `execute`; a void action returns no data.
     }
 }

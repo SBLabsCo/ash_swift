@@ -22,6 +22,11 @@ public struct AshRpc: Sendable {
         try await client.execute(DestroyRequest(action: "destroy_todo", identity: id))
     }
 
+    /// Calls the `echo` RPC action (generic action).
+    public func echo(input: EchoInput) async throws -> String {
+        return try await client.execute(GenericActionRequest(action: "echo", input: input))
+    }
+
     /// Calls the `find_todo` RPC action (get `Todo` record).
     public func findTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo? {
         return try await client.execute(GetOptionalRequest(action: "find_todo", input: ["id": id], fields: fields))
@@ -100,6 +105,21 @@ public struct AshRpc: Sendable {
     /// Calls the `list_todos_offset` RPC action (offset-paginated list of `Todo` records).
     public func listTodosOffset(page: OffsetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {
         return try await client.execute(OffsetPageRequest(action: "list_todos_offset", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
+    }
+
+    /// Calls the `ping` RPC action (generic action).
+    public func ping() async throws -> String {
+        return try await client.execute(GenericActionRequest<String, EmptyActionInput>(action: "ping"))
+    }
+
+    /// Calls the `request_magic_link` RPC action (generic action).
+    public func requestMagicLink(input: RequestMagicLinkInput) async throws {
+        try await client.execute(VoidActionRequest(action: "request_magic_link", input: input))
+    }
+
+    /// Calls the `stats` RPC action (generic action).
+    public func stats() async throws -> [String: AshJSON] {
+        return try await client.execute(GenericActionRequest<[String: AshJSON], EmptyActionInput>(action: "stats"))
     }
 
     /// Calls the `update_todo` RPC action (update `Todo` record).
