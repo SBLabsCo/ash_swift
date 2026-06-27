@@ -73,6 +73,9 @@ source, removing direct `Ash.Resource.Info.*` traversal.
   `Ash.Resource.Info`. Worth coordinating with the ash_typescript author (Torkan) — he may move
   ash_typescript onto the manifest too, which would re-converge the two.
 - Sizable rewrite of a ~1450-line module; golden-file coverage is the safety net.
+- **Raises the minimum Ash version to 3.29** (where `Ash.Info.Manifest` was added). `mix.exs`
+  requires `{:ash, "~> 3.29"}` and the README requirements reflect it; earlier 3.x would fail at
+  codegen with an undefined-module error.
 
 **Implementation notes (from the spike)**
 

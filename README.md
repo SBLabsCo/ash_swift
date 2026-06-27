@@ -18,11 +18,14 @@ and a TypeScript client stay wire-identical by construction.
 > **Status: early, actively progressing.** Milestone 1 (the thin end-to-end happy
 > path) is complete — core CRUD action types with typed inputs, ad-hoc field
 > selection (incl. nested relationships), enums, typed get actions, custom headers,
-> typed error handling, and a zero-dependency URLSession runtime. Milestone 2
-> ("Powerful Reads") is in progress: typed **sorting**, typed **filtering** (attribute
+> typed error handling, and a zero-dependency URLSession runtime. Milestone 2's
+> **Powerful Reads** have landed: typed **sorting**, typed **filtering** (attribute
 > and enum predicates plus `and`/`or`/`not` combinators), and typed **pagination**
-> (`OffsetPage`/`KeysetPage`, composing with filter and sort on one call) have
-> landed. Typed (narrowed) queries, embedded resources, hooks, and
+> (`OffsetPage`/`KeysetPage`, composing with filter and sort on one call). Under the
+> hood, codegen now reads Ash's native API manifest (`Ash.Info.Manifest`) as its
+> sole metadata source rather than walking resource reflection directly — see
+> [ADR-0009](https://github.com/SBLabsCo/ash_swift/blob/main/docs/adr/0009-adopt-ash-info-manifest-as-codegen-ir.md).
+> Embedded resources and deep relationships, typed (narrowed) queries, hooks, and
 > real-time support are later milestones. See [`docs/prd/`](https://github.com/SBLabsCo/ash_swift/tree/main/docs/prd) for the
 > roadmap and [GitHub Issues](https://github.com/SBLabsCo/ash_swift/issues) for
 > what's in flight.
@@ -90,8 +93,10 @@ up as a reviewable diff and (where it matters) a compile error.
 The repo is two packages in one (a monorepo):
 
 1. **AshSwift** — the Elixir/Mix Ash extension that performs codegen. A Mix task,
-   `mix ash_swift.codegen`, walks your resources and the domain's existing RPC
-   configuration and writes Swift source to a directory you choose.
+   `mix ash_swift.codegen`, reads your resources and actions from Ash's native,
+   language-agnostic API manifest (`Ash.Info.Manifest`) — gated by the domain's
+   existing `typescript_rpc` configuration for which actions to expose — and writes
+   Swift source to a directory you choose.
 2. **AshSwiftRuntime** — a small, hand-written Swift package
    (`Sources/AshSwiftRuntime/`) that the generated client depends on at runtime:
    the base RPC client, request/response handling, error decoding, and config.
@@ -107,8 +112,8 @@ No new server endpoint is built.
 **Backend (codegen):**
 
 - Elixir 1.17+
-- Ash 3.0+
-- AshTypescript ~> 0.17 (M1 reuses its RPC runtime and `typescript_rpc` DSL)
+- Ash 3.29+ (codegen reads `Ash.Info.Manifest`, added in 3.29 — ADR-0009)
+- AshTypescript ~> 0.17 (reuses its RPC runtime and `typescript_rpc` DSL)
 - A Phoenix app serving the AshTypescript RPC endpoint for the client to call at runtime
 
 **Client (generated Swift + runtime):**
