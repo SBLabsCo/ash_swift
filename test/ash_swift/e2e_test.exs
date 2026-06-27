@@ -857,6 +857,160 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "keyset optional-pagination overload walks the cursor with filter + sort (issue #37)" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Isolate from the offset composition test (which reserves `score >= 1000`,
+    # `completed == true`): these rows are `completed == false`, so neither test's
+    # filter catches the other's rows even though ETS is shared across the suite.
+    for attrs <- [
+          %{title: "KeysetComboE2E-A", completed: false, score: 2005},
+          %{title: "KeysetComboE2E-B", completed: false, score: 2009},
+          %{title: "KeysetComboE2E-C", completed: false, score: 2001}
+        ] do
+      Ash.create!(AshSwift.Test.Todo, attrs, domain: AshSwift.Test.Domain)
+    end
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    filter_map = %{
+      "completed" => %{"eq" => false},
+      "score" => %{"greaterThanOrEqual" => 2000}
+    }
+
+    base_params = %{
+      "action" => "list_todos_keyset_optional",
+      "fields" => ["title", "completed", "score"],
+      "filter" => filter_map,
+      "sort" => "-score"
+    }
+
+    # Page 1: limit 2 (no cursor) -> the two highest matches, hasMore true, and a
+    # `nextPage` cursor to walk forward with.
+    page1 =
+      AshTypescript.Rpc.run_action(
+        :ash_swift,
+        conn,
+        Map.put(base_params, "page", %{"limit" => 2})
+      )
+
+    assert page1["success"] == true, inspect(page1)
+    assert is_map(page1["data"]), "expected the keyset envelope, got: #{inspect(page1["data"])}"
+    after_cursor = page1["data"]["nextPage"]
+    assert is_binary(after_cursor), "expected a nextPage cursor, got: #{inspect(after_cursor)}"
+    page1_json = Jason.encode!(page1)
+
+    # Page 2: same query, `after` the page-1 cursor -> the single remaining match,
+    # hasMore false. Proves the cursor round-trips through the generated overload.
+    page2 =
+      AshTypescript.Rpc.run_action(
+        :ash_swift,
+        conn,
+        Map.put(base_params, "page", %{"limit" => 2, "after" => after_cursor})
+      )
+
+    assert page2["success"] == true, inspect(page2)
+    page2_json = Jason.encode!(page2)
+
+    expected_filter_json = Jason.encode!(filter_map)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Proves the keyset branch of the optional-pagination overload composes filter +
+    // sort + page against the real pipeline: the generated
+    // `listTodosKeysetOptional(page:filter:sort:fields:)` request encodes the keyset
+    // page (including the `after` cursor) the server accepts, and the keyset envelope
+    // decodes into KeysetPage<Todo> with correct cursor metadata and ordered rows.
+    final class E2EKeysetOptionalTest: XCTestCase {
+        func testKeysetOptionalCursorWalkComposes() throws {
+            var filter = TodoFilter()
+            filter.completed = EquatableOperators(eq: false)
+            filter.score = NullableComparableOperators(greaterThanOrEqual: 2000)
+
+            let encodedFilter = try JSONEncoder().encode(filter)
+            let encodedFilterObj =
+                try JSONSerialization.jsonObject(with: encodedFilter) as! NSDictionary
+            let expectedFilter = #{inspect(expected_filter_json, binaries: :as_strings)}
+            let expectedFilterObj =
+                try JSONSerialization.jsonObject(with: Data(expectedFilter.utf8)) as! NSDictionary
+            XCTAssertEqual(encodedFilterObj, expectedFilterObj)
+
+            // Page-2 request carries the `after` cursor alongside filter + sort — the
+            // composition the keyset overload must assemble.
+            let cursor = #{inspect(after_cursor, binaries: :as_strings)}
+            let request = KeysetPageRequest<Todo>(
+                action: "list_todos_keyset_optional",
+                page: KeysetPageParams(limit: 2, after: cursor),
+                filter: AnyEncodable(filter),
+                sort: ashSortString([SortField(TodoSortField.score, .descending)]),
+                fields: ["title", "completed", "score"]
+            )
+            let body = try JSONSerialization.jsonObject(
+                with: try JSONEncoder().encode(request.makeBody())
+            ) as! [String: Any]
+            XCTAssertEqual(body["action"] as? String, "list_todos_keyset_optional")
+            XCTAssertEqual(body["sort"] as? String, "-score")
+            let page = try XCTUnwrap(body["page"] as? [String: Any])
+            XCTAssertEqual(page["limit"] as? Int, 2)
+            XCTAssertEqual(page["after"] as? String, cursor)
+            XCTAssertNotNil(body["filter"])
+
+            struct PageEnvelope: Decodable {
+                let success: Bool
+                let data: KeysetPage<Todo>
+            }
+
+            // Page 1: keyset cursor fields decode (the offset path never exercises
+            // these), and the filtered + sorted rows come back in -score order.
+            let p1 = try JSONDecoder().decode(
+                PageEnvelope.self,
+                from: Data(#{inspect(page1_json, binaries: :as_strings)}.utf8)
+            )
+            XCTAssertTrue(p1.success)
+            XCTAssertEqual(p1.data.limit, 2)
+            XCTAssertTrue(p1.data.hasMore)
+            XCTAssertNotNil(p1.data.nextPage)
+            XCTAssertEqual(
+                p1.data.results.compactMap { $0.title },
+                ["KeysetComboE2E-B", "KeysetComboE2E-A"]
+            )
+
+            // Page 2: walked via the cursor, the single remaining match, no more pages.
+            let p2 = try JSONDecoder().decode(
+                PageEnvelope.self,
+                from: Data(#{inspect(page2_json, binaries: :as_strings)}.utf8)
+            )
+            XCTAssertTrue(p2.success)
+            XCTAssertFalse(p2.data.hasMore)
+            XCTAssertEqual(
+                p2.data.results.compactMap { $0.title },
+                ["KeysetComboE2E-C"]
+            )
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EKeysetOptionalTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EKeysetOptionalTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   test "extended Ash types (Decimal, Date, UtcDatetime, UtcDatetimeUsec, Map) decode from real pipeline JSON" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)

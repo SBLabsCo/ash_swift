@@ -964,7 +964,9 @@ defmodule AshSwift.Codegen do
   defp method_specs(action, type_name) do
     base = method_spec(action, type_name)
 
-    case Map.get(action, :optional_pagination_type, :none) do
+    # Always set in the action map (collect_resources); access directly so a
+    # missing key fails loudly rather than silently emitting only the bare overload.
+    case action.optional_pagination_type do
       :none ->
         [base]
 
@@ -1513,6 +1515,11 @@ defmodule AshSwift.Codegen do
   # required?: false, so plain list reads land in :offset here.
   defp optional_action_pagination_type(maction) do
     case maction.pagination do
+      # Mutual-exclusivity guard: required-pagination actions are emitted as a
+      # single typed function by action_pagination_type/1, so they are :none here.
+      # This clause MUST stay first — otherwise an action with `required?: true,
+      # offset?: true` would match `%{offset?: true}` below and produce a duplicate
+      # overload on top of the required-pagination function.
       %{required?: true} -> :none
       %{offset?: true} -> :offset
       %{keyset?: true} -> :keyset
