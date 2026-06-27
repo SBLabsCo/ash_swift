@@ -22,8 +22,9 @@ and a TypeScript client stay wire-identical by construction.
 > **Powerful Reads** have landed: typed **sorting**, typed **filtering** (attribute
 > and enum predicates plus `and`/`or`/`not` combinators), typed **pagination**
 > (`OffsetPage`/`KeysetPage`, composing with filter and sort on one call), and
-> **aggregates** as selectable read fields (`count`/`exists`/`max`-style derived
-> values, decoded into the generated model like any other field). Under the
+> **aggregates** and zero-argument **calculations** as selectable read fields
+> (`count`/`exists`/`max`-style derived values plus computed calculations, decoded
+> into the generated model like any other field). Under the
 > hood, codegen now reads Ash's native API manifest (`Ash.Info.Manifest`) as its
 > sole metadata source rather than walking resource reflection directly — see
 > [ADR-0009](https://github.com/SBLabsCo/ash_swift/blob/main/docs/adr/0009-adopt-ash-info-manifest-as-codegen-ir.md).
@@ -61,11 +62,13 @@ and a TypeScript client stay wire-identical by construction.
   *support* pagination without requiring it gain an overloaded paginated variant:
   omit `page` for the bare `[T]` result, or pass `page` for the typed page — with
   `filter` and `sort` composing alongside `page` on the same call.
-- **Aggregates as read fields** — a resource's public aggregates (`count`,
-  `exists`, and field aggregates like `max` / `sum` / `first`) generate as
-  selectable, `Optional` model fields typed from their result (`count` → `Int`,
-  `exists` → `Bool`, a field aggregate → that field's Swift type, including a Swift
-  enum when it aggregates an enum). Select them by name like any other field.
+- **Aggregates & calculations as read fields** — a resource's public aggregates
+  (`count`, `exists`, and field aggregates like `max` / `sum` / `first`) and its
+  public zero-argument calculations generate as selectable, `Optional` model fields
+  typed from their result (`count` → `Int`, `exists` → `Bool`, a field aggregate →
+  that field's Swift type, a calculation → its return type, including a Swift enum
+  when the derived type is an enum). Select them by name like any other field.
+  Calculations that take arguments are deferred to a later milestone.
 - **Faithful type mappings** — extended Ash types map to real Swift types
   (`Decimal`/`Date` → `String` for precision and format fidelity,
   `UtcDatetime` → `Date`, `Map` → typed JSON) rather than a blanket `String` fallback.

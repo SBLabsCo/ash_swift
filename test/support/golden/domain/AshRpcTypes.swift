@@ -232,6 +232,7 @@ public enum UserTopPriority: String, Codable, Sendable, Equatable {
 /// safe: unselected fields decode as `nil`.
 public struct User: Codable, Sendable, Equatable {
     public var averageScore: Double?
+    public var displayName: String?
     public var email: String?
     public var hasTodos: Bool?
     public var highestScore: Int?

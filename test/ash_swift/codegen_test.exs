@@ -132,6 +132,49 @@ defmodule AshSwift.CodegenTest do
       refute types =~ "secretCount"
     end
 
+    test "emits a zero-argument, scalar calculation as an Optional field",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `display_name` is a zero-argument :string calculation — emitted like any
+      # scalar field, selectable via the same `.scalar` path (issue #52).
+      assert types =~ "public var displayName: String?"
+    end
+
+    test "skips a calculation with an optional argument (deferred to M3)",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `greeting` takes one argument with a default. Although the argument is
+      # optional, the reused RPC pipeline still rejects a plain `.scalar` selection
+      # ("Calculation requires arguments") — only the args-bearing shape works, and
+      # that's deferred to M3. So an argument-bearing calc is omitted, not emitted
+      # broken. This guards against the PRD's incorrect "optional → zero-arg" premise.
+      refute types =~ "greeting"
+    end
+
+    test "skips a calculation with a required argument (deferred to M3)",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `name_matches` takes a required argument (no default, allow_nil?: false). It
+      # needs an args-bearing selection shape that doesn't exist yet, so it must be
+      # omitted rather than emitted broken.
+      refute types =~ "nameMatches"
+    end
+
+    test "skips a calculation returning a non-scalar (map) type", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `name_summary` returns :map. Unlike a :map *attribute* (which emits AshJSON),
+      # a derived field's computed type is dropped when it isn't a concrete
+      # scalar/enum — omission is safe; a wrong guess silently mis-decodes.
+      refute types =~ "nameSummary"
+    end
+
+    test "does not emit private calculations", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `secret_label` is a non-public calculation — excluded by codegen's
+      # public-only scope (the manifest is built without include_private_calculations?).
+      refute types =~ "secretLabel"
+    end
+
     test "the functions file imports the runtime and exposes an AshRpc entry point", %{
       files: files
     } do
