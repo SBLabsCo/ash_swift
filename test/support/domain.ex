@@ -23,6 +23,15 @@ defmodule AshSwift.Test.Domain do
       rpc_action(:create_todo, :create)
       rpc_action(:update_todo, :update)
       rpc_action(:destroy_todo, :destroy)
+      # Generic actions (issue #54).
+      rpc_action(:request_magic_link, :request_magic_link)
+      rpc_action(:echo, :echo)
+      rpc_action(:ping, :ping)
+      rpc_action(:stats, :stats)
+      rpc_action(:summarize, :summarize)
+      rpc_action(:ping_void, :ping_void)
+      rpc_action(:echo_config, :echo_config)
+      rpc_action(:broadcast, :broadcast)
     end
 
     resource AshSwift.Test.User do

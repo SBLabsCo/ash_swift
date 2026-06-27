@@ -805,6 +805,135 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
+  describe "generic actions (issue #54)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    test "a void action with an argument emits a VoidActionRequest call + typed input struct", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+      types = files["AshRpcTypes.swift"]
+
+      # No return type (side-effecting) → void function, VoidActionRequest. The
+      # input generic is inferred from `input:`, so it is NOT pinned explicitly.
+      assert functions =~
+               "public func requestMagicLink(input: RequestMagicLinkInput) async throws {"
+
+      assert functions =~
+               ~s[try await client.execute(VoidActionRequest(action: "request_magic_link", input: input))]
+
+      # The argument (not a resource attribute) becomes a required input field.
+      assert types =~ "public struct RequestMagicLinkInput: Encodable, Sendable {"
+      assert types =~ "public var email: String\n"
+    end
+
+    test "a scalar-returning action with required + optional args maps the return and both args",
+         %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      types = files["AshRpcTypes.swift"]
+
+      # Scalar return → typed return; input present so the output generic infers
+      # from the return position (no explicit generics on GenericActionRequest).
+      assert functions =~ "public func echo(input: EchoInput) async throws -> String {"
+
+      assert functions =~
+               ~s[return try await client.execute(GenericActionRequest(action: "echo", input: input))]
+
+      # required? drives optionality: message (required) is non-optional + plain
+      # encode; loud (optional argument) is Optional + encodeIfPresent.
+      assert types =~ "public var message: String\n"
+      assert types =~ "public var loud: Bool?\n"
+      assert types =~ "try container.encode(message, forKey: .message)"
+      assert types =~ "try container.encodeIfPresent(loud, forKey: .loud)"
+    end
+
+    test "a no-argument scalar action pins both generics and takes no input param", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      # No `input:` to anchor the input generic, so both O and I are explicit.
+      assert functions =~ "public func ping() async throws -> String {"
+
+      assert functions =~
+               ~s[return try await client.execute(GenericActionRequest<String, EmptyActionInput>(action: "ping"))]
+
+      # A no-arg action emits no input struct.
+      refute files["AshRpcTypes.swift"] =~ "PingInput"
+    end
+
+    test "a map-returning action maps to a [String: AshJSON] return", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~ "public func stats() async throws -> [String: AshJSON] {"
+
+      assert functions =~
+               "client.execute(GenericActionRequest<[String: AshJSON], EmptyActionInput>(action: \"stats\"))"
+    end
+
+    test "an action whose return needs field selection is skipped with a warning", %{files: files} do
+      # `summarize` returns a struct (instance_of Todo) — a typed-record return
+      # needs field selection (Tier C), deferred. It must be skipped, not emitted
+      # as a broken function, and the skip is announced.
+      log =
+        ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
+
+      assert log =~ "generic action :summarize"
+      assert log =~ "skipping"
+
+      refute files["AshRpcFunctions.swift"] =~ "func summarize"
+    end
+
+    test "a void no-argument action emits VoidActionRequest<EmptyActionInput> and no input param",
+         %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      # The {:void, nil} branch: no `input:` to anchor the input generic, so it is
+      # pinned explicitly to EmptyActionInput and the function takes no parameters.
+      assert functions =~ "public func pingVoid() async throws {"
+
+      assert functions =~
+               ~s[try await client.execute(VoidActionRequest<EmptyActionInput>(action: "ping_void"))]
+
+      refute files["AshRpcTypes.swift"] =~ "PingVoidInput"
+    end
+
+    test "a Swift-keyword-named argument is backtick-escaped in the input struct", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      # `default` is a Swift keyword; generic-action arguments share render_input_struct,
+      # so the escaping must reach them (lessons.md: escape every identifier emitter).
+      assert types =~ "public struct EchoConfigInput: Encodable, Sendable {"
+      assert types =~ "public var `default`: String"
+      assert types =~ "try container.encode(`default`, forKey: .`default`)"
+    end
+
+    test "a map-typed argument maps to [String: AshJSON]", %{files: files} do
+      # Ash.Type.Map has a populated module, so a map argument resolves through
+      # generic_swift_type to the JSON dict (not skipped like a module-less array).
+      assert files["AshRpcTypes.swift"] =~ "public var options: [String: AshJSON]?"
+    end
+
+    test "an action with an unmappable (array) argument is skipped with a warning", %{
+      files: files
+    } do
+      # `broadcast` takes a `{:array, :string}` argument — `kind: :array, module: nil`
+      # in the manifest. ash_type_to_swift would String-guess it; the input gate must
+      # instead skip the whole action (symmetric with the return-type gate), so it is
+      # not emitted as a function with a wrong-typed input field.
+      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
+
+      assert log =~ "generic action :broadcast"
+      assert log =~ "argument :tags"
+      assert log =~ "skipping"
+
+      refute files["AshRpcFunctions.swift"] =~ "func broadcast"
+      refute files["AshRpcTypes.swift"] =~ "BroadcastInput"
+    end
+  end
+
   describe "2-hop relationship guard" do
     setup do
       %{files: Codegen.build_files([AshSwift.Test.TagDomain])}

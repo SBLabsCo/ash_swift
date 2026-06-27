@@ -111,6 +111,65 @@ public struct CreateTodoInput: Encodable, Sendable {
     }
 }
 
+public struct EchoConfigInput: Encodable, Sendable {
+    public var `default`: String
+    public var options: [String: AshJSON]?
+
+    public init(`default`: String, options: [String: AshJSON]? = nil) {
+        self.`default` = `default`
+        self.options = options
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(`default`, forKey: .`default`)
+        try container.encodeIfPresent(options, forKey: .options)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case `default`
+        case options
+    }
+}
+
+public struct EchoInput: Encodable, Sendable {
+    public var loud: Bool?
+    public var message: String
+
+    public init(message: String, loud: Bool? = nil) {
+        self.loud = loud
+        self.message = message
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(loud, forKey: .loud)
+        try container.encode(message, forKey: .message)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case loud
+        case message
+    }
+}
+
+public struct RequestMagicLinkInput: Encodable, Sendable {
+    public var email: String
+
+    public init(email: String) {
+        self.email = email
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(email, forKey: .email)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case email
+    }
+}
+
 public struct UpdateTodoInput: Encodable, Sendable {
     public var amount: String?
     public var completed: Bool?

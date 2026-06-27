@@ -24,7 +24,10 @@ and a TypeScript client stay wire-identical by construction.
 > (`OffsetPage`/`KeysetPage`, composing with filter and sort on one call), and
 > **aggregates** and zero-argument **calculations** as selectable read fields
 > (`count`/`exists`/`max`-style derived values plus computed calculations, decoded
-> into the generated model like any other field). Under the
+> into the generated model like any other field). **Generic actions**
+> (`:action`-type, command-style calls such as an auth bootstrap) also generate —
+> with typed argument inputs and void/scalar/map returns (typed-record returns
+> needing field selection are tracked separately). Under the
 > hood, codegen now reads Ash's native API manifest (`Ash.Info.Manifest`) as its
 > sole metadata source rather than walking resource reflection directly — see
 > [ADR-0009](https://github.com/SBLabsCo/ash_swift/blob/main/docs/adr/0009-adopt-ash-info-manifest-as-codegen-ir.md).
@@ -45,6 +48,12 @@ and a TypeScript client stay wire-identical by construction.
   fully typed (`async throws -> [T]` with field selection); get actions reflect
   `get?` / `get_by` / `not_found_error?` and return `T` or `T?` accordingly;
   create/update/destroy take compiler-enforced typed input structs.
+- **Generic actions** — command-style `:action`-type actions (e.g. an auth
+  bootstrap like `requestMagicLink`) generate a callable function whose typed
+  input struct is built from the action's *arguments*, returning the action's
+  result: nothing (a side-effecting `async throws`), a scalar, or a JSON map. A
+  generic action returning a resource/struct that needs field selection is not
+  generated yet ([#56](https://github.com/SBLabsCo/ash_swift/issues/56)).
 - **Ad-hoc field selection** — request only the fields a screen needs, including
   fields on nested relationships. Every model field is `Optional`, so unselected
   fields safely decode as `nil`.
@@ -162,6 +171,7 @@ defmodule MyApp.Domain do
       rpc_action :create_todo, :create
       rpc_action :update_todo, :update
       rpc_action :destroy_todo, :destroy
+      rpc_action :request_magic_link, :request_magic_link  # generic :action
     end
   end
 
@@ -217,6 +227,9 @@ let todos: [Todo] = try await rpc.listTodos(fields: ["id", "title", "completed"]
 for todo in todos {
     print(todo.title ?? "")
 }
+
+// A generic (:action-type) action: typed argument input, void/scalar/map return.
+try await rpc.requestMagicLink(input: RequestMagicLinkInput(email: "me@example.com"))
 ```
 
 Filtering and sorting are typed too. Each attribute on the generated

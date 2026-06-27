@@ -148,6 +148,47 @@ arg-bearing calc is skipped, not emitted. See `collect_calculation_fields` in `c
 (issue #52). This is the canonical "probe the wire before trusting the spec" case — the PRD was
 wrong about runtime behavior.
 
+### Generic-action inputs are action *arguments*, not resource attributes
+
+A generic (`:action`-type) action's inputs are action **arguments**, which the
+manifest exposes as `Argument` structs carrying their own `type` (a manifest
+`Type`) and a populated `required?`. They are NOT resource attributes — so the
+create/update input path (`collect_action_inputs`, which resolves each input
+against `manifest_attributes` and **drops anything that isn't a public attribute
+with a warning**) silently produces an empty input struct for them. Generic
+actions need their own collector that maps each argument from its own manifest
+type with optionality from `input.required?` (the presence flag the `Argument`
+moduledoc points consumers at). See `collect_generic_action_inputs` in
+`codegen.ex` (issue #54). **Gate the argument type the same way as a computed
+return — do NOT just `ash_type_to_swift(input.type.module)`.** Unlike a resolved
+resource attribute (always a concrete module, where a String fallback is
+harmless), an *argument*'s type can be a module-less container: a `{:array, _}`
+arg is `kind: :array, module: nil`, and `ash_type_to_swift(nil)` silently returns
+`"String"` — a compilable but wrong input field. Route both the argument types
+and the return through one `generic_swift_type/1` classifier (handles `:map`,
+gates scalars on `@derived_scalar_kinds and not is_nil(module)`, else
+`:unsupported`) and **skip the whole action** when any argument is unsupported,
+symmetric with the return gate. The fixture `AshSwift.Test.Todo.broadcast`
+(a `{:array, :string}` arg) is the regression guard that the skip fires. Caught
+by the PR #57 review (issue #54) — the bug was real: the first pass String-guessed
+module-less args.
+
+### Generic-action wire shapes (probed): input key, no `fields`, void returns `{}`
+
+Probed live against `AshTypescript.Rpc.run_action` (issue #54): a generic action
+sends its arguments under the top-level `input` key (like create), and `fields`
+is **optional and omitted** for void/scalar/map returns — so the request body is
+just `{action, input?}` (no `fields`), and a no-argument action sends no `input`
+at all. A void (no-`returns`) action responds `{"data": {}, "success": true}` —
+note `data` is an empty object, not null — so the Swift decode is a no-op like
+destroy. A scalar/map return is the usual `{"data": <value>}` `DataEnvelope`
+unwrap. The catch: a **typed-record return** (a generic action returning a
+struct/resource, e.g. `returns :struct, constraints: [instance_of: __MODULE__]`)
+**requires** `fields` — the pipeline rejects it with `missing_required_parameter:
+fields`. That's why field-selection-bearing returns (Tier C) are deferred and
+skipped, not emitted: wiring them needs the `FieldSelection` machinery in the
+generic-action body. Re-probe before building Tier C.
+
 ## Test patterns
 
 ### Extend the fixture domain when the bug class needs it
