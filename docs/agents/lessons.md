@@ -72,8 +72,22 @@ raw-value enum does **not**: `public enum XSortField: String, Sendable {}` fails
 only public attributes are non-eligible (e.g. all `Ash.Type.Map`, which both sort and
 filter exclude) or its primary key is non-public. Test the empty case with a minimal
 fixture — see `AshSwift.Test.MapOnly` (test/support/map_only.ex), used by the
-empty-filter-struct regression test. (The sort slice did not guard this — tracked
-separately.)
+empty-filter-struct and (via `list_map_onlys_sortable`) empty-sort-enum regression
+tests. (Fixed for sort in #41: an empty sortable set drops the `SortField` enum and
+the `sort:` parameter, mirroring `enable_sort?: false`.)
+
+### The manifest's `sortable?`/`filterable?` flags are more permissive than our exclusions
+
+`Ash.Info.Manifest` field structs carry `sortable?` and `filterable?` booleans, which
+look like the authoritative source for the sort/filter surface. They are **not** the
+right gate for codegen: they answer "is this field addressable in Ash's model," not
+"will a sort/filter on it succeed at the data layer." An `Ash.Type.Map` attribute
+reports `sortable?: true, filterable?: true` in the manifest, but we deliberately
+exclude composite types (`sortable_attribute?/1` and the filter `:exclude` group)
+because sorting/filtering a JSON blob is a footgun the backend rejects at query time.
+Keep the Swift-type-based classification — don't "simplify" sort/filter gating onto
+the manifest flags, or you'll re-emit excluded fields. Confirmed by probing the
+manifest for `AshSwift.Test.MapOnly.metadata` (issue #41).
 
 ### Filter/sort operator keys are camelCase on the wire — the pipeline formats nested map keys
 

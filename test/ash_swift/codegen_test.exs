@@ -532,6 +532,31 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
+  describe "empty sort surface (issue #41)" do
+    test "a sortable read over a resource with no sortable attributes emits no SortField enum and no sort: param" do
+      # MapOnly's only public attribute is an Ash.Type.Map (excluded by
+      # sortable_attribute?/1) and its primary key is non-public, so the
+      # sort-enabled `list_map_onlys_sortable` read has zero sortable fields.
+      # Codegen must drop the sort surface entirely rather than emit
+      # `public enum MapOnlySortField: String, Sendable {}`, which does not compile
+      # (an empty raw-value enum has no RawRepresentable conformance).
+      files = Codegen.build_files([AshSwift.Test.MapOnlyDomain])
+      types = files["AshRpcTypes.swift"]
+      functions = files["AshRpcFunctions.swift"]
+
+      # No SortField enum (empty or otherwise) for a resource with no sortable fields.
+      refute types =~ "MapOnlySortField"
+
+      # The sort-enabled read drops the `sort:` parameter, exactly as
+      # `enable_sort?: false` does. MapOnly never sorts, so no function in this
+      # domain references a sort parameter at all.
+      assert functions =~
+               "public func listMapOnlysSortable(filter: MapOnlyFilter? = nil, fields: [FieldSelection] = [])"
+
+      refute functions =~ "sort:"
+    end
+  end
+
   describe "filter logical combinators (issue #36)" do
     setup do
       %{files: Codegen.build_files(@domains)}
