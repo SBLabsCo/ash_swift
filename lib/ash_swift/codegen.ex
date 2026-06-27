@@ -256,6 +256,15 @@ defmodule AshSwift.Codegen do
       {fields, enums} = collect_fields(mres, type_name, manifest.types)
       formatter = AshTypescript.output_field_formatter() || :camel_case
 
+      # A resource's sortable public attributes, computed once. When empty, the
+      # resource has no sort surface: a sortable read with zero sortable attributes
+      # must NOT emit a `{Resource}SortField` enum (an empty raw-value enum does not
+      # compile in Swift) nor a `sort:` parameter referencing it. Folding this into
+      # each action's `sortable?` mirrors how `enable_sort?: false` drops the sort
+      # surface (issue #41).
+      sortable_fields = collect_sortable_fields(mres, formatter, manifest.types)
+      has_sortable_fields? = not Enum.empty?(sortable_fields)
+
       # Build actions and, in the same pass, collect the input structs to emit.
       {actions_unsorted, input_structs_unsorted} =
         Enum.reduce(rpc_actions, {[], []}, fn rpc_action, {actions_acc, structs_acc} ->
@@ -295,7 +304,11 @@ defmodule AshSwift.Codegen do
           # Sorting is offered only on list (non-get) read actions whose RPC
           # action leaves `enable_sort?` at its default of true. A false flag
           # drops the sort: parameter so a forbidden sort is a compile error.
-          sortable? = maction.type == :read and not is_get? and sort_enabled?(rpc_action)
+          # Also requires the resource to actually have sortable fields — a sort
+          # over an empty SortField enum is meaningless and won't compile (#41).
+          sortable? =
+            maction.type == :read and not is_get? and sort_enabled?(rpc_action) and
+              has_sortable_fields?
 
           # Filtering is offered on the same surface as sorting — list (non-get)
           # read actions whose RPC action leaves `enable_filter?` at its default
@@ -344,15 +357,13 @@ defmodule AshSwift.Codegen do
           {[action | actions_acc], new_struct ++ structs_acc}
         end)
 
-      # A resource needs a typed sortable-field enum only when at least one of
-      # its actions actually exposes sorting; otherwise the enum would be dead
-      # code. Covers public attributes only (M2 scope).
+      # A resource needs a typed sortable-field enum only when at least one of its
+      # actions actually exposes sorting. Because `sortable?` already requires
+      # `has_sortable_fields?`, this is false when there are no sortable fields, so
+      # no empty enum is emitted (#41). Reuses the fields computed above.
       sort_field =
         if Enum.any?(actions_unsorted, & &1.sortable?) do
-          %{
-            type_name: type_name <> "SortField",
-            fields: collect_sortable_fields(mres, formatter, manifest.types)
-          }
+          %{type_name: type_name <> "SortField", fields: sortable_fields}
         else
           nil
         end

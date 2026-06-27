@@ -58,7 +58,9 @@ defmodule AshSwift.MixProject do
 
   defp deps do
     [
-      {:ash, "~> 3.0"},
+      # 3.29 introduced `Ash.Info.Manifest`, the language-agnostic codegen IR this
+      # extension reads as its sole metadata source (ADR-0009). Earlier 3.x lacks it.
+      {:ash, "~> 3.29"},
       # Pinned to the minor we build the codegen against: it reads AshTypescript
       # internals (RPC entity shape, Resource.Info type_name accessor) that can
       # change across 0.x minors (ADR-0003).

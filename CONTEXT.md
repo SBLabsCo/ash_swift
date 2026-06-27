@@ -17,7 +17,10 @@ The upstream Elixir definition (attributes, relationships, actions) that codegen
 An Ash action exposed to clients through the domain's RPC configuration, for which AshSwift generates a callable Swift function. _Avoid_: "endpoint", "route".
 
 **Codegen**:
-The compile-time process (a Mix task) that walks Ash resources and writes the generated client. _Avoid_: "build step", "transpile".
+The compile-time process (a Mix task) that reads the Ash API manifest and writes the generated client. _Avoid_: "build step", "transpile".
+
+**API manifest** (`Ash.Info.Manifest`):
+Ash's native, language-agnostic intermediate representation of a domain's resources, types, action entrypoints, and filter/sort/pagination capabilities (added in Ash 3.29). Codegen's sole metadata source (ADR-0009); the `typescript_rpc` config still gates which actions are exposed. _Avoid_: "schema dump", "reflection" — it is a structured IR, not raw `Ash.Resource.Info` introspection.
 
 **AshSwiftRuntime**:
 The small hand-written Swift support package the generated client depends on at runtime — base RPC client, request/response handling, error decoding, hook dispatch, config. Distinct from the generated client (which is emitted per-resource). _Avoid_: "SDK", "core".

@@ -33,6 +33,22 @@ defmodule AshSwift.SwiftBuildTest do
     assert status == 0, "swift build failed:\n#{output}"
   end
 
+  test "a sort-enabled read over a resource with no sortable attributes compiles (issue #41)" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+
+    # MapOnlyDomain's `list_map_onlys_sortable` is a sort-enabled read over a
+    # resource whose only public attribute is a non-sortable Map. Before #41 this
+    # emitted an empty `public enum MapOnlySortField: String, Sendable {}`, which
+    # swiftc rejects ("an enum with no cases cannot declare a raw type"). The fix
+    # drops the sort surface; this proves the result actually type-checks.
+    assert {:ok, _written} = Codegen.generate([AshSwift.Test.MapOnlyDomain], sources)
+
+    {output, status} = System.cmd("swift", ["build"], cd: tmp, stderr_to_stdout: true)
+    assert status == 0, "swift build failed:\n#{output}"
+  end
+
   test "regenerating with no schema change produces no diff" do
     sources =
       Path.join(System.tmp_dir!(), "ash_swift_determinism_#{System.unique_integer([:positive])}")
