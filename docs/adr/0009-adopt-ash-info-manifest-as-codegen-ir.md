@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (issue #47)
+Accepted (issue #47)
 
 ## Context
 
