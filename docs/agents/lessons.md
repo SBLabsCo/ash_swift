@@ -108,6 +108,29 @@ is the authoritative operator-set-per-type source — use it, not examples.
 
 `AshRpcFunctions.swift` has always imported `AshSwiftRuntime`, but `AshRpcTypes.swift` originally only imported `Foundation` — all generated model types were built-in Swift types (String, Bool, Int, Double). If you add a new Ash-to-Swift mapping whose Swift type lives in the runtime package (e.g., `AshJSON` for `Ash.Type.Map`), the generated types file must also import `AshSwiftRuntime` or Swift will emit "cannot find type 'X' in scope" errors during `swift build`. The `render_types` function in `codegen.ex` owns this import. See PR #30 (issue #17): the E2E swift test caught the missing import immediately.
 
+### Derived fields (aggregates/calculations) ride existing seams — skip what doesn't map, don't fall back
+
+Aggregates (#51) and calculations (#52) are first-class manifest `Field`s: read them with the
+same `ManifestResource.fields_by_kind(:aggregate | :calculation)` accessor used for `:attribute`,
+map their resolved `field.type` through the existing `ash_type_to_swift` + `manifest_enum_values`
+machinery, emit them as Optional struct members, and select them on the wire via the existing
+`.scalar("name")` path (Ash RPC loads them through the same `fields` param — no `FieldSelection`
+or request-body change). Two non-obvious gotchas: (1) the manifest is public-only by default, so
+private aggregates/calcs are excluded for free — no extra gating. (2) Unlike an attribute (where
+`ash_type_to_swift` String-fallbacks an unknown type), a derived field's type is *computed*, not
+author-controlled, so gate emission on `field.type.kind` and **skip** anything that isn't a
+concrete scalar/enum (a `list` aggregate is `kind: :array, module: nil`) — a wrong String guess
+silently mis-decodes, whereas omission is safe. See `@derived_scalar_kinds` /
+`collect_aggregate_fields` in `codegen.ex` (issue #51).
+
+One sharp edge to expect, not fix: an enum-typed derived field (e.g. `first :top_priority, :todos,
+:priority`) emits a *per-resource* enum (`UserTopPriority`) with the same raw cases as the source
+attribute's enum (`TodoPriority`), following the existing per-field enum-naming convention. The two
+types don't unify, so a caller must compare via `.rawValue`. This is consistent with attribute
+enums but the semantic coupling is tighter for a derived field over an enum column — #52's
+calculations will hit the same thing. Reusing the source enum across resources is a deliberate
+non-goal here (it'd require cross-resource enum identity), so don't "fix" it as a one-off.
+
 ## Test patterns
 
 ### Extend the fixture domain when the bug class needs it

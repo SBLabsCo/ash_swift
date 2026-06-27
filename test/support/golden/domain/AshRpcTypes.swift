@@ -220,15 +220,28 @@ public enum TodoSortField: String, Sendable {
     case username
 }
 
+public enum UserTopPriority: String, Codable, Sendable, Equatable {
+    case high
+    case low
+    case medium
+}
+
 /// Generated model for the `User` resource.
 ///
 /// Every selectable field is Optional so that ad-hoc field selection is
 /// safe: unselected fields decode as `nil`.
 public struct User: Codable, Sendable, Equatable {
+    public var averageScore: Double?
     public var email: String?
+    public var hasTodos: Bool?
+    public var highestScore: Int?
     public var id: String?
+    public var lowestScore: Int?
     public var name: String?
+    public var todoCount: Int?
     public var todos: [Todo]?
+    public var topPriority: UserTopPriority?
+    public var totalScore: Int?
     public init() {}
 }
 

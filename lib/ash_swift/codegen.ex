@@ -551,6 +551,9 @@ defmodule AshSwift.Codegen do
         end
       end)
 
+    {agg_fields, agg_enums} =
+      collect_aggregate_fields(mres, type_name, resource, formatter, types)
+
     rel_fields =
       mres
       |> ManifestResource.all_relationships()
@@ -571,9 +574,53 @@ defmodule AshSwift.Codegen do
         end
       end)
 
-    fields = (attr_fields ++ rel_fields) |> Enum.sort_by(& &1.name)
-    sorted_enums = enums |> Enum.sort_by(& &1.enum_name)
+    fields = (attr_fields ++ agg_fields ++ rel_fields) |> Enum.sort_by(& &1.name)
+    sorted_enums = (enums ++ agg_enums) |> Enum.sort_by(& &1.enum_name)
     {fields, sorted_enums}
+  end
+
+  # Manifest Type kinds whose resolved type maps to a concrete Swift scalar we can
+  # faithfully emit and decode. An aggregate (issue #51) or calculation resolving
+  # to anything else — an array from a `list` aggregate, a map/struct/union/
+  # resource — is dropped rather than String-fallbacked: a derived field's type is
+  # computed, not author-controlled, so a wrong guess silently mis-decodes whereas
+  # omission is safe. Enum-typed derived fields are handled before this gate (via
+  # manifest_enum_values), so :enum/:type_ref are intentionally absent here.
+  @derived_scalar_kinds ~w(string ci_string atom uuid integer float decimal
+                           boolean date utc_datetime utc_datetime_usec
+                           naive_datetime)a
+
+  # Public aggregates as Optional model fields, mirroring the attribute reduce in
+  # collect_fields/3: an enum-typed aggregate produces a generated Swift enum plus
+  # a typed field; a scalar aggregate maps through ash_type_to_swift; anything
+  # else is skipped (see @derived_scalar_kinds). The manifest already excludes
+  # private aggregates, so this is public-only by construction. Returns
+  # {fields, enums} in the same shape collect_fields/3 expects.
+  defp collect_aggregate_fields(mres, type_name, resource, formatter, types) do
+    mres
+    |> ManifestResource.fields_by_kind(:aggregate)
+    |> Enum.reduce({[], []}, fn field, {fields_acc, enums_acc} ->
+      formatted_name = FieldFormatter.format_field_for_client(field.name, resource, formatter)
+
+      case manifest_enum_values(field.type, types) do
+        values when is_list(values) ->
+          en_name = enum_type_name(type_name, formatted_name)
+          enum = %{enum_name: en_name, cases: values}
+          {[%{name: formatted_name, swift_type: en_name} | fields_acc], [enum | enums_acc]}
+
+        nil ->
+          # Guard on a concrete module too: the gate's intent is skip-when-uncertain,
+          # and ash_type_to_swift/1 String-fallbacks an unknown/nil module — exactly
+          # the silent mis-decode this gate exists to prevent. Ash populates module
+          # for standard scalars, so this only excludes genuinely unresolvable types.
+          if field.type.kind in @derived_scalar_kinds and not is_nil(field.type.module) do
+            field_map = %{name: formatted_name, swift_type: ash_type_to_swift(field.type.module)}
+            {[field_map | fields_acc], enums_acc}
+          else
+            {fields_acc, enums_acc}
+          end
+      end
+    end)
   end
 
   # Augments the primary resource list with any related resources referenced by

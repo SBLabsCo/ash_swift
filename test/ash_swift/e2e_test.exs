@@ -1529,6 +1529,108 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "aggregate fields decode from real pipeline JSON into the generated model (issue #51)" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # A user with two todos pins the aggregate values: count = 2, exists = true,
+    # max(score) = 7. The aggregates are scoped to this user's own todos, so other
+    # tests' todos (owned by different users) can't perturb the assertions even
+    # though ETS is shared across the suite — we isolate by the unique user name.
+    user =
+      Ash.create!(AshSwift.Test.User, %{name: "AggE2E Owner", email: "agg-e2e@example.com"},
+        domain: AshSwift.Test.Domain
+      )
+
+    for {title, score} <- [{"AggE2E-T1", 7}, {"AggE2E-T2", 3}] do
+      Ash.create!(AshSwift.Test.Todo, %{title: title, score: score, user_id: user.id},
+        domain: AshSwift.Test.Domain
+      )
+    end
+
+    # Aggregates are selected by name in the same `fields` list as attributes —
+    # the pipeline loads them through that param; no special wire shape is needed.
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    params = %{
+      "action" => "list_users",
+      "fields" => [
+        "id",
+        "name",
+        "todoCount",
+        "hasTodos",
+        "highestScore",
+        "lowestScore",
+        "totalScore",
+        "averageScore"
+      ]
+    }
+
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+    assert rpc_result["success"] == true
+    assert is_list(rpc_result["data"]) and rpc_result["data"] != []
+
+    json = Jason.encode!(rpc_result)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Proves derived fields are wire-compatible: count/exists/max/min/sum/avg
+    // aggregates, selected like any attribute, decode into the generated User model
+    // with the correct Swift types — including avg → Double, a distinct decode path
+    // from the Int-typed aggregates — and the right values (issue #51).
+    final class E2EAggregateTest: XCTestCase {
+        func testAggregateFieldsDecodeIntoGeneratedModel() throws {
+            let json = #{inspect(json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct ListEnvelope: Decodable {
+                let success: Bool
+                let data: [User]
+            }
+
+            let envelope = try JSONDecoder().decode(ListEnvelope.self, from: raw)
+            XCTAssertTrue(envelope.success)
+
+            // Isolate this test's user from any others ETS holds.
+            let owner = try XCTUnwrap(
+                envelope.data.first(where: { $0.name == "AggE2E Owner" })
+            )
+
+            // count aggregate → Int
+            XCTAssertEqual(owner.todoCount, 2)
+            // exists aggregate → Bool
+            XCTAssertEqual(owner.hasTodos, true)
+            // max/min/sum(:score) aggregates → the field's Swift type, Int
+            XCTAssertEqual(owner.highestScore, 7)
+            XCTAssertEqual(owner.lowestScore, 3)
+            XCTAssertEqual(owner.totalScore, 10)
+            // avg(:score) aggregate → Double (7 + 3) / 2 == 5.0 — proves the
+            // promoted-type field decodes from the wire, not just the Int ones.
+            XCTAssertEqual(owner.averageScore, 5.0)
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EAggregateTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EAggregateTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).

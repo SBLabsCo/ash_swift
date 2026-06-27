@@ -79,6 +79,59 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public var todos: [Todo]?"
     end
 
+    test "emits public aggregates as Optional fields typed from their resolved type",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # User's aggregates over :todos (issue #51). Each is selectable like any
+      # other field and decodes through the same Optional struct member.
+      # count → Int, exists → Bool.
+      assert types =~ "public var todoCount: Int?"
+      assert types =~ "public var hasTodos: Bool?"
+      # The complete set of field-typed numeric aggregates, all sharing the scalar
+      # gate → ash_type_to_swift path. max/min/sum preserve the field's type (:integer
+      # → Int); avg promotes to :float → Double, so the assertion pins that :float
+      # stays mapped (and in @derived_scalar_kinds) rather than being skipped.
+      assert types =~ "public var highestScore: Int?"
+      assert types =~ "public var lowestScore: Int?"
+      assert types =~ "public var totalScore: Int?"
+      assert types =~ "public var averageScore: Double?"
+    end
+
+    test "emits a Swift enum for an aggregate whose resolved type is an enum",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `top_priority` is a `first` aggregate over the enum attribute :priority, so
+      # it resolves to an enum type and is emitted like an enum attribute: a typed
+      # field plus a per-resource generated enum.
+      assert types =~ "public var topPriority: UserTopPriority?"
+      assert types =~ "public enum UserTopPriority: String, Codable, Sendable, Equatable {"
+
+      # Scope the case assertions to the UserTopPriority block. Asserting `case high`
+      # against the whole file would be vacuous — TodoPriority carries the same cases
+      # in the same string — so extract this enum's body and check the cases there,
+      # making the assertion load-bearing if UserTopPriority's cases ever regress.
+      enum_block = Regex.run(~r/public enum UserTopPriority:.*?\n\}/s, types) |> List.first()
+      assert enum_block =~ "case high"
+      assert enum_block =~ "case low"
+      assert enum_block =~ "case medium"
+    end
+
+    test "skips an aggregate whose resolved type doesn't map to a Swift scalar/enum",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `todo_titles` is a `list` aggregate → an array result the manifest reports
+      # with `module: nil`. A derived field with no faithful Swift type is omitted
+      # rather than String-fallbacked (which would silently mis-decode).
+      refute types =~ "todoTitles"
+    end
+
+    test "does not emit private aggregates", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `secret_count` is a non-public aggregate — codegen's public-only scope must
+      # exclude it (the manifest is built without include_private_aggregates?).
+      refute types =~ "secretCount"
+    end
+
     test "the functions file imports the runtime and exposes an AshRpc entry point", %{
       files: files
     } do
