@@ -30,11 +30,17 @@ defmodule AshSwift.Test.Todo do
     attribute :started_at, :naive_datetime, public?: true
     attribute :amount, :decimal, public?: true
     attribute :metadata, :map, public?: true
+    # Private members: regression guard for codegen's public-only scope. The
+    # manifest is built without include_private_*, so these must NOT appear in the
+    # generated Swift. The golden snapshot (unchanged by their presence) proves it.
+    attribute :internal_note, :string, public?: false
     timestamps()
   end
 
   relationships do
     belongs_to :user, AshSwift.Test.User, public?: true
+    # Private relationship — must be excluded from the generated struct (see above).
+    belongs_to :secret_owner, AshSwift.Test.User, public?: false
   end
 
   actions do
