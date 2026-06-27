@@ -66,7 +66,9 @@ source, removing direct `Ash.Resource.Info.*` traversal.
 **Negative / risks**
 
 - `Ash.Info.Manifest` is young (`schema_version` `1.0.0`); its JSON shape may churn. AshLua's
-  production use is the main mitigant, and the version field lets us detect breaks.
+  production use is the main mitigant. Codegen guards `Manifest.schema_version()` against the
+  pinned `1.0.0` and raises an actionable `Mix` error on mismatch, so a shape change fails loudly
+  at generation time rather than as an obscure nil/key error deep in the emitters.
 - Our codegen *input* diverges from pinned ash_typescript 0.17.3, which still uses
   `Ash.Resource.Info`. Worth coordinating with the ash_typescript author (Torkan) — he may move
   ash_typescript onto the manifest too, which would re-converge the two.
@@ -74,6 +76,16 @@ source, removing direct `Ash.Resource.Info.*` traversal.
 
 **Implementation notes (from the spike)**
 
-- `fields` and `relationships` are name-keyed maps, not lists.
-- The manifest only surfaces configured domains and what is reachable from them; each domain under
-  test must be present in `ash_domains` config to appear.
+- `fields` and `relationships` are name-keyed maps, not lists. Manifest iteration must be sorted
+  before emitting — the `ManifestResource` accessors (`fields_by_kind/2`, `all_relationships/1`)
+  already return name-sorted lists, and codegen sorts again before joining, so the generate-twice
+  byte-equality gate stays green.
+- Codegen scopes generation with `Manifest.generate(otp_app: app, action_entrypoints: [...])`,
+  building the entrypoint list from the `typescript_rpc` DSL. This deliberately avoids OTP-app mode,
+  so `build_files([AnyDomain])` works whether or not the domain is in the host app's `ash_domains`
+  config — the test fixtures (most not in `config/test.exs`) rely on this, and no `ash_domains`
+  change was needed.
+- The manifest is public-only by default: its resource builder reads `Ash.Resource.Info`
+  `public_attributes/1` and `public_relationships/1` (no `include_private_*` opts passed), exactly
+  matching the prior code. A private attribute and relationship in the `Todo` fixture lock this as a
+  regression guard.

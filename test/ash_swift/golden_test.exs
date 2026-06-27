@@ -25,7 +25,12 @@ defmodule AshSwift.GoldenTest do
     "tag_domain" => [AshSwift.Test.TagDomain]
   }
 
-  @update? System.get_env("UPDATE_GOLDEN") in ["1", "true"]
+  # Whether to (re)write the golden files instead of asserting against them.
+  # Read at *runtime* inside each test — not a module attribute — because a module
+  # attribute bakes the env value into the compiled .beam, and `UPDATE_GOLDEN=1 mix
+  # test` after an intentional codegen change wouldn't recompile this unchanged
+  # test file, so the stale `false` would make regeneration silently fail.
+  defp update?, do: System.get_env("UPDATE_GOLDEN") in ["1", "true"]
 
   for {label, domains} <- @matrix do
     @label label
@@ -35,7 +40,7 @@ defmodule AshSwift.GoldenTest do
       files = Codegen.build_files(@domains)
       dir = Path.join(@golden_root, @label)
 
-      if @update? do
+      if update?() do
         File.rm_rf!(dir)
         File.mkdir_p!(dir)
         for {name, content} <- files, do: File.write!(Path.join(dir, name), content)
@@ -59,6 +64,12 @@ defmodule AshSwift.GoldenTest do
         assert on_disk == emitted,
                "Golden dir #{@label} has stale files not emitted by codegen: " <>
                  "#{inspect(on_disk -- emitted)}. Regenerate with `UPDATE_GOLDEN=1 mix test`."
+
+        # Generate-twice byte-equality: the cheapest determinism gate, run for
+        # every fixture so a non-sorted iteration path that only touches MapOnly
+        # or Tag resources can't slip past the single-domain check in codegen_test.
+        assert Codegen.build_files(@domains) == files,
+               "Codegen for #{@label} is non-deterministic — two runs produced different output."
       end
     end
   end
