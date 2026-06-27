@@ -132,6 +132,67 @@ defmodule AshSwift.CodegenTest do
       refute types =~ "secretCount"
     end
 
+    test "emits a zero-argument, scalar calculation as an Optional field",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `display_name` is a zero-argument :string calculation — emitted like any
+      # scalar field, selectable via the same `.scalar` path (issue #52).
+      assert types =~ "public var displayName: String?"
+    end
+
+    test "emits a Swift enum for a zero-argument calculation whose type is an enum",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `name_size` is a zero-arg :atom calculation with a one_of constraint, so it
+      # resolves to an enum and is emitted like an enum attribute: a typed field
+      # plus a per-resource generated enum. This exercises emit_derived_fields/5's
+      # enum branch from the *calculation* path (aggregates cover it too, but only
+      # indirectly for calcs).
+      assert types =~ "public var nameSize: UserNameSize?"
+      assert types =~ "public enum UserNameSize: String, Codable, Sendable, Equatable {"
+
+      # Scope the case assertions to the UserNameSize block so they stay
+      # load-bearing (a whole-file `case short` could be satisfied elsewhere).
+      enum_block = Regex.run(~r/public enum UserNameSize:.*?\n\}/s, types) |> List.first()
+      assert enum_block =~ "case long"
+      assert enum_block =~ "case short"
+    end
+
+    test "skips a calculation with an optional argument (deferred to M3)",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `greeting` takes one argument with a default. Although the argument is
+      # optional, the reused RPC pipeline still rejects a plain `.scalar` selection
+      # ("Calculation requires arguments") — only the args-bearing shape works, and
+      # that's deferred to M3. So an argument-bearing calc is omitted, not emitted
+      # broken. This guards against the PRD's incorrect "optional → zero-arg" premise.
+      refute types =~ "greeting"
+    end
+
+    test "skips a calculation with a required argument (deferred to M3)",
+         %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `name_matches` takes a required argument (no default, allow_nil?: false). It
+      # needs an args-bearing selection shape that doesn't exist yet, so it must be
+      # omitted rather than emitted broken.
+      refute types =~ "nameMatches"
+    end
+
+    test "skips a calculation returning a non-scalar (map) type", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `name_summary` returns :map. Unlike a :map *attribute* (which emits
+      # [String: AshJSON]), a derived field's computed type is dropped when it isn't
+      # a concrete scalar/enum — omission is safe; a wrong guess silently mis-decodes.
+      refute types =~ "nameSummary"
+    end
+
+    test "does not emit private calculations", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+      # `secret_label` is a non-public calculation — excluded by codegen's
+      # public-only scope (the manifest is built without include_private_calculations?).
+      refute types =~ "secretLabel"
+    end
+
     test "the functions file imports the runtime and exposes an AshRpc entry point", %{
       files: files
     } do

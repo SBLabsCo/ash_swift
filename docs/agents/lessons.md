@@ -131,6 +131,23 @@ enums but the semantic coupling is tighter for a derived field over an enum colu
 calculations will hit the same thing. Reusing the source enum across resources is a deliberate
 non-goal here (it'd require cross-resource enum identity), so don't "fix" it as a one-off.
 
+### Only ZERO-argument calculations are `.scalar`-selectable — any argument defers to M3
+
+The reused AshTypescript RPC pipeline rejects *any* argument-bearing calculation selected on
+the plain `.scalar("name")` path with `invalid_field_format` / "Calculation requires arguments",
+demanding the args-bearing shape `{ calcName: { args: {...} } }` instead — and this holds even
+when **every argument is optional** (has a default or `allow_nil?: true`). Issue #52's PRD
+assumed all-optional-arg calcs were zero-arg-selectable and should be emitted; probing
+`AshTypescript.Rpc.run_action` showed they are not, so codegen gates on
+`calculation_takes_arguments?` (any non-empty `arguments`), **not** on required-ness. Don't
+bother deriving required-vs-optional from the argument shape for this gate: the manifest leaves
+`Argument.required?` `nil` for calculation arguments anyway (it's only populated for action
+arguments), and the distinction doesn't matter — both kinds need the M3 args shape. The fixture
+`AshSwift.Test.User.greeting` (one optional, defaulted arg) is the regression guard that an
+arg-bearing calc is skipped, not emitted. See `collect_calculation_fields` in `codegen.ex`
+(issue #52). This is the canonical "probe the wire before trusting the spec" case — the PRD was
+wrong about runtime behavior.
+
 ## Test patterns
 
 ### Extend the fixture domain when the bug class needs it

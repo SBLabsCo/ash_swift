@@ -554,6 +554,9 @@ defmodule AshSwift.Codegen do
     {agg_fields, agg_enums} =
       collect_aggregate_fields(mres, type_name, resource, formatter, types)
 
+    {calc_fields, calc_enums} =
+      collect_calculation_fields(mres, type_name, resource, formatter, types)
+
     rel_fields =
       mres
       |> ManifestResource.all_relationships()
@@ -574,8 +577,10 @@ defmodule AshSwift.Codegen do
         end
       end)
 
-    fields = (attr_fields ++ agg_fields ++ rel_fields) |> Enum.sort_by(& &1.name)
-    sorted_enums = (enums ++ agg_enums) |> Enum.sort_by(& &1.enum_name)
+    fields =
+      (attr_fields ++ agg_fields ++ calc_fields ++ rel_fields) |> Enum.sort_by(& &1.name)
+
+    sorted_enums = (enums ++ agg_enums ++ calc_enums) |> Enum.sort_by(& &1.enum_name)
     {fields, sorted_enums}
   end
 
@@ -590,16 +595,50 @@ defmodule AshSwift.Codegen do
                            boolean date utc_datetime utc_datetime_usec
                            naive_datetime)a
 
-  # Public aggregates as Optional model fields, mirroring the attribute reduce in
-  # collect_fields/3: an enum-typed aggregate produces a generated Swift enum plus
-  # a typed field; a scalar aggregate maps through ash_type_to_swift; anything
-  # else is skipped (see @derived_scalar_kinds). The manifest already excludes
-  # private aggregates, so this is public-only by construction. Returns
-  # {fields, enums} in the same shape collect_fields/3 expects.
+  # Public aggregates as Optional model fields. The manifest already excludes
+  # private aggregates, so this is public-only by construction. Emission rules are
+  # shared with calculations via emit_derived_fields/5.
   defp collect_aggregate_fields(mres, type_name, resource, formatter, types) do
     mres
     |> ManifestResource.fields_by_kind(:aggregate)
-    |> Enum.reduce({[], []}, fn field, {fields_acc, enums_acc} ->
+    |> emit_derived_fields(type_name, resource, formatter, types)
+  end
+
+  # Public calculations as Optional model fields (issue #52). Mechanically
+  # identical to aggregates — same fields_by_kind accessor, same emit_derived_fields/5
+  # type mapping, same `.scalar("name")` wire path — with one calculation-specific
+  # gate: only a calculation that takes *no arguments at all* is selectable via the
+  # plain `.scalar` path. Any argument-bearing calculation — even one whose
+  # arguments are all optional — is rejected by the reused AshTypescript RPC
+  # pipeline with "Calculation requires arguments" unless selected through the
+  # args-bearing shape ({ calcName: { args: {...} } }), which doesn't exist yet.
+  # So argument-bearing calculations are deferred to M3 and dropped here rather
+  # than emitted as fields that fail at request time. (The issue's PRD assumed
+  # all-optional-arg calcs were zero-arg-selectable; probing the live pipeline
+  # showed otherwise — see lessons.md.) The manifest is public-only, so private
+  # calculations are excluded for free.
+  defp collect_calculation_fields(mres, type_name, resource, formatter, types) do
+    mres
+    |> ManifestResource.fields_by_kind(:calculation)
+    |> Enum.reject(&calculation_takes_arguments?/1)
+    |> emit_derived_fields(type_name, resource, formatter, types)
+  end
+
+  # The manifest represents a zero-argument calculation with `arguments: []`, so
+  # `[]` is the real zero-arg signal; the `|| []` only guards a defensively-nil
+  # field (the per-argument `required?` being nil — see lessons.md — is a separate
+  # thing and doesn't enter here).
+  defp calculation_takes_arguments?(field) do
+    not Enum.empty?(field.arguments || [])
+  end
+
+  # Maps a list of derived (aggregate/calculation) manifest Fields to
+  # {fields, enums} in the shape collect_fields/3 expects, mirroring its attribute
+  # reduce: an enum-typed field produces a generated Swift enum plus a typed field;
+  # a scalar field maps through ash_type_to_swift; anything else is skipped (see
+  # @derived_scalar_kinds).
+  defp emit_derived_fields(fields, type_name, resource, formatter, types) do
+    Enum.reduce(fields, {[], []}, fn field, {fields_acc, enums_acc} ->
       formatted_name = FieldFormatter.format_field_for_client(field.name, resource, formatter)
 
       case manifest_enum_values(field.type, types) do

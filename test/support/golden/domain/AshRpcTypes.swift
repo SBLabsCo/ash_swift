@@ -220,6 +220,11 @@ public enum TodoSortField: String, Sendable {
     case username
 }
 
+public enum UserNameSize: String, Codable, Sendable, Equatable {
+    case long
+    case short
+}
+
 public enum UserTopPriority: String, Codable, Sendable, Equatable {
     case high
     case low
@@ -232,12 +237,14 @@ public enum UserTopPriority: String, Codable, Sendable, Equatable {
 /// safe: unselected fields decode as `nil`.
 public struct User: Codable, Sendable, Equatable {
     public var averageScore: Double?
+    public var displayName: String?
     public var email: String?
     public var hasTodos: Bool?
     public var highestScore: Int?
     public var id: String?
     public var lowestScore: Int?
     public var name: String?
+    public var nameSize: UserNameSize?
     public var todoCount: Int?
     public var todos: [Todo]?
     public var topPriority: UserTopPriority?

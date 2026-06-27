@@ -1631,6 +1631,86 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "a zero-argument calculation decodes from real pipeline JSON into the generated model (issue #52)" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # `display_name` is a zero-argument :string calculation: expr(name <> " <" <>
+    # email <> ">"). It computes purely from this user's own attributes, so the
+    # asserted value is fully determined by the create below and can't be perturbed
+    # by other tests' rows in shared ETS (we still isolate by the unique name).
+    Ash.create!(
+      AshSwift.Test.User,
+      %{name: "CalcE2E Owner", email: "calc-e2e@example.com"},
+      domain: AshSwift.Test.Domain
+    )
+
+    # The calculation is selected by name in the same `fields` list as attributes —
+    # the existing `.scalar` path. Only zero-argument calcs are selectable this way;
+    # argument-bearing calcs (greeting/name_matches) are not emitted, so they can't
+    # be selected here. No special wire shape is needed for display_name.
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    params = %{
+      "action" => "list_users",
+      "fields" => ["id", "name", "displayName"]
+    }
+
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+    assert rpc_result["success"] == true
+    assert is_list(rpc_result["data"]) and rpc_result["data"] != []
+
+    json = Jason.encode!(rpc_result)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Proves a zero-argument calculation is wire-compatible: selected like any
+    // attribute via the `.scalar` path, it decodes into the generated User model
+    // with the correct Swift type (String?) and computed value (issue #52).
+    final class E2ECalculationTest: XCTestCase {
+        func testCalculationFieldDecodesIntoGeneratedModel() throws {
+            let json = #{inspect(json, binaries: :as_strings)}
+            let raw = Data(json.utf8)
+
+            struct ListEnvelope: Decodable {
+                let success: Bool
+                let data: [User]
+            }
+
+            let envelope = try JSONDecoder().decode(ListEnvelope.self, from: raw)
+            XCTAssertTrue(envelope.success)
+
+            // Isolate this test's user from any others ETS holds.
+            let owner = try XCTUnwrap(
+                envelope.data.first(where: { $0.name == "CalcE2E Owner" })
+            )
+
+            // display_name calculation → String, computed as name <> " <" <> email <> ">"
+            XCTAssertEqual(owner.displayName, "CalcE2E Owner <calc-e2e@example.com>")
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2ECalculationTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2ECalculationTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   # Builds a throwaway SPM package with both a library target (for the generated
   # client) and a test target (for the E2E XCTest), mirroring how a real consuming
   # app would depend on AshSwiftRuntime (ADR-0005).
