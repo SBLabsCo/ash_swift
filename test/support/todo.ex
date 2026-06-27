@@ -113,5 +113,30 @@ defmodule AshSwift.Test.Todo do
       constraints instance_of: __MODULE__
       run fn _input, _ctx -> {:ok, nil} end
     end
+
+    # Void return, no arguments — exercises the void no-input codegen path
+    # (VoidActionRequest<EmptyActionInput>, no input parameter). Issue #54 review P2.
+    action :ping_void do
+      run fn _input, _ctx -> :ok end
+    end
+
+    # Scalar return with a Swift-keyword-named argument (`default`) and a map-typed
+    # argument (`options`) — proves keyword escaping reaches generic-action inputs
+    # and the map argument maps to [String: AshJSON]. Issue #54 review (keyword +
+    # map-arg findings).
+    action :echo_config, :string do
+      argument :default, :string, allow_nil?: false
+      argument :options, :map, allow_nil?: true
+      run fn input, _ctx -> {:ok, input.arguments.default} end
+    end
+
+    # A list/array-typed argument carries `module: nil` in the manifest, so it maps
+    # to no Swift type. The whole action must be skipped (not emitted with a
+    # String-guessed field). Regression guard for the input skip path. Issue #54
+    # review P1.
+    action :broadcast do
+      argument :tags, {:array, :string}, allow_nil?: true
+      run fn _input, _ctx -> :ok end
+    end
   end
 end

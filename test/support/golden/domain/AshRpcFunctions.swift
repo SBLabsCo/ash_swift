@@ -27,6 +27,11 @@ public struct AshRpc: Sendable {
         return try await client.execute(GenericActionRequest(action: "echo", input: input))
     }
 
+    /// Calls the `echo_config` RPC action (generic action).
+    public func echoConfig(input: EchoConfigInput) async throws -> String {
+        return try await client.execute(GenericActionRequest(action: "echo_config", input: input))
+    }
+
     /// Calls the `find_todo` RPC action (get `Todo` record).
     public func findTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo? {
         return try await client.execute(GetOptionalRequest(action: "find_todo", input: ["id": id], fields: fields))
@@ -110,6 +115,11 @@ public struct AshRpc: Sendable {
     /// Calls the `ping` RPC action (generic action).
     public func ping() async throws -> String {
         return try await client.execute(GenericActionRequest<String, EmptyActionInput>(action: "ping"))
+    }
+
+    /// Calls the `ping_void` RPC action (generic action).
+    public func pingVoid() async throws {
+        try await client.execute(VoidActionRequest<EmptyActionInput>(action: "ping_void"))
     }
 
     /// Calls the `request_magic_link` RPC action (generic action).

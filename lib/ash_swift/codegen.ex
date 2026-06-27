@@ -425,66 +425,95 @@ defmodule AshSwift.Codegen do
          rpc_action,
          resource,
          formatter,
-         {actions_acc, structs_acc}
+         {actions_acc, structs_acc} = acc
        ) do
-    case generic_action_return(maction.returns) do
+    with gen_return when gen_return != :unsupported <- generic_action_return(maction.returns),
+         {:ok, inputs} <- collect_generic_action_inputs(maction, resource, formatter) do
+      input_struct_name = if inputs == [], do: nil, else: pascal_case(rpc_action.name) <> "Input"
+
+      action = %{
+        rpc_name: rpc_action.name,
+        action: rpc_action.action,
+        action_type: :action,
+        is_get?: false,
+        get_by_params: [],
+        get_by_location: nil,
+        not_found_error?: false,
+        input_struct_name: input_struct_name,
+        primary_key_params: [],
+        pagination_type: :none,
+        optional_pagination_type: :none,
+        sortable?: false,
+        filterable?: false,
+        generic_return: gen_return
+      }
+
+      new_struct =
+        if input_struct_name,
+          do: [%{struct_name: input_struct_name, fields: inputs}],
+          else: []
+
+      {[action | actions_acc], new_struct ++ structs_acc}
+    else
+      # A return that needs field selection / maps to no Swift type, or an argument
+      # of an unmappable type (e.g. a list/array arg) — skip the whole action with
+      # a warning rather than emit a wrong decode or a String-guessed input field.
       :unsupported ->
-        Logger.warning(
-          "AshSwift: generic action #{inspect(maction.name)} returns " <>
-            "#{inspect(maction.returns && maction.returns.kind)}, which needs field selection " <>
-            "or maps to no Swift type; skipping. Typed-record returns with field selection are " <>
-            "a follow-up to issue #54."
+        warn_skip_generic(
+          maction,
+          "returns #{inspect(maction.returns && maction.returns.kind)}, which needs field " <>
+            "selection or maps to no Swift type"
         )
 
-        {actions_acc, structs_acc}
+        acc
 
-      gen_return ->
-        inputs = collect_generic_action_inputs(maction, resource, formatter)
+      {:unsupported, arg_name} ->
+        warn_skip_generic(
+          maction,
+          "has argument #{inspect(arg_name)} of a type that maps to no Swift type"
+        )
 
-        input_struct_name =
-          if inputs == [], do: nil, else: pascal_case(rpc_action.name) <> "Input"
-
-        action = %{
-          rpc_name: rpc_action.name,
-          action: rpc_action.action,
-          action_type: :action,
-          is_get?: false,
-          get_by_params: [],
-          get_by_location: nil,
-          not_found_error?: false,
-          input_struct_name: input_struct_name,
-          primary_key_params: [],
-          pagination_type: :none,
-          optional_pagination_type: :none,
-          sortable?: false,
-          filterable?: false,
-          generic_return: gen_return
-        }
-
-        new_struct =
-          if input_struct_name,
-            do: [%{struct_name: input_struct_name, fields: inputs}],
-            else: []
-
-        {[action | actions_acc], new_struct ++ structs_acc}
+        acc
     end
+  end
+
+  defp warn_skip_generic(maction, reason) do
+    Logger.warning(
+      "AshSwift: generic action #{inspect(maction.name)} #{reason}; skipping. Typed-record " <>
+        "returns (field selection) are tracked in issue #56; other unmapped shapes are out of " <>
+        "scope for the generic-action slice (#54)."
+    )
   end
 
   # Maps a generic action's arguments to input-struct fields. Unlike create/update
   # inputs (resolved against resource attributes), a generic action's inputs are
-  # action arguments carrying their own manifest type, so the Swift type comes
-  # straight from `input.type.module` and optionality from `input.required?` (the
-  # presence flag the Argument moduledoc points consumers at).
+  # action arguments carrying their own manifest type, so the Swift type comes from
+  # generic_swift_type/1 and optionality from `input.required?` (the presence flag
+  # the Argument moduledoc points consumers at). If ANY argument has an unmappable
+  # type (module: nil array, struct, …), the whole action is unsupported —
+  # returning {:unsupported, name} so the caller skips it, symmetric with the
+  # return-type gate. Otherwise returns {:ok, fields} sorted by name.
   defp collect_generic_action_inputs(maction, resource, formatter) do
     maction.inputs
-    |> Enum.map(fn input ->
-      %{
-        name: FieldFormatter.format_field_for_client(input.name, resource, formatter),
-        swift_type: ash_type_to_swift(input.type.module),
-        required?: input.required?
-      }
+    |> Enum.reduce_while({:ok, []}, fn input, {:ok, acc} ->
+      case generic_swift_type(input.type) do
+        {:ok, swift_type} ->
+          field = %{
+            name: FieldFormatter.format_field_for_client(input.name, resource, formatter),
+            swift_type: swift_type,
+            required?: input.required?
+          }
+
+          {:cont, {:ok, [field | acc]}}
+
+        :unsupported ->
+          {:halt, {:unsupported, input.name}}
+      end
     end)
-    |> Enum.sort_by(& &1.name)
+    |> case do
+      {:ok, fields} -> {:ok, Enum.sort_by(fields, & &1.name)}
+      unsupported -> unsupported
+    end
   end
 
   # Builds a resource's query-surface types (sortable-field enum, filter struct)
@@ -739,22 +768,34 @@ defmodule AshSwift.Codegen do
                            boolean date utc_datetime utc_datetime_usec
                            naive_datetime)a
 
-  # Classifies a generic action's return into what the codegen can emit. Like a
-  # derived field's type (see emit_derived_fields), the return is *computed*, so
-  # this gates on `kind` and skips anything uncertain rather than String-guessing:
-  #   nil           -> :void (a side-effecting action)
-  #   map           -> {:typed, "[String: AshJSON]"}
-  #   mapped scalar -> {:typed, swift_type} (reuses @derived_scalar_kinds)
-  #   anything else -> :unsupported (resource/struct/array/union/enum/…)
-  # Resource/struct returns additionally need field selection (Tier C), deferred (#54).
-  defp generic_action_return(nil), do: :void
-  defp generic_action_return(%{kind: :map}), do: {:typed, "[String: AshJSON]"}
+  # The Swift type for a generic action's argument or scalar/map return — the
+  # shared classifier behind both generic_action_return/1 and the input collector.
+  # These types are *computed* (a return) or carry no module (a list/array argument
+  # is `kind: :array, module: nil`), so — exactly like emit_derived_fields — this
+  # gates on kind/module and refuses to String-guess: a map maps to AshJSON, a
+  # mapped scalar to its Swift type, and anything else (array/tuple/union/struct/
+  # enum/resource) is :unsupported. `ash_type_to_swift` would silently return
+  # "String" for a nil module, which is the mis-type this gate exists to prevent.
+  defp generic_swift_type(%{kind: :map}), do: {:ok, "[String: AshJSON]"}
 
-  defp generic_action_return(%{kind: kind, module: module})
+  defp generic_swift_type(%{kind: kind, module: module})
        when kind in @derived_scalar_kinds and not is_nil(module),
-       do: {:typed, ash_type_to_swift(module)}
+       do: {:ok, ash_type_to_swift(module)}
 
-  defp generic_action_return(_), do: :unsupported
+  defp generic_swift_type(_), do: :unsupported
+
+  # Classifies a generic action's return: nil -> :void (a side-effecting action);
+  # otherwise through generic_swift_type/1 (scalar/map -> {:typed, t}; anything
+  # needing field selection or otherwise unmapped -> :unsupported). Resource/struct
+  # returns are Tier C — they need field selection and are tracked in issue #56.
+  defp generic_action_return(nil), do: :void
+
+  defp generic_action_return(type) do
+    case generic_swift_type(type) do
+      {:ok, swift_type} -> {:typed, swift_type}
+      :unsupported -> :unsupported
+    end
+  end
 
   # Public aggregates as Optional model fields. The manifest already excludes
   # private aggregates, so this is public-only by construction. Emission rules are

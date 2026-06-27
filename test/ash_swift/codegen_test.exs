@@ -885,6 +885,53 @@ defmodule AshSwift.CodegenTest do
 
       refute files["AshRpcFunctions.swift"] =~ "func summarize"
     end
+
+    test "a void no-argument action emits VoidActionRequest<EmptyActionInput> and no input param",
+         %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      # The {:void, nil} branch: no `input:` to anchor the input generic, so it is
+      # pinned explicitly to EmptyActionInput and the function takes no parameters.
+      assert functions =~ "public func pingVoid() async throws {"
+
+      assert functions =~
+               ~s[try await client.execute(VoidActionRequest<EmptyActionInput>(action: "ping_void"))]
+
+      refute files["AshRpcTypes.swift"] =~ "PingVoidInput"
+    end
+
+    test "a Swift-keyword-named argument is backtick-escaped in the input struct", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      # `default` is a Swift keyword; generic-action arguments share render_input_struct,
+      # so the escaping must reach them (lessons.md: escape every identifier emitter).
+      assert types =~ "public struct EchoConfigInput: Encodable, Sendable {"
+      assert types =~ "public var `default`: String"
+      assert types =~ "try container.encode(`default`, forKey: .`default`)"
+    end
+
+    test "a map-typed argument maps to [String: AshJSON]", %{files: files} do
+      # Ash.Type.Map has a populated module, so a map argument resolves through
+      # generic_swift_type to the JSON dict (not skipped like a module-less array).
+      assert files["AshRpcTypes.swift"] =~ "public var options: [String: AshJSON]?"
+    end
+
+    test "an action with an unmappable (array) argument is skipped with a warning", %{
+      files: files
+    } do
+      # `broadcast` takes a `{:array, :string}` argument — `kind: :array, module: nil`
+      # in the manifest. ash_type_to_swift would String-guess it; the input gate must
+      # instead skip the whole action (symmetric with the return-type gate), so it is
+      # not emitted as a function with a wrong-typed input field.
+      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
+
+      assert log =~ "generic action :broadcast"
+      assert log =~ "argument :tags"
+      assert log =~ "skipping"
+
+      refute files["AshRpcFunctions.swift"] =~ "func broadcast"
+      refute files["AshRpcTypes.swift"] =~ "BroadcastInput"
+    end
   end
 
   describe "2-hop relationship guard" do

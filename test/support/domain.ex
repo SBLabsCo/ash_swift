@@ -29,6 +29,9 @@ defmodule AshSwift.Test.Domain do
       rpc_action(:ping, :ping)
       rpc_action(:stats, :stats)
       rpc_action(:summarize, :summarize)
+      rpc_action(:ping_void, :ping_void)
+      rpc_action(:echo_config, :echo_config)
+      rpc_action(:broadcast, :broadcast)
     end
 
     resource AshSwift.Test.User do

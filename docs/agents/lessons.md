@@ -156,14 +156,22 @@ manifest exposes as `Argument` structs carrying their own `type` (a manifest
 create/update input path (`collect_action_inputs`, which resolves each input
 against `manifest_attributes` and **drops anything that isn't a public attribute
 with a warning**) silently produces an empty input struct for them. Generic
-actions need their own collector that maps each argument straight from
-`input.type.module` (through `ash_type_to_swift`) with optionality from
-`input.required?` (the presence flag the `Argument` moduledoc points consumers
-at). See `collect_generic_action_inputs` in `codegen.ex` (issue #54). A generic
-action's **return** is computed, so gate it like derived fields: nil → void,
-scalar/`map` → typed, anything else (resource/struct/array/union/enum) → skip
-with a warning, never a String guess (`generic_action_return`, reusing
-`@derived_scalar_kinds`).
+actions need their own collector that maps each argument from its own manifest
+type with optionality from `input.required?` (the presence flag the `Argument`
+moduledoc points consumers at). See `collect_generic_action_inputs` in
+`codegen.ex` (issue #54). **Gate the argument type the same way as a computed
+return — do NOT just `ash_type_to_swift(input.type.module)`.** Unlike a resolved
+resource attribute (always a concrete module, where a String fallback is
+harmless), an *argument*'s type can be a module-less container: a `{:array, _}`
+arg is `kind: :array, module: nil`, and `ash_type_to_swift(nil)` silently returns
+`"String"` — a compilable but wrong input field. Route both the argument types
+and the return through one `generic_swift_type/1` classifier (handles `:map`,
+gates scalars on `@derived_scalar_kinds and not is_nil(module)`, else
+`:unsupported`) and **skip the whole action** when any argument is unsupported,
+symmetric with the return gate. The fixture `AshSwift.Test.Todo.broadcast`
+(a `{:array, :string}` arg) is the regression guard that the skip fires. Caught
+by the PR #57 review (issue #54) — the bug was real: the first pass String-guessed
+module-less args.
 
 ### Generic-action wire shapes (probed): input key, no `fields`, void returns `{}`
 

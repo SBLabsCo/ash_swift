@@ -389,6 +389,7 @@ public struct VoidActionRequest<I: Encodable & Sendable>: RpcRequest {
     }
 
     public func decode(from data: Data, using decoder: JSONDecoder) throws {
-        // Success is already validated by `execute`; a void action returns no data.
+        // Success is already validated by `execute`; the void action's empty `data`
+        // envelope ({"data": {}}) carries no record to decode.
     }
 }

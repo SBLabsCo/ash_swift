@@ -111,6 +111,27 @@ public struct CreateTodoInput: Encodable, Sendable {
     }
 }
 
+public struct EchoConfigInput: Encodable, Sendable {
+    public var `default`: String
+    public var options: [String: AshJSON]?
+
+    public init(`default`: String, options: [String: AshJSON]? = nil) {
+        self.`default` = `default`
+        self.options = options
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(`default`, forKey: .`default`)
+        try container.encodeIfPresent(options, forKey: .options)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case `default`
+        case options
+    }
+}
+
 public struct EchoInput: Encodable, Sendable {
     public var loud: Bool?
     public var message: String
