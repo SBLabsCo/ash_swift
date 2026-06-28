@@ -13,7 +13,7 @@ public struct AshRpc: Sendable {
     }
 
     /// Calls the `create_todo` RPC action (create `Todo` record).
-    public func createTodo(input: CreateTodoInput, fields: [FieldSelection] = []) async throws -> Todo {
+    public func createTodo(input: CreateTodoInput, fields: [FieldSelection]) async throws -> Todo {
         return try await client.execute(CreateRequest(action: "create_todo", input: input, fields: fields))
     }
 
@@ -33,82 +33,82 @@ public struct AshRpc: Sendable {
     }
 
     /// Calls the `find_todo` RPC action (get `Todo` record).
-    public func findTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo? {
+    public func findTodo(id: String, fields: [FieldSelection]) async throws -> Todo? {
         return try await client.execute(GetOptionalRequest(action: "find_todo", input: ["id": id], fields: fields))
     }
 
     /// Calls the `find_todo_by_title` RPC action (get `Todo` record).
-    public func findTodoByTitle(title: String, fields: [FieldSelection] = []) async throws -> Todo {
+    public func findTodoByTitle(title: String, fields: [FieldSelection]) async throws -> Todo {
         return try await client.execute(GetRequest(action: "find_todo_by_title", getBy: ["title": title], fields: fields))
     }
 
     /// Calls the `get_todo` RPC action (get `Todo` record).
-    public func getTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo {
+    public func getTodo(id: String, fields: [FieldSelection]) async throws -> Todo {
         return try await client.execute(GetRequest(action: "get_todo", input: ["id": id], fields: fields))
     }
 
     /// Calls the `get_todo_by_score` RPC action (get `Todo` record).
-    public func getTodoByScore(score: String, fields: [FieldSelection] = []) async throws -> Todo {
+    public func getTodoByScore(score: String, fields: [FieldSelection]) async throws -> Todo {
         return try await client.execute(GetRequest(action: "get_todo_by_score", input: ["score": score], fields: fields))
     }
 
     /// Calls the `init` RPC action (list `Todo` records).
-    public func `init`(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {
+    public func `init`(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {
         return try await client.execute(ListRequest(action: "init", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `init` RPC action (offset-paginated list of `Todo` records).
-    public func `init`(page: OffsetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {
+    public func `init`(page: OffsetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {
         return try await client.execute(OffsetPageRequest(action: "init", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `list_todos` RPC action (list `Todo` records).
-    public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {
+    public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {
         return try await client.execute(ListRequest(action: "list_todos", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `list_todos` RPC action (offset-paginated list of `Todo` records).
-    public func listTodos(page: OffsetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {
+    public func listTodos(page: OffsetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {
         return try await client.execute(OffsetPageRequest(action: "list_todos", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `list_todos_keyset` RPC action (keyset-paginated list of `Todo` records).
-    public func listTodosKeyset(page: KeysetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {
+    public func listTodosKeyset(page: KeysetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> KeysetPage<Todo> {
         return try await client.execute(KeysetPageRequest(action: "list_todos_keyset", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `list_todos_keyset_optional` RPC action (list `Todo` records).
-    public func listTodosKeysetOptional(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {
+    public func listTodosKeysetOptional(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {
         return try await client.execute(ListRequest(action: "list_todos_keyset_optional", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `list_todos_keyset_optional` RPC action (keyset-paginated list of `Todo` records).
-    public func listTodosKeysetOptional(page: KeysetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {
+    public func listTodosKeysetOptional(page: KeysetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> KeysetPage<Todo> {
         return try await client.execute(KeysetPageRequest(action: "list_todos_keyset_optional", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `list_todos_no_filter` RPC action (list `Todo` records).
-    public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {
+    public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {
         return try await client.execute(ListRequest(action: "list_todos_no_filter", sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `list_todos_no_filter` RPC action (offset-paginated list of `Todo` records).
-    public func listTodosNoFilter(page: OffsetPageParams, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {
+    public func listTodosNoFilter(page: OffsetPageParams, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {
         return try await client.execute(OffsetPageRequest(action: "list_todos_no_filter", page: page, sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `list_todos_no_sort` RPC action (list `Todo` records).
-    public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection] = []) async throws -> [Todo] {
+    public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection]) async throws -> [Todo] {
         return try await client.execute(ListRequest(action: "list_todos_no_sort", filter: filter.map { AnyEncodable($0) }, fields: fields))
     }
 
     /// Calls the `list_todos_no_sort` RPC action (offset-paginated list of `Todo` records).
-    public func listTodosNoSort(page: OffsetPageParams, filter: TodoFilter? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {
+    public func listTodosNoSort(page: OffsetPageParams, filter: TodoFilter? = nil, fields: [FieldSelection]) async throws -> OffsetPage<Todo> {
         return try await client.execute(OffsetPageRequest(action: "list_todos_no_sort", page: page, filter: filter.map { AnyEncodable($0) }, fields: fields))
     }
 
     /// Calls the `list_todos_offset` RPC action (offset-paginated list of `Todo` records).
-    public func listTodosOffset(page: OffsetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {
+    public func listTodosOffset(page: OffsetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {
         return try await client.execute(OffsetPageRequest(action: "list_todos_offset", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 
@@ -133,22 +133,22 @@ public struct AshRpc: Sendable {
     }
 
     /// Calls the `update_todo` RPC action (update `Todo` record).
-    public func updateTodo(id: String, input: UpdateTodoInput, fields: [FieldSelection] = []) async throws -> Todo {
+    public func updateTodo(id: String, input: UpdateTodoInput, fields: [FieldSelection]) async throws -> Todo {
         return try await client.execute(UpdateRequest(action: "update_todo", identity: id, input: input, fields: fields))
     }
 
     /// Calls the `create_user` RPC action (create `User` record).
-    public func createUser(input: CreateUserInput, fields: [FieldSelection] = []) async throws -> User {
+    public func createUser(input: CreateUserInput, fields: [FieldSelection]) async throws -> User {
         return try await client.execute(CreateRequest(action: "create_user", input: input, fields: fields))
     }
 
     /// Calls the `list_users` RPC action (list `User` records).
-    public func listUsers(filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> [User] {
+    public func listUsers(filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection]) async throws -> [User] {
         return try await client.execute(ListRequest(action: "list_users", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 
     /// Calls the `list_users` RPC action (offset-paginated list of `User` records).
-    public func listUsers(page: OffsetPageParams, filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<User> {
+    public func listUsers(page: OffsetPageParams, filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<User> {
         return try await client.execute(OffsetPageRequest(action: "list_users", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))
     }
 }

@@ -208,10 +208,10 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
 
       assert functions =~
-               "public func listUsers(filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> [User] {"
+               "public func listUsers(filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection]) async throws -> [User] {"
     end
 
     test "offset-paginated read action returns OffsetPage<T> via OffsetPageRequest", %{
@@ -220,7 +220,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosOffset(page: OffsetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+               "public func listTodosOffset(page: OffsetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {"
 
       assert functions =~ ~s[client.execute(OffsetPageRequest(action: "list_todos_offset",]
     end
@@ -231,7 +231,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosKeyset(page: KeysetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
+               "public func listTodosKeyset(page: KeysetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> KeysetPage<Todo> {"
 
       assert functions =~ ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset",]
     end
@@ -240,17 +240,17 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func createTodo(input: CreateTodoInput, fields: [FieldSelection] = []) async throws -> Todo {"
+               "public func createTodo(input: CreateTodoInput, fields: [FieldSelection]) async throws -> Todo {"
 
       assert functions =~
-               "public func createUser(input: CreateUserInput, fields: [FieldSelection] = []) async throws -> User {"
+               "public func createUser(input: CreateUserInput, fields: [FieldSelection]) async throws -> User {"
     end
 
     test "update action emits primary-key param + typed input + return", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func updateTodo(id: String, input: UpdateTodoInput, fields: [FieldSelection] = []) async throws -> Todo {"
+               "public func updateTodo(id: String, input: UpdateTodoInput, fields: [FieldSelection]) async throws -> Todo {"
     end
 
     test "destroy action emits primary-key param and void return", %{files: files} do
@@ -322,14 +322,14 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func getTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo {"
+               "public func getTodo(id: String, fields: [FieldSelection]) async throws -> Todo {"
     end
 
     test "get action with not_found_error? false emits a typed optional return", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func findTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo? {"
+               "public func findTodo(id: String, fields: [FieldSelection]) async throws -> Todo? {"
     end
 
     test "non-String get_by field (integer) is always emitted as String parameter type", %{
@@ -340,14 +340,14 @@ defmodule AshSwift.CodegenTest do
       # score is Ash.Type.Integer; ash_type_to_swift would emit "Int", but
       # lookup params travel in [String: String] dicts so must always be String.
       assert functions =~
-               "public func getTodoByScore(score: String, fields: [FieldSelection] = []) async throws -> Todo {"
+               "public func getTodoByScore(score: String, fields: [FieldSelection]) async throws -> Todo {"
     end
 
     test "rpc_action get_by emits getBy: argument in the generated call", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func findTodoByTitle(title: String, fields: [FieldSelection] = []) async throws -> Todo {"
+               "public func findTodoByTitle(title: String, fields: [FieldSelection]) async throws -> Todo {"
 
       assert functions =~ ~s(getBy: ["title": title])
     end
@@ -467,7 +467,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
 
       assert functions =~
                ~s[client.execute(ListRequest(action: "list_todos", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
@@ -477,7 +477,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosOffset(page: OffsetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+               "public func listTodosOffset(page: OffsetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {"
 
       assert functions =~
                ~s[client.execute(OffsetPageRequest(action: "list_todos_offset", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
@@ -487,7 +487,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosKeyset(page: KeysetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
+               "public func listTodosKeyset(page: KeysetPageParams? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> KeysetPage<Todo> {"
 
       assert functions =~
                ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
@@ -498,7 +498,7 @@ defmodule AshSwift.CodegenTest do
 
       # Filtering stays on for this action, so it keeps a filter: parameter but no sort:.
       assert functions =~
-               "public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection]) async throws -> [Todo] {"
 
       refute functions =~ "public func listTodosNoSort(filter: TodoFilter? = nil, sort:"
 
@@ -510,7 +510,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func getTodo(id: String, fields: [FieldSelection] = []) async throws -> Todo {"
+               "public func getTodo(id: String, fields: [FieldSelection]) async throws -> Todo {"
 
       refute functions =~ "public func getTodo(id: String, sort:"
     end
@@ -587,7 +587,7 @@ defmodule AshSwift.CodegenTest do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
 
       assert functions =~
                ~s[client.execute(ListRequest(action: "list_todos", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
@@ -598,7 +598,7 @@ defmodule AshSwift.CodegenTest do
 
       # Sorting stays on for this action, so it keeps sort: but drops filter:.
       assert functions =~
-               "public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
 
       refute functions =~ "public func listTodosNoFilter(filter:"
 
@@ -642,7 +642,7 @@ defmodule AshSwift.CodegenTest do
       # The read function still threads the filter type — the parameter is
       # generated from the action's enable_filter?, not from whether fields exist.
       assert files["AshRpcFunctions.swift"] =~
-               "public func listMapOnlys(filter: MapOnlyFilter? = nil, fields: [FieldSelection] = [])"
+               "public func listMapOnlys(filter: MapOnlyFilter? = nil, fields: [FieldSelection])"
     end
   end
 
@@ -665,7 +665,7 @@ defmodule AshSwift.CodegenTest do
       # `enable_sort?: false` does. MapOnly never sorts, so no function in this
       # domain references a sort parameter at all.
       assert functions =~
-               "public func listMapOnlysSortable(filter: MapOnlyFilter? = nil, fields: [FieldSelection] = [])"
+               "public func listMapOnlysSortable(filter: MapOnlyFilter? = nil, fields: [FieldSelection])"
 
       refute functions =~ "sort:"
     end
@@ -723,7 +723,7 @@ defmodule AshSwift.CodegenTest do
       # The M1 bare-list function is byte-identical — omitting page preserves it,
       # so existing `[Todo]` call sites do not regress.
       assert functions =~
-               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
     end
 
     test "a list read with optional offset pagination gains a paginated overload", %{
@@ -734,7 +734,7 @@ defmodule AshSwift.CodegenTest do
       # The overload's `page` is REQUIRED (no `= nil`), which is what makes Swift
       # resolve `listTodos(page:)` here and bare `listTodos()` to the [Todo] form.
       assert functions =~
-               "public func listTodos(page: OffsetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+               "public func listTodos(page: OffsetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {"
 
       # Filter + sort + page all compose on the single paginated call.
       assert functions =~
@@ -746,10 +746,10 @@ defmodule AshSwift.CodegenTest do
 
       # list_users is a plain default read too: it gets the same bare + paginated pair.
       assert functions =~
-               "public func listUsers(filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> [User] {"
+               "public func listUsers(filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection]) async throws -> [User] {"
 
       assert functions =~
-               "public func listUsers(page: OffsetPageParams, filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<User> {"
+               "public func listUsers(page: OffsetPageParams, filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<User> {"
     end
 
     test "an optional-pagination read with sort/filter disabled omits those params on both overloads",
@@ -758,24 +758,24 @@ defmodule AshSwift.CodegenTest do
 
       # enable_sort?: false ⇒ no sort: on either overload; filter still present.
       assert functions =~
-               "public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection]) async throws -> [Todo] {"
 
       assert functions =~
-               "public func listTodosNoSort(page: OffsetPageParams, filter: TodoFilter? = nil, fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+               "public func listTodosNoSort(page: OffsetPageParams, filter: TodoFilter? = nil, fields: [FieldSelection]) async throws -> OffsetPage<Todo> {"
 
       # enable_filter?: false ⇒ no filter: on either overload; sort still present.
       assert functions =~
-               "public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> [Todo] {"
+               "public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
 
       assert functions =~
-               "public func listTodosNoFilter(page: OffsetPageParams, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> OffsetPage<Todo> {"
+               "public func listTodosNoFilter(page: OffsetPageParams, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {"
     end
 
     test "an action supporting only keyset gets a keyset overload, not offset", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 
       assert functions =~
-               "public func listTodosKeysetOptional(page: KeysetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection] = []) async throws -> KeysetPage<Todo> {"
+               "public func listTodosKeysetOptional(page: KeysetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> KeysetPage<Todo> {"
 
       assert functions =~
                ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset_optional", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]

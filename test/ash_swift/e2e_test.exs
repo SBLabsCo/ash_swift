@@ -558,7 +558,7 @@ defmodule AshSwift.E2ETest do
             )
             let rpc = AshRpc(client: AshRpcClient(config: config, transport: stub))
 
-            let _: [Todo] = try await rpc.listTodos()
+            let _: [Todo] = try await rpc.listTodos(fields: ["id"])
 
             let request = try XCTUnwrap(captured.value)
             XCTAssertEqual(
@@ -585,7 +585,7 @@ defmodule AshSwift.E2ETest do
             let rpc = AshRpc(client: AshRpcClient(config: config, transport: stub))
 
             do {
-                let _: [Todo] = try await rpc.listTodos()
+                let _: [Todo] = try await rpc.listTodos(fields: ["id"])
                 XCTFail("expected AshRpcError.server to be thrown")
             } catch let AshRpcError.server(errors) {
                 XCTAssertEqual(errors.first?.type, "unauthorized")

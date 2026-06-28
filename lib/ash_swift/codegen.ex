@@ -1566,8 +1566,12 @@ defmodule AshSwift.Codegen do
     }
   end
 
-  # The `fields:` parameter every selectable action carries.
-  defp fields_param, do: %{name: "fields", type: "[FieldSelection]", default: "[]"}
+  # The `fields:` parameter every selectable action carries. Required (no default):
+  # the RPC backend rejects an empty fields array (`empty_fields_array`), so a
+  # `= []` default would compile into a call that always fails at runtime. Omitting
+  # the default makes a fields-less call a compile error instead — matching
+  # AshTypescript's deliberate "no select-all" field-selection design. See issue #59.
+  defp fields_param, do: %{name: "fields", type: "[FieldSelection]", default: nil}
 
   # The optional typed `sort:` parameter and its request argument, threaded into
   # a read function when sorting is enabled. Returns `{params, request_args}` so

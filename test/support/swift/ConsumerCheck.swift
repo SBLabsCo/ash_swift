@@ -20,16 +20,16 @@ enum ConsumerCheck {
     }
 
     // The generated `AshRpc` entry point exposes an async function per RPC
-    // action. List actions accept a field selection list and return typed arrays;
-    // other action types keep the simple void signature for M1.
+    // action. List actions take a required field selection list and return typed
+    // arrays; other action types keep the simple void signature for M1.
     static func callActions() async throws {
         let rpc = AshRpc(client: makeClient())
 
-        // List actions return a typed array; field selection is optional.
-        let todos: [Todo] = try await rpc.listTodos()
+        // List actions return a typed array; `fields` is required (issue #59):
+        // the backend rejects an empty selection, so codegen omits the `= []`
+        // default and a fields-less call is a compile error, not a runtime failure.
+        let todos: [Todo] = try await rpc.listTodos(fields: ["id", "title"])
         let _ = todos
-        let selected: [Todo] = try await rpc.listTodos(fields: ["id", "title"])
-        let _ = selected
 
         // Nested relationship field selection: select fields on a related resource
         // in a single call. The todo.user property decodes from the inline JSON.
@@ -55,7 +55,8 @@ enum ConsumerCheck {
         // Sort composes with pagination on the paginated read variants.
         let pagedSorted: OffsetPage<Todo> = try await rpc.listTodosOffset(
             page: OffsetPageParams(limit: 20),
-            sort: [SortField(.completed), SortField(.title, .descendingNilsLast)]
+            sort: [SortField(.completed), SortField(.title, .descendingNilsLast)],
+            fields: ["id", "title"]
         )
         let _ = pagedSorted
 
@@ -65,7 +66,7 @@ enum ConsumerCheck {
         // resolves to the paginated overload returning `OffsetPage<Todo>`. The
         // return type is static at each call site — no `[Todo] | OffsetPage<Todo>`
         // union ever surfaces. filter + sort + page all compose on the overload.
-        let optionalBare: [Todo] = try await rpc.listTodos()
+        let optionalBare: [Todo] = try await rpc.listTodos(fields: ["id", "title"])
         let _ = optionalBare
         let optionalPaged: OffsetPage<Todo> = try await rpc.listTodos(
             page: OffsetPageParams(limit: 10, offset: 0),
@@ -86,26 +87,32 @@ enum ConsumerCheck {
 
         // enable_sort?: false on this action drops the sort: parameter entirely,
         // so it isn't even offered here — calling it with one would not compile.
-        let unsorted: [Todo] = try await rpc.listTodosNoSort()
+        let unsorted: [Todo] = try await rpc.listTodosNoSort(fields: ["id", "title"])
         let _ = unsorted
 
         // Get actions return a typed single record; id is the lookup key.
-        let todo: Todo = try await rpc.getTodo(id: "some-uuid")
+        let todo: Todo = try await rpc.getTodo(id: "some-uuid", fields: ["id", "title"])
         let _ = todo
         // findTodo uses not_found_error? false, so the return type is optional.
-        let found: Todo? = try await rpc.findTodo(id: "some-uuid")
+        let found: Todo? = try await rpc.findTodo(id: "some-uuid", fields: ["id", "title"])
         let _ = found
 
-        let newTodo: Todo = try await rpc.createTodo(input: CreateTodoInput(title: "New Todo"))
+        // create/update also select the fields to return on the created/updated record.
+        let newTodo: Todo = try await rpc.createTodo(
+            input: CreateTodoInput(title: "New Todo"), fields: ["id", "title"]
+        )
         let _ = newTodo
-        let updatedTodo: Todo = try await rpc.updateTodo(id: "some-uuid", input: UpdateTodoInput(title: "Updated"))
+        let updatedTodo: Todo = try await rpc.updateTodo(
+            id: "some-uuid", input: UpdateTodoInput(title: "Updated"), fields: ["id", "title"]
+        )
         let _ = updatedTodo
         try await rpc.destroyTodo(id: "some-uuid")
 
-        let users: [User] = try await rpc.listUsers()
+        let users: [User] = try await rpc.listUsers(fields: ["id", "email"])
         let _ = users
         let newUser: User = try await rpc.createUser(
-            input: CreateUserInput(email: "test@example.com", name: "Test User")
+            input: CreateUserInput(email: "test@example.com", name: "Test User"),
+            fields: ["id", "email"]
         )
         let _ = newUser
     }
