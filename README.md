@@ -221,7 +221,9 @@ let config = AshRpcConfig(
 )
 let rpc = AshRpc(client: AshRpcClient(config: config))
 
-// A list/read action returns typed results; select only the fields a screen needs.
+// A list/read action returns typed results; `fields` is required — select only the
+// fields a screen needs. (There is no "select all": the backend rejects an empty
+// selection, so omitting `fields` is a compile error, not a runtime failure.)
 let todos: [Todo] = try await rpc.listTodos(fields: ["id", "title", "completed"])
 
 for todo in todos {
