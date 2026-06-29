@@ -12,6 +12,7 @@ defmodule AshSwift.Codegen do
 
   alias Ash.Info.Manifest
   alias Ash.Info.Manifest.Resource, as: ManifestResource
+  alias AshSwift.Codegen.TypeMap
   alias AshTypescript.FieldFormatter
   alias AshTypescript.Resource.Info, as: ResourceInfo
   alias AshTypescript.Rpc.Info, as: RpcInfo
@@ -488,7 +489,7 @@ defmodule AshSwift.Codegen do
   # Maps a generic action's arguments to input-struct fields. Unlike create/update
   # inputs (resolved against resource attributes), a generic action's inputs are
   # action arguments carrying their own manifest type, so the Swift type comes from
-  # generic_swift_type/1 and optionality from `input.required?` (the presence flag
+  # TypeMap.generic_swift_type/1 and optionality from `input.required?` (the presence flag
   # the Argument moduledoc points consumers at). If ANY argument has an unmappable
   # type (module: nil array, struct, …), the whole action is unsupported —
   # returning {:unsupported, name} so the caller skips it, symmetric with the
@@ -496,7 +497,7 @@ defmodule AshSwift.Codegen do
   defp collect_generic_action_inputs(maction, resource, formatter) do
     maction.inputs
     |> Enum.reduce_while({:ok, []}, fn input, {:ok, acc} ->
-      case generic_swift_type(input.type) do
+      case TypeMap.generic_swift_type(input.type) do
         {:ok, swift_type} ->
           field = %{
             name: FieldFormatter.format_field_for_client(input.name, resource, formatter),
@@ -587,9 +588,9 @@ defmodule AshSwift.Codegen do
   # emitting them as typed sort fields would be a runtime footgun with no valid
   # use. Relationship/aggregate/calculation sorting stays out of scope for M2.
   defp sortable_attribute?(attr) do
-    case extract_enum_cases(attr) do
+    case TypeMap.extract_enum_cases(attr) do
       {:ok, _} -> true
-      :not_enum -> MapSet.member?(@sortable_swift_types, ash_type_to_swift(attr.ash_type))
+      :not_enum -> MapSet.member?(@sortable_swift_types, TypeMap.ash_type_to_swift(attr.ash_type))
     end
   end
 
@@ -632,16 +633,19 @@ defmodule AshSwift.Codegen do
   # mapped Swift type (enums use their generated Swift enum). A nullable attribute
   # selects the `Nullable*` variant, which adds the `isNil` operator.
   #
-  # The single `extract_enum_cases/1` call decides both axes: enums share the
+  # The single `TypeMap.extract_enum_cases/1` call decides both axes: enums share the
   # equality+membership group (eq/notEq/in) and filter over their generated Swift
   # enum; everything else takes its group and value type from the Ash scalar type.
   defp filter_field(attr, resource, type_name, formatter) do
     name = FieldFormatter.format_field_for_client(attr.name, resource, formatter)
 
     {group, value_type} =
-      case extract_enum_cases(attr) do
-        {:ok, _} -> {:enum, enum_type_name(type_name, name)}
-        :not_enum -> {scalar_filter_group(attr.ash_type), ash_type_to_swift(attr.ash_type)}
+      case TypeMap.extract_enum_cases(attr) do
+        {:ok, _} ->
+          {:enum, enum_type_name(type_name, name)}
+
+        :not_enum ->
+          {TypeMap.scalar_filter_group(attr.ash_type), TypeMap.ash_type_to_swift(attr.ash_type)}
       end
 
     case group do
@@ -649,48 +653,10 @@ defmodule AshSwift.Codegen do
         nil
 
       _ ->
-        generic = operator_generic_name(group, attr.allow_nil?)
+        generic = TypeMap.operator_generic_name(group, attr.allow_nil?)
         %{name: name, swift_type: "#{generic}<#{value_type}>"}
     end
   end
-
-  # Classifies a (non-enum) Ash scalar type into its filter operator group:
-  # numeric and date/datetime types get the comparison operators; boolean gets
-  # equality only; string/atom/uuid and any unmapped scalar share the
-  # equality+membership group; Ash.Type.Map is excluded (see collect_filter_fields).
-  #
-  # NOTE: this is keyed on the Ash type, deliberately distinct from sorting's
-  # `@sortable_swift_types` (keyed on the mapped Swift type) — they answer
-  # different questions. When you add a new scalar to `ash_type_to_swift/1`, decide
-  # its operator group HERE as well, or it falls through to the :enum default.
-  defp scalar_filter_group(type)
-       when type in [
-              Ash.Type.Integer,
-              Ash.Type.Float,
-              Ash.Type.Decimal,
-              Ash.Type.Date,
-              Ash.Type.UtcDatetime,
-              Ash.Type.UtcDatetimeUsec,
-              Ash.Type.NaiveDatetime
-            ],
-       do: :comparable
-
-  defp scalar_filter_group(Ash.Type.Boolean), do: :equatable
-  defp scalar_filter_group(Ash.Type.Map), do: :exclude
-  # String, CiString, UUID, unconstrained Atom, and any unmapped scalar fall to
-  # the equality+membership group — matching AshTypescript's `default` filter
-  # classification (eq/notEq/in over the mapped Swift type, which is String).
-  defp scalar_filter_group(_type), do: :enum
-
-  # Maps an (operator group, nullable?) pair to its AshSwiftRuntime generic. The
-  # Nullable* variants add the `isNil` operator; the bare variants omit it, so a
-  # non-null attribute exposes exactly its type-driven operator set and nothing more.
-  defp operator_generic_name(:equatable, false), do: "EquatableOperators"
-  defp operator_generic_name(:equatable, true), do: "NullableEquatableOperators"
-  defp operator_generic_name(:enum, false), do: "EnumOperators"
-  defp operator_generic_name(:enum, true), do: "NullableEnumOperators"
-  defp operator_generic_name(:comparable, false), do: "ComparableOperators"
-  defp operator_generic_name(:comparable, true), do: "NullableComparableOperators"
 
   # Returns a tuple {fields, enums} for the resource.
   #
@@ -711,7 +677,7 @@ defmodule AshSwift.Codegen do
       |> Enum.reduce({[], []}, fn attr, {fields_acc, enums_acc} ->
         formatted_name = FieldFormatter.format_field_for_client(attr.name, resource, formatter)
 
-        case extract_enum_cases(attr) do
+        case TypeMap.extract_enum_cases(attr) do
           {:ok, cases} ->
             en_name = enum_type_name(type_name, formatted_name)
             field = %{name: formatted_name, swift_type: en_name}
@@ -719,7 +685,7 @@ defmodule AshSwift.Codegen do
             {[field | fields_acc], [enum | enums_acc]}
 
           :not_enum ->
-            field = %{name: formatted_name, swift_type: ash_type_to_swift(attr.ash_type)}
+            field = %{name: formatted_name, swift_type: TypeMap.ash_type_to_swift(attr.ash_type)}
             {[field | fields_acc], enums_acc}
         end
       end)
@@ -757,41 +723,14 @@ defmodule AshSwift.Codegen do
     {fields, sorted_enums}
   end
 
-  # Manifest Type kinds whose resolved type maps to a concrete Swift scalar we can
-  # faithfully emit and decode. An aggregate (issue #51) or calculation resolving
-  # to anything else — an array from a `list` aggregate, a map/struct/union/
-  # resource — is dropped rather than String-fallbacked: a derived field's type is
-  # computed, not author-controlled, so a wrong guess silently mis-decodes whereas
-  # omission is safe. Enum-typed derived fields are handled before this gate (via
-  # manifest_enum_values), so :enum/:type_ref are intentionally absent here.
-  @derived_scalar_kinds ~w(string ci_string atom uuid integer float decimal
-                           boolean date utc_datetime utc_datetime_usec
-                           naive_datetime)a
-
-  # The Swift type for a generic action's argument or scalar/map return — the
-  # shared classifier behind both generic_action_return/1 and the input collector.
-  # These types are *computed* (a return) or carry no module (a list/array argument
-  # is `kind: :array, module: nil`), so — exactly like emit_derived_fields — this
-  # gates on kind/module and refuses to String-guess: a map maps to AshJSON, a
-  # mapped scalar to its Swift type, and anything else (array/tuple/union/struct/
-  # enum/resource) is :unsupported. `ash_type_to_swift` would silently return
-  # "String" for a nil module, which is the mis-type this gate exists to prevent.
-  defp generic_swift_type(%{kind: :map}), do: {:ok, "[String: AshJSON]"}
-
-  defp generic_swift_type(%{kind: kind, module: module})
-       when kind in @derived_scalar_kinds and not is_nil(module),
-       do: {:ok, ash_type_to_swift(module)}
-
-  defp generic_swift_type(_), do: :unsupported
-
   # Classifies a generic action's return: nil -> :void (a side-effecting action);
-  # otherwise through generic_swift_type/1 (scalar/map -> {:typed, t}; anything
-  # needing field selection or otherwise unmapped -> :unsupported). Resource/struct
-  # returns are Tier C — they need field selection and are tracked in issue #56.
+  # otherwise through TypeMap.generic_swift_type/1 (scalar/map -> {:typed, t};
+  # anything needing field selection or otherwise unmapped -> :unsupported).
+  # Resource/struct returns are Tier C — they need field selection (issue #56).
   defp generic_action_return(nil), do: :void
 
   defp generic_action_return(type) do
-    case generic_swift_type(type) do
+    case TypeMap.generic_swift_type(type) do
       {:ok, swift_type} -> {:typed, swift_type}
       :unsupported -> :unsupported
     end
@@ -837,8 +776,8 @@ defmodule AshSwift.Codegen do
   # Maps a list of derived (aggregate/calculation) manifest Fields to
   # {fields, enums} in the shape collect_fields/3 expects, mirroring its attribute
   # reduce: an enum-typed field produces a generated Swift enum plus a typed field;
-  # a scalar field maps through ash_type_to_swift; anything else is skipped (see
-  # @derived_scalar_kinds).
+  # a scalar field maps through TypeMap.ash_type_to_swift; anything else is skipped
+  # (see TypeMap.derived_scalar_kinds/0).
   defp emit_derived_fields(fields, type_name, resource, formatter, types) do
     Enum.reduce(fields, {[], []}, fn field, {fields_acc, enums_acc} ->
       formatted_name = FieldFormatter.format_field_for_client(field.name, resource, formatter)
@@ -851,11 +790,15 @@ defmodule AshSwift.Codegen do
 
         nil ->
           # Guard on a concrete module too: the gate's intent is skip-when-uncertain,
-          # and ash_type_to_swift/1 String-fallbacks an unknown/nil module — exactly
+          # and TypeMap.ash_type_to_swift/1 String-fallbacks an unknown/nil module — exactly
           # the silent mis-decode this gate exists to prevent. Ash populates module
           # for standard scalars, so this only excludes genuinely unresolvable types.
-          if field.type.kind in @derived_scalar_kinds and not is_nil(field.type.module) do
-            field_map = %{name: formatted_name, swift_type: ash_type_to_swift(field.type.module)}
+          if field.type.kind in TypeMap.derived_scalar_kinds() and not is_nil(field.type.module) do
+            field_map = %{
+              name: formatted_name,
+              swift_type: TypeMap.ash_type_to_swift(field.type.module)
+            }
+
             {[field_map | fields_acc], enums_acc}
           else
             {fields_acc, enums_acc}
@@ -946,61 +889,6 @@ defmodule AshSwift.Codegen do
 
     (primary_resources ++ related) |> Enum.sort_by(& &1.type_name)
   end
-
-  # Maps an Ash attribute type to its Swift counterpart. Enum attributes are
-  # handled before this is called (via extract_enum_cases/1); this covers the
-  # remaining scalar types and falls back to String for unknown types.
-  #
-  # Wire-format notes (confirmed from Jason.encode!/1 behaviour):
-  #   Decimal        → JSON string "123.45" — Swift String preserves precision
-  #   Date           → JSON string "2024-01-15" (date-only, no time component)
-  #   UtcDatetime    → JSON string "2024-01-15T10:30:00Z" (ISO 8601 UTC)
-  #   UtcDatetimeUsec → JSON string "2024-01-15T10:30:00.123456Z" (with μs)
-  #   NaiveDatetime  → JSON string "2024-01-15T10:30:00" (no timezone)
-  #   Map            → JSON object {…} — AshJSON handles any JSON value shape
-  defp ash_type_to_swift(Ash.Type.UUID), do: "String"
-  defp ash_type_to_swift(Ash.Type.String), do: "String"
-  # CiString is a case-insensitive string; the wire value is a plain JSON string.
-  defp ash_type_to_swift(Ash.Type.CiString), do: "String"
-  defp ash_type_to_swift(Ash.Type.Boolean), do: "Bool"
-  defp ash_type_to_swift(Ash.Type.Integer), do: "Int"
-  defp ash_type_to_swift(Ash.Type.Float), do: "Double"
-  # Decimal arrives as a JSON string ("123.45") — String is the faithful Swift
-  # type that preserves arbitrary precision without a custom decoder.
-  defp ash_type_to_swift(Ash.Type.Decimal), do: "String"
-  # Date-only ("2024-01-15"): Swift has no date-only type; String is correct.
-  defp ash_type_to_swift(Ash.Type.Date), do: "String"
-  # UTC datetimes arrive as ISO 8601 strings with "Z" suffix. AshRpcClient
-  # configures its JSONDecoder with a custom date strategy to decode them into
-  # Foundation Date values (see AshRpcClient.swift).
-  defp ash_type_to_swift(Ash.Type.UtcDatetime), do: "Date"
-  defp ash_type_to_swift(Ash.Type.UtcDatetimeUsec), do: "Date"
-  # NaiveDatetime has no timezone info ("2024-01-15T10:30:00"); String avoids
-  # the ambiguity of interpreting it in a caller-supplied timezone.
-  defp ash_type_to_swift(Ash.Type.NaiveDatetime), do: "String"
-  # Map arrives as an arbitrary JSON object. AshJSON (from AshSwiftRuntime)
-  # handles any JSON value shape with a typed recursive enum.
-  defp ash_type_to_swift(Ash.Type.Map), do: "[String: AshJSON]"
-  # Atom without one_of constraints falls back to String. Atoms WITH one_of are
-  # caught by extract_enum_cases/1 before reaching this function and become typed
-  # Swift enums. A full atom-to-enum mapping is tracked in issue #24 (M2 plan).
-  defp ash_type_to_swift(Ash.Type.Atom), do: "String"
-  # Catch-all: emit a warning so unmapped types are visible rather than silently
-  # stringified. Open an issue to add the explicit mapping if you hit this.
-  defp ash_type_to_swift(type) do
-    Logger.warning(
-      "AshSwift: no Swift type mapping for Ash type #{inspect(type)}; " <>
-        "falling back to String. Open an issue to add an explicit mapping."
-    )
-
-    "String"
-  end
-
-  # Returns {:ok, cases} when the normalised attribute is an enum, :not_enum
-  # otherwise. Enum-ness (inline Ash.Type.Atom one_of, or a named Ash.Type.Enum
-  # subtype) is precomputed from the manifest field type in manifest_attributes/2.
-  defp extract_enum_cases(%{enum_values: values}) when is_list(values), do: {:ok, values}
-  defp extract_enum_cases(%{enum_values: nil}), do: :not_enum
 
   # Computes the Swift enum type name from the resource's Swift type name and the
   # formatted field name. E.g. type_name="Todo", field_name="priority" → "TodoPriority".
@@ -1754,9 +1642,9 @@ defmodule AshSwift.Codegen do
           formatted_name = FieldFormatter.format_field_for_client(input.name, resource, formatter)
 
           swift_type =
-            case extract_enum_cases(attr) do
+            case TypeMap.extract_enum_cases(attr) do
               {:ok, _} -> enum_type_name(type_name, formatted_name)
-              :not_enum -> ash_type_to_swift(attr.ash_type)
+              :not_enum -> TypeMap.ash_type_to_swift(attr.ash_type)
             end
 
           required? = maction.type == :create and not attr.allow_nil? and not attr.has_default?
