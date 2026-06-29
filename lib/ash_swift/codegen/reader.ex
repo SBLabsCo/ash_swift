@@ -6,6 +6,34 @@ defmodule AshSwift.Codegen.Reader do
   out. This is the manifest-facing half of codegen (ADR-0009) — it knows about
   Ash, AshTypescript, and `AshSwift.Codegen.TypeMap`; the emitter half is pure
   string work on the maps produced here.
+
+  ## IR shape
+
+  `read/1` returns `%{primary_resources: [resource], all_resources: [resource]}`,
+  both sorted by `type_name`. `primary_resources` are the RPC-exposed resources
+  (the only ones with functions emitted); `all_resources` additionally folds in
+  related resources one hop out (their structs must exist for nested fields to
+  decode — see `expand_with_related/2`).
+
+  Each `resource` is a plain map with uniform keys (a related-only entry fills the
+  function-side keys with empty placeholders so the emitter sees one shape):
+
+      %{
+        resource_module: module | nil,        # nil for a related-only entry
+        type_name:       "Todo",
+        fields:          [%{name, swift_type}],   # attributes + relationships + derived
+        enums:           [%{enum_name, cases}],
+        actions:         [action],                # [] for a related-only entry
+        input_structs:   [%{struct_name, fields}],
+        sort_field:      %{type_name, fields} | nil,   # nil when no sortable surface
+        filter_struct:   %{type_name, fields} | nil    # nil when no filterable surface
+      }
+
+  An `action` carries at least `:rpc_name` plus the shape the emitter needs to
+  build its function (`:sortable?`, `:filterable?`, pagination, PK/get-by params,
+  …); the exact keys vary by action kind (CRUD vs generic). A `sort_field`/
+  `filter_struct` field is `%{name, swift_type}`, where `swift_type` is the
+  operator generic for filters.
   """
 
   require Logger

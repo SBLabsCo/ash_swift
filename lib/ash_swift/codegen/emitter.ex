@@ -701,12 +701,11 @@ defmodule AshSwift.Codegen.Emitter do
   end
 
   defp render_input_struct(%{struct_name: name, fields: fields}) do
-    all_sorted = fields
     required = Enum.filter(fields, & &1.required?)
     optional = Enum.filter(fields, &(!&1.required?))
 
     props_block =
-      Enum.map_join(all_sorted, "\n", fn %{name: n, swift_type: t, required?: req?} ->
+      Enum.map_join(fields, "\n", fn %{name: n, swift_type: t, required?: req?} ->
         sn = escape_swift_keyword(n)
         if req?, do: "    public var #{sn}: #{t}", else: "    public var #{sn}: #{t}?"
       end)
@@ -721,18 +720,18 @@ defmodule AshSwift.Codegen.Emitter do
       |> Enum.join(", ")
 
     init_body =
-      Enum.map_join(all_sorted, "\n", fn %{name: n} ->
+      Enum.map_join(fields, "\n", fn %{name: n} ->
         sn = escape_swift_keyword(n)
         "        self.#{sn} = #{sn}"
       end)
 
     coding_keys_cases =
-      Enum.map_join(all_sorted, "\n", fn %{name: n} ->
+      Enum.map_join(fields, "\n", fn %{name: n} ->
         "        case #{escape_swift_keyword(n)}"
       end)
 
     encode_body =
-      Enum.map_join(all_sorted, "\n", fn %{name: n, required?: req?} ->
+      Enum.map_join(fields, "\n", fn %{name: n, required?: req?} ->
         sn = escape_swift_keyword(n)
 
         if req?,

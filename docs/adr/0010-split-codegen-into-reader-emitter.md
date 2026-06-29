@@ -76,9 +76,12 @@ Representation decisions:
 
 - Three modules where there was one — slightly more file-hopping for a change
   that genuinely spans reading and emission (rare; the seam is narrow).
-- One pragmatic wrinkle: `Emitter` needs `require Logger` because `pk_identity!`
-  (correctly emitter-side — it is called from `method_spec`) warns on a missing
-  primary key.
+- Both halves carry `require Logger`: the `Reader` for its skip/exclusion
+  warnings (`warn_skip_generic/2`, non-public-attribute inputs), and the
+  `Emitter` because `pk_identity!` (correctly emitter-side — it is called from
+  `method_spec`) warns on a composite primary key. So the seam is clean for
+  data flow but neither module is logging-free; a fully side-effect-free Emitter
+  would mean moving the composite-PK warning reader-side (deliberately not done).
 
 **Safety net**
 
