@@ -309,11 +309,14 @@ swift build
 swift test
 ```
 
-The test strategy asserts **external, observable behavior of codegen**: what
-source is emitted (golden/structural assertions), whether the generated Swift
-*compiles* against `AshSwiftRuntime` (a `swift build` over generated output —
-type safety is the product), and whether it decodes real backend JSON
-(a thin end-to-end wire-compat test). Codegen internals are not tested directly.
+The test strategy asserts **observable behavior of codegen**: what source is
+emitted (structural assertions), that regenerating any domain is deterministic
+(byte-identical output), whether the generated Swift *compiles* against
+`AshSwiftRuntime` (a `swift build` over generated output — type safety is the
+product), and whether it decodes real backend JSON (a thin end-to-end wire-compat
+test). Since the Reader/Emitter split (ADR-0010), the codegen IR seam is also
+tested directly — the manifest reader's classification against the IR, and the
+Ash→Swift `TypeMap` as a flat table.
 
 ## Design decisions
 
