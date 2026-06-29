@@ -25,15 +25,21 @@ defmodule AshSwift.Codegen.Reader do
         enums:           [%{enum_name, cases}],
         actions:         [action],                # [] for a related-only entry
         input_structs:   [%{struct_name, fields}],
-        sort_field:      %{type_name, fields} | nil,   # nil when no sortable surface
-        filter_struct:   %{type_name, fields} | nil    # nil when no filterable surface
+        sort_field:      %{type_name, fields} | nil,   # fields: [name_string]; nil when no sortable surface
+        filter_struct:   %{type_name, fields} | nil    # fields: [%{name, swift_type}]; nil when no filterable surface
       }
 
   An `action` carries at least `:rpc_name` plus the shape the emitter needs to
   build its function (`:sortable?`, `:filterable?`, pagination, PK/get-by params,
-  …); the exact keys vary by action kind (CRUD vs generic). A `sort_field`/
-  `filter_struct` field is `%{name, swift_type}`, where `swift_type` is the
-  operator generic for filters.
+  …); the exact keys vary by action kind (CRUD vs generic).
+
+  The two query-surface fields differ in shape, so mind which you assert on:
+
+    * `sort_field.fields` is a list of camelCase attribute-name **strings**
+      (`["dueAt", "title", …]`) — the cases of the generated `{Resource}SortField`
+      enum.
+    * `filter_struct.fields` is a list of **maps** `%{name, swift_type}`, where
+      `swift_type` is the operator generic (e.g. `"NullableComparableOperators<Int>"`).
   """
 
   require Logger
