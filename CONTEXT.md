@@ -22,6 +22,18 @@ The compile-time process (a Mix task) that reads the Ash API manifest and writes
 **API manifest** (`Ash.Info.Manifest`):
 Ash's native, language-agnostic intermediate representation of a domain's resources, types, action entrypoints, and filter/sort/pagination capabilities (added in Ash 3.29). Codegen's sole metadata source (ADR-0009); the `typescript_rpc` config still gates which actions are exposed. _Avoid_: "schema dump", "reflection" — it is a structured IR, not raw `Ash.Resource.Info` introspection.
 
+**Codegen IR**:
+The intermediate representation codegen passes from manifest-reading to Swift-emission: plain (untyped) maps describing each resource and its fields, enums, actions, input structs, and sort/filter surface. Named as the seam between the **Reader** and **Emitter** (ADR-0010). _Avoid_: "AST", "schema" — it is codegen's own internal shape, neither Ash's manifest nor Swift syntax.
+
+**Reader** (`AshSwift.Codegen.Reader`):
+The manifest-facing half of codegen: reads `Ash.Info.Manifest` (plus the `typescript_rpc` config and `TypeMap`) into the **Codegen IR**. Sole entry point `read/1`. Knows about Ash; knows nothing about Swift string formatting. _Avoid_: "parser", "loader".
+
+**Emitter** (`AshSwift.Codegen.Emitter`):
+The Swift-facing half of codegen: pure string work turning the **Codegen IR** into the two generated `.swift` files (`render_types/1`, `render_functions/1`). Reads no manifest and never calls back into the **Reader**. _Avoid_: "printer", "renderer" (the functions are `render_*`, but the module is the Emitter), "serializer".
+
+**TypeMap** (`AshSwift.Codegen.TypeMap`):
+The single place an Ash type becomes a Swift type — scalar mapping, filter operator group, and enum-case classification. A reader-side collaborator (the **Emitter** consumes the resulting `swift_type` strings, never `TypeMap` itself). _Avoid_: "type converter", "coercion".
+
 **AshSwiftRuntime**:
 The small hand-written Swift support package the generated client depends on at runtime — base RPC client, request/response handling, error decoding, hook dispatch, config. Distinct from the generated client (which is emitted per-resource). _Avoid_: "SDK", "core".
 
