@@ -43,6 +43,7 @@ defmodule AshSwift.Codegen.ReaderTest do
   describe "filter-operator-group selection" do
     test "each filterable attribute carries the operator generic for its type and nullability" do
       todo = resource(Reader.read(@domains), "Todo")
+      refute is_nil(todo.filter_struct)
       groups = Map.new(todo.filter_struct.fields, &{&1.name, &1.swift_type})
 
       # boolean, non-null → equality only
@@ -59,6 +60,7 @@ defmodule AshSwift.Codegen.ReaderTest do
   describe "sort surface" do
     test "a resource with sortable attributes gets a typed SortField enum in the IR" do
       todo = resource(Reader.read(@domains), "Todo")
+      refute is_nil(todo.sort_field)
 
       assert todo.sort_field.type_name == "TodoSortField"
       assert "title" in todo.sort_field.fields
@@ -75,9 +77,11 @@ defmodule AshSwift.Codegen.ReaderTest do
       refute :broadcast in rpc_names
       refute :summarize in rpc_names
 
-      # Void and scalar/map generic actions are supported and kept.
+      # Void and scalar/map generic actions are supported and kept — including the
+      # void branch of generic_action_return/1 (nil -> :void), exercised by :ping_void.
       assert :stats in rpc_names
       assert :ping in rpc_names
+      assert :ping_void in rpc_names
     end
   end
 end
