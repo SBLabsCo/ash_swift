@@ -90,6 +90,16 @@ defmodule AshSwift.Codegen.TypeMapTest do
       assert TypeMap.operator_generic_name(:comparable, false) == "ComparableOperators"
       assert TypeMap.operator_generic_name(:comparable, true) == "NullableComparableOperators"
     end
+
+    # :exclude is intentionally absent above: scalar_filter_group/1 can return it
+    # (for Ash.Type.Map), but filter_field/4 drops excluded attributes before an
+    # operator is ever built, so it never reaches operator_generic_name in normal
+    # use. The public function still guards the contract with an actionable error.
+    test ":exclude is rejected rather than raising a bare FunctionClauseError" do
+      assert_raise ArgumentError, ~r/:exclude/, fn ->
+        TypeMap.operator_generic_name(:exclude, false)
+      end
+    end
   end
 
   describe "extract_enum_cases/1" do

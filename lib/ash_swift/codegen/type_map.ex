@@ -140,4 +140,14 @@ defmodule AshSwift.Codegen.TypeMap do
   def operator_generic_name(:enum, true), do: "NullableEnumOperators"
   def operator_generic_name(:comparable, false), do: "ComparableOperators"
   def operator_generic_name(:comparable, true), do: "NullableComparableOperators"
+
+  # `:exclude` (e.g. Ash.Type.Map) must never reach here — excluded attributes are
+  # dropped before an operator is built (see filter_field/4, which returns nil for
+  # the :exclude group). Guard the contract explicitly: as a public function this
+  # gives a future caller an actionable error instead of a bare FunctionClauseError.
+  def operator_generic_name(:exclude, _nullable?) do
+    raise ArgumentError,
+          "operator_generic_name/2 received :exclude — excluded attributes carry no " <>
+            "filter operator and must be dropped upstream before an operator is built"
+  end
 end
