@@ -42,6 +42,20 @@ final class RpcRequestTests: XCTestCase {
         XCTAssertNil(json["identity"], "a get_by lookup must not send an identity key")
     }
 
+    // GetOptionalRequest shares makeBody() shape with GetRequest; mirror the
+    // identity tests so a copy-paste divergence in either is caught.
+    func testGetOptionalRequestIncludesIdentityWhenPresent() throws {
+        let json = try encodedBody(GetOptionalRequest<Stub>(action: "fetch_todo", identity: "uuid-7"))
+        XCTAssertEqual(json["identity"] as? String, "uuid-7")
+        XCTAssertNil(json["input"], "pure get? must not also send input")
+        XCTAssertNil(json["getBy"], "pure get? must not also send getBy")
+    }
+
+    func testGetOptionalRequestOmitsIdentityForGetByLookup() throws {
+        let json = try encodedBody(GetOptionalRequest<Stub>(action: "find_todo", getBy: ["slug": "milk"]))
+        XCTAssertNil(json["identity"], "a get_by lookup must not send an identity key")
+    }
+
     func testGetRequestIncludesInputWhenPresent() throws {
         let json = try encodedBody(GetRequest<Stub>(action: "get_todo", input: ["id": "abc"]))
         let input = try XCTUnwrap(json["input"] as? [String: String])

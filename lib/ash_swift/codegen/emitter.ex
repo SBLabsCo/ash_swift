@@ -449,9 +449,6 @@ defmodule AshSwift.Codegen.Emitter do
          },
          type_name
        ) do
-    dict_entries =
-      Enum.map_join(get_by_params, ", ", fn %{name: n} -> ~s("#{n}": #{n}) end)
-
     {request_type, return_type} =
       if not_found_error?,
         do: {"GetRequest", type_name},
@@ -462,9 +459,15 @@ defmodule AshSwift.Codegen.Emitter do
     # under `input`/`getBy`. See issue #66.
     lookup_arg =
       case location do
-        :identity -> {"identity", pk_identity!(get_by_params, type_name, "get")}
-        :input -> {"input", "[#{dict_entries}]"}
-        :get_by -> {"getBy", "[#{dict_entries}]"}
+        :identity ->
+          {"identity", pk_identity!(get_by_params, type_name, "get")}
+
+        location when location in [:input, :get_by] ->
+          dict_entries =
+            Enum.map_join(get_by_params, ", ", fn %{name: n} -> ~s("#{n}": #{n}) end)
+
+          label = if location == :input, do: "input", else: "getBy"
+          {label, "[#{dict_entries}]"}
       end
 
     %{
