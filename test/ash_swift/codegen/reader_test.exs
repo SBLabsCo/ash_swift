@@ -67,6 +67,30 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
+  describe "get? lookup location (#66)" do
+    test "a pure get? action looks the record up by primary key via :identity" do
+      todo = resource(Reader.read(@domains), "Todo")
+      fetch = Enum.find(todo.actions, &(&1.rpc_name == :fetch_todo))
+
+      assert fetch.get_by_location == :identity
+      assert Enum.map(fetch.get_by_params, & &1.name) == ["id"]
+    end
+
+    test "a native get_by action still travels via :input, not :identity" do
+      todo = resource(Reader.read(@domains), "Todo")
+      get_todo = Enum.find(todo.actions, &(&1.rpc_name == :get_todo))
+
+      assert get_todo.get_by_location == :input
+    end
+
+    test "an RPC-level get_by action still travels via :get_by" do
+      todo = resource(Reader.read(@domains), "Todo")
+      find_by_title = Enum.find(todo.actions, &(&1.rpc_name == :find_todo_by_title))
+
+      assert find_by_title.get_by_location == :get_by
+    end
+  end
+
   describe "generic-action gating (#54)" do
     test "generic actions whose shape needs field selection are dropped; supported ones kept" do
       todo = resource(Reader.read(@domains), "Todo")

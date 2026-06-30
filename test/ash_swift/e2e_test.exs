@@ -361,6 +361,39 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "pure get? action: pipeline reads the primary key from identity, not input (issue #66)" do
+    todo =
+      Ash.create!(AshSwift.Test.Todo, %{title: "Fetch E2E Todo"}, domain: AshSwift.Test.Domain)
+
+    todo_id = to_string(todo.id)
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # The bug: the old codegen sent the pk under `input`. A pure get? action has
+    # no `id` input, so the pipeline rejects it (NoSuchInput) — the failure that
+    # compiled fine and only surfaced at runtime.
+    input_result =
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
+        "action" => "fetch_todo",
+        "input" => %{"id" => todo_id},
+        "fields" => ["id", "title"]
+      })
+
+    assert input_result["success"] == false
+
+    # The fix: the pk crosses the wire as the top-level `identity` param — exactly
+    # what the generated GetRequest now emits (`identity: id`) — and round-trips.
+    identity_result =
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
+        "action" => "fetch_todo",
+        "identity" => todo_id,
+        "fields" => ["id", "title"]
+      })
+
+    assert identity_result["success"] == true
+    assert identity_result["data"]["id"] == todo_id
+    assert identity_result["data"]["title"] == "Fetch E2E Todo"
+  end
+
   test "create, update, and destroy actions encode correctly and return typed records" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)

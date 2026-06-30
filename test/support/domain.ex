@@ -17,6 +17,7 @@ defmodule AshSwift.Test.Domain do
       rpc_action(:list_todos_keyset, :list_keyset_paginated)
       rpc_action(:list_todos_keyset_optional, :list_keyset_optional)
       rpc_action(:get_todo, :get_by_id)
+      rpc_action(:fetch_todo, :fetch)
       rpc_action(:find_todo, :get_by_id, not_found_error?: false)
       rpc_action(:get_todo_by_score, :get_by_score)
       rpc_action(:find_todo_by_title, :read, get_by: [:title])

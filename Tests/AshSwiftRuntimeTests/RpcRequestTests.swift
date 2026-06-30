@@ -23,8 +23,37 @@ final class RpcRequestTests: XCTestCase {
     func testGetRequestOmitsEmptyLookupDicts() throws {
         let json = try encodedBody(GetRequest<Stub>(action: "get_todo"))
         XCTAssertEqual(json["action"] as? String, "get_todo")
+        XCTAssertNil(json["identity"], "absent identity must be omitted from the JSON")
         XCTAssertNil(json["input"], "empty input dict must be omitted from the JSON")
         XCTAssertNil(json["getBy"], "empty getBy dict must be omitted from the JSON")
+    }
+
+    // A pure get? lookup (issue #66): the pk crosses the wire as a top-level
+    // `identity` string and no other lookup channel is present.
+    func testGetRequestIncludesIdentityWhenPresent() throws {
+        let json = try encodedBody(GetRequest<Stub>(action: "fetch_todo", identity: "uuid-7"))
+        XCTAssertEqual(json["identity"] as? String, "uuid-7")
+        XCTAssertNil(json["input"], "pure get? must not also send input")
+        XCTAssertNil(json["getBy"], "pure get? must not also send getBy")
+    }
+
+    func testGetRequestOmitsIdentityForGetByLookup() throws {
+        let json = try encodedBody(GetRequest<Stub>(action: "get_todo", getBy: ["slug": "milk"]))
+        XCTAssertNil(json["identity"], "a get_by lookup must not send an identity key")
+    }
+
+    // GetOptionalRequest shares makeBody() shape with GetRequest; mirror the
+    // identity tests so a copy-paste divergence in either is caught.
+    func testGetOptionalRequestIncludesIdentityWhenPresent() throws {
+        let json = try encodedBody(GetOptionalRequest<Stub>(action: "fetch_todo", identity: "uuid-7"))
+        XCTAssertEqual(json["identity"] as? String, "uuid-7")
+        XCTAssertNil(json["input"], "pure get? must not also send input")
+        XCTAssertNil(json["getBy"], "pure get? must not also send getBy")
+    }
+
+    func testGetOptionalRequestOmitsIdentityForGetByLookup() throws {
+        let json = try encodedBody(GetOptionalRequest<Stub>(action: "find_todo", getBy: ["slug": "milk"]))
+        XCTAssertNil(json["identity"], "a get_by lookup must not send an identity key")
     }
 
     func testGetRequestIncludesInputWhenPresent() throws {
