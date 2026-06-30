@@ -457,7 +457,15 @@ defmodule AshSwift.Codegen.Emitter do
         do: {"GetRequest", type_name},
         else: {"GetOptionalRequest", "#{type_name}?"}
 
-    lookup_label = if location == :input, do: "input", else: "getBy"
+    # A pure get? carries its single primary key as the top-level `identity`
+    # string (like update/destroy); native/RPC get_by fields travel as a dict
+    # under `input`/`getBy`. See issue #66.
+    lookup_arg =
+      case location do
+        :identity -> {"identity", pk_identity!(get_by_params, type_name, "get")}
+        :input -> {"input", "[#{dict_entries}]"}
+        :get_by -> {"getBy", "[#{dict_entries}]"}
+      end
 
     %{
       rpc_name: rpc_name,
@@ -468,7 +476,7 @@ defmodule AshSwift.Codegen.Emitter do
       request_type: request_type,
       request_args: [
         {"action", swift_string(rpc_name)},
-        {lookup_label, "[#{dict_entries}]"},
+        lookup_arg,
         {"fields", "fields"}
       ]
     }

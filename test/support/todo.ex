@@ -50,6 +50,13 @@ defmodule AshSwift.Test.Todo do
       get_by :id
     end
 
+    # A *pure* get? read: no get_by, so the manifest surfaces no lookup inputs
+    # and the record is fetched by primary key. ash_typescript routes a pure
+    # get? through the top-level `identity` param, not `input` (issue #66).
+    read :fetch do
+      get? true
+    end
+
     read :get_by_score do
       get_by [:score]
     end

@@ -873,7 +873,8 @@ defmodule AshSwift.Codegen.Reader do
   #
   # Returns {is_get?, get_by_params, location} where:
   #   - get_by_params: list of %{name, swift_type} for the lookup fields
-  #   - location: :input (native get_by on the action) | :get_by (RPC-level get_by)
+  #   - location: :input (native get_by on the action) | :get_by (RPC-level
+  #     get_by) | :identity (pure get? by primary key — top-level identity param)
   defp build_get_info(maction, rpc_action, resource, formatter, mres) do
     # Load-bearing invariant: for a `get?` action the manifest surfaces *exactly*
     # the lookup fields as inputs (e.g. `get_by :id` → inputs `[:id]`), with no
@@ -895,8 +896,13 @@ defmodule AshSwift.Codegen.Reader do
         {true, build_get_by_params(rpc_get_by, resource, formatter), :get_by}
 
       rpc_get? || maction.get? ->
-        # Pure get? (no explicit field list): look up by primary key via `input`.
-        {true, build_get_by_params(mres.primary_key, resource, formatter), :input}
+        # Pure get? (no explicit field list): look up by primary key. The
+        # ash_typescript RPC pipeline routes a get? pk lookup through the
+        # top-level `identity` param (Map.pop(other_params, "identity") →
+        # Ash.get(resource, identity)), NOT `input` — sending the pk under
+        # `input` fails at runtime with NoSuchInput. Mirror update/destroy and
+        # carry the pk as `identity`. See issue #66.
+        {true, build_get_by_params(mres.primary_key, resource, formatter), :identity}
 
       true ->
         {false, [], nil}

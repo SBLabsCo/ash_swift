@@ -343,6 +343,20 @@ defmodule AshSwift.CodegenTest do
                "public func getTodoByScore(score: String, fields: [FieldSelection]) async throws -> Todo {"
     end
 
+    test "pure get? action sends the primary key as the top-level identity param (#66)", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      # The pk is a typed param like any other get, but its value crosses the
+      # wire as the top-level `identity` string (not under `input`), mirroring
+      # update/destroy — otherwise the action rejects it with NoSuchInput.
+      assert functions =~
+               "public func fetchTodo(id: String, fields: [FieldSelection]) async throws -> Todo {"
+
+      assert functions =~ ~s[GetRequest(action: "fetch_todo", identity: id, fields: fields)]
+    end
+
     test "rpc_action get_by emits getBy: argument in the generated call", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
 

@@ -66,12 +66,14 @@ public struct PagedBody<P: Encodable & Sendable>: Encodable, Sendable {
     let filter: AnyEncodable?
 }
 
-/// Body for get actions. `input` carries native get_by field values; `getBy`
-/// carries RPC-level get_by field values. Empty dicts are passed as nil so the
-/// key is omitted from the JSON.
+/// Body for get actions. `identity` carries a pure `get?` primary-key lookup (a
+/// top-level string, like update/destroy — see ADR-0003); `input` carries native
+/// get_by field values; `getBy` carries RPC-level get_by field values. nil values
+/// are omitted from the JSON so exactly one lookup channel appears per request.
 public struct GetBody: Encodable, Sendable {
     let action: String
     let fields: [FieldSelection]
+    let identity: String?
     let input: [String: String]?
     let getBy: [String: String]?
 }
@@ -232,17 +234,20 @@ public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = T
     let action: String
+    let identity: String?
     let input: [String: String]
     let getBy: [String: String]
     let fields: [FieldSelection]
 
     public init(
         action: String,
+        identity: String? = nil,
         input: [String: String] = [:],
         getBy: [String: String] = [:],
         fields: [FieldSelection] = []
     ) {
         self.action = action
+        self.identity = identity
         self.input = input
         self.getBy = getBy
         self.fields = fields
@@ -252,6 +257,7 @@ public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         GetBody(
             action: action,
             fields: fields,
+            identity: identity,
             input: input.isEmpty ? nil : input,
             getBy: getBy.isEmpty ? nil : getBy
         )
@@ -263,17 +269,20 @@ public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = T?
     let action: String
+    let identity: String?
     let input: [String: String]
     let getBy: [String: String]
     let fields: [FieldSelection]
 
     public init(
         action: String,
+        identity: String? = nil,
         input: [String: String] = [:],
         getBy: [String: String] = [:],
         fields: [FieldSelection] = []
     ) {
         self.action = action
+        self.identity = identity
         self.input = input
         self.getBy = getBy
         self.fields = fields
@@ -283,6 +292,7 @@ public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         GetBody(
             action: action,
             fields: fields,
+            identity: identity,
             input: input.isEmpty ? nil : input,
             getBy: getBy.isEmpty ? nil : getBy
         )
