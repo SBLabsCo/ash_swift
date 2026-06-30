@@ -930,21 +930,50 @@ defmodule AshSwift.CodegenTest do
       assert files["AshRpcTypes.swift"] =~ "public var options: [String: AshJSON]?"
     end
 
-    test "an action with an unmappable (array) argument is skipped with a warning", %{
+    test "an array-of-scalar argument maps to a [Scalar] input field", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      types = files["AshRpcTypes.swift"]
+
+      # `broadcast` takes a `{:array, :string}` argument — now mapped element-wise to
+      # `[String]` rather than skipped. (Optional argument → Optional field.)
+      assert functions =~ "public func broadcast(input: BroadcastInput) async throws {"
+      assert types =~ "public struct BroadcastInput: Encodable, Sendable {"
+      assert types =~ "public var tags: [String]?"
+    end
+
+    test "an array-of-record argument generates a typed nested input struct", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      types = files["AshRpcTypes.swift"]
+
+      # `bulk_create` takes a `{:array, :map}` argument with field constraints. The
+      # element becomes a compiler-checked nested struct, not `[[String: AshJSON]]`.
+      assert functions =~ "public func bulkCreate(input: BulkCreateInput) async throws"
+
+      assert types =~ "public struct BulkCreateInput: Encodable, Sendable {"
+      assert types =~ "public var rows: [BulkCreateRowsItem]"
+
+      # The generated element struct, with field optionality from allow_nil?.
+      assert types =~ "public struct BulkCreateRowsItem: Encodable, Sendable {"
+      assert types =~ "public var label: String\n"
+      assert types =~ "public var priority: Int?"
+      assert types =~ "try container.encode(label, forKey: .label)"
+      assert types =~ "try container.encodeIfPresent(priority, forKey: .priority)"
+    end
+
+    test "a nested-array argument (unmappable element) is still skipped with a warning", %{
       files: files
     } do
-      # `broadcast` takes a `{:array, :string}` argument — `kind: :array, module: nil`
-      # in the manifest. ash_type_to_swift would String-guess it; the input gate must
-      # instead skip the whole action (symmetric with the return-type gate), so it is
-      # not emitted as a function with a wrong-typed input field.
+      # `deep_broadcast` takes `{:array, {:array, :string}}` — the element is itself
+      # an array, which maps to no Swift type. The input gate must skip the whole
+      # action (symmetric with the return-type gate), not emit a wrong-typed input.
       log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
 
-      assert log =~ "generic action :broadcast"
-      assert log =~ "argument :tags"
+      assert log =~ "generic action :deep_broadcast"
+      assert log =~ "argument :matrix"
       assert log =~ "skipping"
 
-      refute files["AshRpcFunctions.swift"] =~ "func broadcast"
-      refute files["AshRpcTypes.swift"] =~ "BroadcastInput"
+      refute files["AshRpcFunctions.swift"] =~ "func deepBroadcast"
+      refute files["AshRpcTypes.swift"] =~ "DeepBroadcastInput"
     end
   end
 

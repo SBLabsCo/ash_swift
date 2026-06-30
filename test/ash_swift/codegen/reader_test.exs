@@ -96,9 +96,8 @@ defmodule AshSwift.Codegen.ReaderTest do
       todo = resource(Reader.read(@domains), "Todo")
       rpc_names = Enum.map(todo.actions, & &1.rpc_name)
 
-      # :broadcast (a record-typed argument) and :summarize (a resource return)
-      # need field selection that the generic-action slice doesn't emit yet (#56).
-      refute :broadcast in rpc_names
+      # :summarize (a resource return) needs field selection the generic-action
+      # slice doesn't emit yet (#56).
       refute :summarize in rpc_names
 
       # Void and scalar/map generic actions are supported and kept — including the
@@ -106,6 +105,41 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert :stats in rpc_names
       assert :ping in rpc_names
       assert :ping_void in rpc_names
+
+      # Array arguments are now supported: a scalar array (:broadcast) and a record
+      # array (:bulk_create) both generate.
+      assert :broadcast in rpc_names
+      assert :bulk_create in rpc_names
+    end
+  end
+
+  describe "generic-action array arguments" do
+    test "an array-of-scalar argument maps to a [Scalar] input field" do
+      todo = resource(Reader.read(@domains), "Todo")
+      struct = Enum.find(todo.input_structs, &(&1.struct_name == "BroadcastInput"))
+
+      assert %{name: "tags", swift_type: "[String]", required?: false} =
+               Enum.find(struct.fields, &(&1.name == "tags"))
+    end
+
+    test "an array-of-record argument generates a typed nested input struct" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      # The top-level input carries the array typed by the generated element struct.
+      bulk_input = Enum.find(todo.input_structs, &(&1.struct_name == "BulkCreateInput"))
+
+      assert %{name: "rows", swift_type: "[BulkCreateRowsItem]", required?: true} =
+               Enum.find(bulk_input.fields, &(&1.name == "rows"))
+
+      # The element struct is emitted, its fields' optionality read from allow_nil?.
+      item = Enum.find(todo.input_structs, &(&1.struct_name == "BulkCreateRowsItem"))
+      assert item, "expected a generated BulkCreateRowsItem struct"
+
+      assert %{swift_type: "String", required?: true} =
+               Enum.find(item.fields, &(&1.name == "label"))
+
+      assert %{swift_type: "Int", required?: false} =
+               Enum.find(item.fields, &(&1.name == "priority"))
     end
   end
 end

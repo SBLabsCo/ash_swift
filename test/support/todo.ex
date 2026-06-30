@@ -137,12 +137,40 @@ defmodule AshSwift.Test.Todo do
       run fn input, _ctx -> {:ok, input.arguments.default} end
     end
 
-    # A list/array-typed argument carries `module: nil` in the manifest, so it maps
-    # to no Swift type. The whole action must be skipped (not emitted with a
-    # String-guessed field). Regression guard for the input skip path. Issue #54
-    # review P1.
+    # An array-of-scalar argument maps element-wise to `[String]` — a supported
+    # generic-action input. (Before array support it was skipped; it now exercises
+    # the `[Scalar]` input path.)
     action :broadcast do
       argument :tags, {:array, :string}, allow_nil?: true
+      run fn _input, _ctx -> :ok end
+    end
+
+    # An array-of-record argument (a constrained-map item type): the manifest
+    # carries it as `kind: :array` with a `kind: :map, fields: [...]` item, and
+    # ash_swift generates a nested input struct (`BulkCreateRowsItem`) so the
+    # element is compiler-checked rather than `[[String: AshJSON]]`. Mirrors
+    # SwingClips' `upload_start` clips manifest. Mixed required/optional fields and a
+    # non-String scalar (`priority`) exercise the nested-struct field mapping.
+    action :bulk_create, :map do
+      argument :rows, {:array, :map},
+        allow_nil?: false,
+        constraints: [
+          items: [
+            fields: [
+              label: [type: :string, allow_nil?: false],
+              priority: [type: :integer, allow_nil?: true]
+            ]
+          ]
+        ]
+
+      run fn _input, _ctx -> {:ok, %{}} end
+    end
+
+    # A nested-array argument (`{:array, {:array, :string}}`): the element type is
+    # itself an array, which maps to no Swift type — so the whole action is still
+    # skipped. Regression guard that the input-skip path survives array support.
+    action :deep_broadcast do
+      argument :matrix, {:array, {:array, :string}}, allow_nil?: true
       run fn _input, _ctx -> :ok end
     end
   end
