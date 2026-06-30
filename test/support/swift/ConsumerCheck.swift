@@ -115,6 +115,18 @@ enum ConsumerCheck {
             fields: ["id", "email"]
         )
         let _ = newUser
+
+        // Generic action with a *constrained* :map return (issue #70): the typed
+        // manifest decodes into a generated `UploadStartResult` struct, so result
+        // fields are compiler-checked rather than dug out of an untyped
+        // [String: AshJSON]. The nested {:array, :map} field decodes element structs.
+        let manifest: UploadStartResult = try await rpc.uploadStart(
+            input: UploadStartInput(filename: "clip.mov")
+        )
+        let _: String = manifest.videoId             // required → non-optional
+        let _: String? = manifest.caption            // nullable-default → optional
+        let _: [String: AshJSON]? = manifest.metadata
+        let _: String? = manifest.clips?.first?.uploadUrl
     }
 
     // Generated models are all-Optional Codable structs. Absent JSON keys
@@ -176,6 +188,19 @@ enum ConsumerCheck {
             from: Data(#"{"id":"1","title":"Buy milk","user":{"name":"Alice","email":"alice@example.com"}}"#.utf8)
         )
         _ = withUser.user?.name  // "Alice"
+
+        // Constrained :map return decodes via synthesized Decodable (issue #70):
+        // required fields must be present, nullable/absent fields (caption, metadata)
+        // decode as nil, and the nested {:array, :map} field decodes element structs.
+        let uploadManifest = try decoder.decode(
+            UploadStartResult.self,
+            from: Data(
+                #"{"videoId":"v1","clips":[{"clipId":"c1","orderIndex":0,"uploadUrl":"https://x/1"}]}"#
+                    .utf8)
+        )
+        let _: String = uploadManifest.videoId  // required — present
+        _ = uploadManifest.caption  // nil — absent from response
+        _ = uploadManifest.clips?.first?.clipId  // "c1"
     }
 
     // A custom Transport can be injected without depending on AshSwift's default.

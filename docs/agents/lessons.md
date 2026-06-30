@@ -205,6 +205,37 @@ fields`. That's why field-selection-bearing returns (Tier C) are deferred and
 skipped, not emitted: wiring them needs the `FieldSelection` machinery in the
 generic-action body. Re-probe before building Tier C.
 
+### A *constrained* `:map` return is camelCase-formatted on the wire; an unconstrained one is passed through verbatim
+
+The split that makes a typed result struct safe to decode: the RPC pipeline's
+`format_action_output/4` (pipeline.ex) routes a generic action's `:map` return by
+its constraints. A **constrained** map (`returns :map` with `constraints fields:
+[...]`, classified `:typed_map`/`:array_of_typed_map`) goes through
+`ValueFormatter.format_typed_map`, which **camelCases every field key recursively**
+— including the keys of a nested `{:array, :map}` field. An **unconstrained** map
+(`:unconstrained_map`) is returned *verbatim* — its keys are the caller's and must
+not be renamed. So a generated typed `Decodable` result struct should use
+client-formatted (camelCase) field names (`FieldFormatter.format_field_for_client`),
+and Swift's synthesized `CodingKeys` match the wire with no explicit keys — exactly
+like a model struct. Don't reuse the `[String: AshJSON]` mapping for a constrained
+map: it's still passed through for the *unconstrained* case only. See `generic_action_return/4`
++ `collect_result_struct_fields/4` (issue #70); the wire behavior is in
+`deps/ash_typescript/lib/ash_typescript/rpc/value_formatter.ex`.
+
+### A return-side nested struct name must include the `Result` segment to avoid colliding with the argument-side one
+
+The return-side typed-map machinery reuses the same nested-struct generator as
+array-of-record *arguments* (`generic_field_swift_type/5`). An action like
+`upload_start` can carry a `clips` `{:array, :map}` argument **and** a `clips`
+field in its `:map` return — both would generate a nested struct named after the
+field. The argument's is `UploadStartClipsItem`; the return's must be
+`UploadStartResultClipsItem` (the result-struct name is the prefix), or the two
+emit duplicate `struct` definitions and `swift build` fails. Hence
+`generic_field_swift_type/5` takes an already-pascal-cased `name_prefix`
+(`UploadStart` for args, `UploadStartResult` for the return) rather than deriving
+the name from the action alone. When #56 adds field-selectable struct returns,
+keep the prefix distinct the same way. See issue #70.
+
 ## Test patterns
 
 ### Extend the fixture domain when the bug class needs it
