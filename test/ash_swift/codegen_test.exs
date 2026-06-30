@@ -988,6 +988,60 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
+  describe "generic-action constrained-map return (issue #70)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    test "a constrained :map return emits a typed Decodable result struct, not [String: AshJSON]",
+         %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      types = files["AshRpcTypes.swift"]
+
+      # `upload_start` returns a `:map` carrying `fields:` constraints — the typed
+      # manifest mirrors SwingClips' upload_start. The function returns the generated
+      # struct (not `[String: AshJSON]`), and the input generic infers from `input:`.
+      assert functions =~
+               "public func uploadStart(input: UploadStartInput) async throws -> UploadStartResult {"
+
+      assert functions =~
+               ~s[return try await client.execute(GenericActionRequest(action: "upload_start", input: input))]
+
+      # Decode-only struct (no encode/CodingKeys — Swift synthesises init(from:)).
+      assert types =~ "public struct UploadStartResult: Decodable, Sendable, Equatable {"
+
+      # Required only when the map constraint set allow_nil?: false; the nullable-
+      # default scalar and the unconstrained map field are Optional.
+      assert types =~ "public var videoId: String\n"
+      assert types =~ "public var caption: String?"
+      assert types =~ "public var metadata: [String: AshJSON]?"
+      # The {:array, :map} field is typed by the generated element struct.
+      assert types =~ "public var clips: [UploadStartResultClipsItem]?"
+    end
+
+    test "an {:array, :map} return field emits a typed, Decodable nested struct", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      # The nested element struct carries the result-struct prefix so it never
+      # collides with an argument-side `clips` nested struct on the same action.
+      assert types =~ "public struct UploadStartResultClipsItem: Decodable, Sendable, Equatable {"
+      assert types =~ "public var clipId: String\n"
+      assert types =~ "public var orderIndex: Int\n"
+      assert types =~ "public var uploadUrl: String\n"
+    end
+
+    test "an unconstrained :map return still maps to [String: AshJSON] (no struct)", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
+
+      # Regression guard: `stats` has no `fields:` constraint, so it stays the
+      # untyped dict — only a *constrained* map gets a generated struct.
+      assert functions =~ "public func stats() async throws -> [String: AshJSON] {"
+      refute files["AshRpcTypes.swift"] =~ "StatsResult"
+    end
+  end
+
   describe "2-hop relationship guard" do
     setup do
       %{files: Codegen.build_files([AshSwift.Test.TagDomain])}

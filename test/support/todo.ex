@@ -181,5 +181,37 @@ defmodule AshSwift.Test.Todo do
       argument :rows, {:array, :map}, allow_nil?: false
       run fn _input, _ctx -> {:ok, %{}} end
     end
+
+    # A **constrained** `:map` return (a typed manifest): the `fields:` constraint
+    # makes ash_swift generate a typed `Decodable` struct (`UploadStartResult`)
+    # instead of an untyped `[String: AshJSON]`, with a nested struct
+    # (`UploadStartResultClipsItem`) for the `{:array, :map}` `clips` field. Mirrors
+    # SwingClips' `upload_start` upload manifest (issue #70). Exercises a required
+    # scalar (`video_id`), an optional scalar (`caption`, nullable by default), a
+    # plain (unconstrained) map field (`metadata` → `[String: AshJSON]`), and the
+    # nested typed-record array — the return-side mirror of `bulk_create`'s argument.
+    action :upload_start, :map do
+      argument :filename, :string, allow_nil?: false
+
+      constraints fields: [
+                    video_id: [type: :string, allow_nil?: false],
+                    caption: [type: :string],
+                    metadata: [type: :map],
+                    clips: [
+                      type: {:array, :map},
+                      constraints: [
+                        items: [
+                          fields: [
+                            clip_id: [type: :string, allow_nil?: false],
+                            order_index: [type: :integer, allow_nil?: false],
+                            upload_url: [type: :string, allow_nil?: false]
+                          ]
+                        ]
+                      ]
+                    ]
+                  ]
+
+      run fn _input, _ctx -> {:ok, %{video_id: "v1", clips: []}} end
+    end
   end
 end

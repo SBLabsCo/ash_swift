@@ -28,7 +28,10 @@ and a TypeScript client stay wire-identical by construction.
 > (`:action`-type, command-style calls such as an auth bootstrap) also generate —
 > with typed argument inputs (scalars, maps, and **arrays**, including arrays of
 > constrained-map records that become nested input structs) and void/scalar/map
-> returns (typed-record *returns* needing field selection are tracked separately).
+> returns — a `:map` return carrying `fields:` constraints decodes into a generated
+> typed `Decodable` result struct (with a nested struct per `{:array, :map}` field)
+> rather than an untyped dict; typed-record (resource/struct) *returns* needing
+> field selection are tracked separately.
 > Under the
 > hood, codegen now reads Ash's native API manifest (`Ash.Info.Manifest`) as its
 > sole metadata source rather than walking resource reflection directly — see
@@ -57,8 +60,12 @@ and a TypeScript client stay wire-identical by construction.
   Arguments may be **arrays** — an array of a scalar becomes `[Scalar]`, and an
   array of a constrained map (a typed record) generates a nested input struct so
   the element is compiler-checked rather than untyped JSON (e.g. an
-  `uploadStart(input:)` taking `[UploadStartClipsItem]`). A generic action
-  *returning* a resource/struct that needs field selection is not generated yet
+  `uploadStart(input:)` taking `[UploadStartClipsItem]`). On the return side, a
+  `:map` result carrying `fields:` constraints decodes into a generated typed
+  `Decodable` struct — `uploadStart` returns `UploadStartResult { videoId, clips:
+  [UploadStartResultClipsItem] }` instead of an untyped `[String: AshJSON]` (an
+  *unconstrained* map stays the untyped dict). A generic action *returning* a
+  resource/struct that needs field selection is not generated yet
   ([#56](https://github.com/SBLabsCo/ash_swift/issues/56)).
 - **Ad-hoc field selection** — request only the fields a screen needs, including
   fields on nested relationships. Every model field is `Optional`, so unselected

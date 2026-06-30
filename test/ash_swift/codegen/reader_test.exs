@@ -142,4 +142,61 @@ defmodule AshSwift.Codegen.ReaderTest do
                Enum.find(item.fields, &(&1.name == "priority"))
     end
   end
+
+  describe "generic-action constrained-map return (#70)" do
+    test "an unconstrained :map return still maps to the untyped [String: AshJSON]" do
+      todo = resource(Reader.read(@domains), "Todo")
+      stats = Enum.find(todo.actions, &(&1.rpc_name == :stats))
+
+      assert stats.generic_return == {:typed, "[String: AshJSON]"}
+      # No struct is generated for an unconstrained map.
+      refute Enum.any?(todo.input_structs, &(&1.struct_name == "StatsResult"))
+    end
+
+    test "a constrained :map return generates a typed Decodable result struct" do
+      todo = resource(Reader.read(@domains), "Todo")
+      upload = Enum.find(todo.actions, &(&1.rpc_name == :upload_start))
+
+      # The return is the generated struct, not [String: AshJSON].
+      assert upload.generic_return == {:typed, "UploadStartResult"}
+
+      result = Enum.find(todo.input_structs, &(&1.struct_name == "UploadStartResult"))
+      assert result, "expected a generated UploadStartResult struct"
+      assert result.decodable?, "result struct must be tagged decodable? (renders Decodable)"
+
+      # Required only when the map constraint set allow_nil?: false; nullable-default
+      # scalar (caption) and the plain map (metadata) are Optional.
+      assert %{swift_type: "String", required?: true} =
+               Enum.find(result.fields, &(&1.name == "videoId"))
+
+      assert %{swift_type: "String", required?: false} =
+               Enum.find(result.fields, &(&1.name == "caption"))
+
+      assert %{swift_type: "[String: AshJSON]", required?: false} =
+               Enum.find(result.fields, &(&1.name == "metadata"))
+
+      # The {:array, :map} field is typed by the generated element struct.
+      assert %{swift_type: "[UploadStartResultClipsItem]", required?: false} =
+               Enum.find(result.fields, &(&1.name == "clips"))
+    end
+
+    test "an {:array, :map} return field generates a typed, decodable nested struct" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      # Named with the result-struct prefix so it never collides with an
+      # argument-side `clips` nested struct on the same action.
+      item = Enum.find(todo.input_structs, &(&1.struct_name == "UploadStartResultClipsItem"))
+      assert item, "expected a generated UploadStartResultClipsItem struct"
+      assert item.decodable?, "nested result struct must be tagged decodable?"
+
+      assert %{swift_type: "String", required?: true} =
+               Enum.find(item.fields, &(&1.name == "clipId"))
+
+      assert %{swift_type: "Int", required?: true} =
+               Enum.find(item.fields, &(&1.name == "orderIndex"))
+
+      assert %{swift_type: "String", required?: true} =
+               Enum.find(item.fields, &(&1.name == "uploadUrl"))
+    end
+  end
 end

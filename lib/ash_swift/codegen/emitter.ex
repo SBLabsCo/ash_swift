@@ -97,7 +97,7 @@ defmodule AshSwift.Codegen.Emitter do
               model_struct
 
             structs ->
-              input_block = Enum.map_join(structs, "\n\n", &render_input_struct/1)
+              input_block = Enum.map_join(structs, "\n\n", &render_struct/1)
               model_struct <> "\n\n" <> input_block
           end
 
@@ -697,6 +697,36 @@ defmodule AshSwift.Codegen.Emitter do
   defp lower_camel(name) do
     [first | rest] = name |> to_string() |> String.split("_", trim: true)
     Enum.join([String.downcase(first) | Enum.map(rest, &String.capitalize/1)])
+  end
+
+  # Dispatches a generated struct to the right renderer. A struct tagged
+  # `decodable?: true` is a generic-action typed-`:map` return (issue #70) and
+  # renders as a Decodable result struct; everything else is an Encodable input
+  # struct (create/update inputs, generic-action arguments, nested arg records).
+  defp render_struct(%{decodable?: true} = struct), do: render_result_struct(struct)
+  defp render_struct(struct), do: render_input_struct(struct)
+
+  # Emits a typed Decodable result struct for a generic action whose `:map` return
+  # carries `fields:` constraints (e.g. `UploadStartResult` and its nested
+  # `UploadStartResultClipsItem`). Decode-only — Swift synthesises `init(from:)` and
+  # the CodingKeys (each property name already equals its camelCase wire key, the
+  # way the RPC pipeline's ValueFormatter emits typed-map keys), mirroring the model
+  # struct. A field is non-optional only when its map constraint set `allow_nil?:
+  # false`; otherwise it's Optional so a nullable/absent field decodes as `nil`. The
+  # reader's guards guarantee a non-empty field list (an unconstrained map stays
+  # `[String: AshJSON]`), so there's no empty clause.
+  defp render_result_struct(%{struct_name: name, fields: fields}) do
+    props_block =
+      Enum.map_join(fields, "\n", fn %{name: n, swift_type: t, required?: req?} ->
+        sn = escape_swift_keyword(n)
+        if req?, do: "    public var #{sn}: #{t}", else: "    public var #{sn}: #{t}?"
+      end)
+
+    """
+    public struct #{name}: Decodable, Sendable, Equatable {
+    #{props_block}
+    }\
+    """
   end
 
   # Emits a typed input struct for a create or update action. Required fields are

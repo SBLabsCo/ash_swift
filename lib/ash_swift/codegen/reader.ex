@@ -24,7 +24,7 @@ defmodule AshSwift.Codegen.Reader do
         fields:          [%{name, swift_type}],   # attributes + relationships + derived
         enums:           [%{enum_name, cases}],
         actions:         [action],                # [] for a related-only entry
-        input_structs:   [%{struct_name, fields}],
+        input_structs:   [%{struct_name, fields, decodable?}],  # decodable? true => Decodable result struct, else Encodable input
         sort_field:      %{type_name, fields} | nil,   # fields: [name_string]; nil when no sortable surface
         filter_struct:   %{type_name, fields} | nil    # fields: [%{name, swift_type}]; nil when no filterable surface
       }
@@ -359,7 +359,8 @@ defmodule AshSwift.Codegen.Reader do
          formatter,
          {actions_acc, structs_acc} = acc
        ) do
-    with gen_return when gen_return != :unsupported <- generic_action_return(maction.returns),
+    with {gen_return, result_structs} when gen_return != :unsupported <-
+           generic_action_return(maction.returns, rpc_action.name, resource, formatter),
          {:ok, inputs, nested_structs} <-
            collect_generic_action_inputs(maction, rpc_action, resource, formatter) do
       input_struct_name = if inputs == [], do: nil, else: pascal_case(rpc_action.name) <> "Input"
@@ -382,13 +383,15 @@ defmodule AshSwift.Codegen.Reader do
       }
 
       # The action's own input struct plus any nested structs its array-of-record
-      # arguments generated (e.g. `UploadStartClipsItem` for a `clips` argument).
-      new_structs =
+      # arguments generated (e.g. `UploadStartClipsItem` for a `clips` argument),
+      # plus any structs the typed-`:map` return generated (e.g. `UploadStartResult`
+      # and a nested `UploadStartResultClipsItem` — see generic_action_return/4).
+      input_structs =
         if input_struct_name,
           do: [%{struct_name: input_struct_name, fields: inputs} | nested_structs],
           else: nested_structs
 
-      {[action | actions_acc], new_structs ++ structs_acc}
+      {[action | actions_acc], input_structs ++ result_structs ++ structs_acc}
     else
       # A return that needs field selection / maps to no Swift type, or an argument
       # of an unmappable type (e.g. a list/array arg) — skip the whole action with
@@ -434,7 +437,13 @@ defmodule AshSwift.Codegen.Reader do
   defp collect_generic_action_inputs(maction, rpc_action, resource, formatter) do
     maction.inputs
     |> Enum.reduce_while({:ok, [], []}, fn input, {:ok, fields_acc, structs_acc} ->
-      case generic_input_swift_type(input.type, rpc_action.name, input.name, resource, formatter) do
+      case generic_field_swift_type(
+             input.type,
+             pascal_case(rpc_action.name),
+             input.name,
+             resource,
+             formatter
+           ) do
         {:ok, swift_type, nested_structs} ->
           field = %{
             name: FieldFormatter.format_field_for_client(input.name, resource, formatter),
@@ -456,25 +465,30 @@ defmodule AshSwift.Codegen.Reader do
     end
   end
 
-  # The Swift type for one generic-action argument, plus any nested input structs it
-  # generates. Arrays map their element type; everything else defers to
-  # TypeMap.generic_swift_type/1 (scalar → its Swift type, map → `[String: AshJSON]`).
-  defp generic_input_swift_type(
+  # The Swift type for one generic-action field — an argument (input side) or a
+  # typed-`:map` return's field (output side) — plus any nested structs it
+  # generates. `name_prefix` is the already-pascal-cased struct-name root
+  # (`UploadStart` for an argument, `UploadStartResult` for a return field), which
+  # keeps an argument's and a return's nested struct names distinct even when both
+  # carry a `clips` array (no `UploadStartClipsItem` collision). Arrays map their
+  # element type; everything else defers to TypeMap.generic_swift_type/1 (scalar →
+  # its Swift type, map → `[String: AshJSON]`).
+  defp generic_field_swift_type(
          %{kind: :array, item_type: item},
-         action_name,
-         arg_name,
+         name_prefix,
+         field_name,
          resource,
          formatter
        )
        when not is_nil(item) do
     case item do
       # An array of a constrained map = a typed record list. Generate a named nested
-      # struct (e.g. `UploadStartClipsItem`) so the element is compiler-checked
-      # rather than an untyped `[[String: AshJSON]]`.
+      # struct (e.g. `UploadStartClipsItem` / `UploadStartResultClipsItem`) so the
+      # element is compiler-checked rather than an untyped `[[String: AshJSON]]`.
       %{kind: :map, fields: item_fields} when is_list(item_fields) and item_fields != [] ->
         case collect_record_struct_fields(item_fields, resource, formatter) do
           {:ok, struct_fields} ->
-            struct_name = pascal_case(action_name) <> pascal_case(arg_name) <> "Item"
+            struct_name = name_prefix <> pascal_case(field_name) <> "Item"
 
             {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
 
@@ -491,7 +505,7 @@ defmodule AshSwift.Codegen.Reader do
     end
   end
 
-  defp generic_input_swift_type(type, _action_name, _arg_name, _resource, _formatter) do
+  defp generic_field_swift_type(type, _name_prefix, _field_name, _resource, _formatter) do
     case TypeMap.generic_swift_type(type) do
       {:ok, swift} -> {:ok, swift, []}
       :unsupported -> :unsupported
@@ -733,15 +747,80 @@ defmodule AshSwift.Codegen.Reader do
     {fields, sorted_enums}
   end
 
-  # Classifies a generic action's return: nil -> :void (a side-effecting action);
-  # otherwise through TypeMap.generic_swift_type/1 (scalar/map -> {:typed, t};
-  # anything needing field selection or otherwise unmapped -> :unsupported).
-  # Resource/struct returns are Tier C — they need field selection (issue #56).
-  defp generic_action_return(nil), do: :void
+  # Classifies a generic action's return, returning `{gen_return, structs}` on
+  # success (or bare `:unsupported` on failure, so the caller's `with` skips the
+  # whole action):
+  #
+  #   * `nil`                       -> {:void, []}        (a side-effecting action)
+  #   * a **constrained** `:map`    -> {{:typed, "<Rpc>Result"}, [result struct | nested]}
+  #     (a `:map` carrying `fields:` constraints, e.g. SwingClips' upload_start
+  #     manifest) — generate a typed Decodable struct so the caller gets
+  #     `UploadStartResult { videoId, clips: [UploadStartResultClipsItem] }` instead
+  #     of an untyped `[String: AshJSON]`. An `{:array, :map}` field rides the same
+  #     nested-struct machinery as an array-of-record argument (issue #70).
+  #   * an **unconstrained** `:map` -> {{:typed, "[String: AshJSON]"}, []}
+  #     (no `fields:` — the action opted out of typing, keys are the caller's)
+  #   * a scalar                    -> {{:typed, t}, []}
+  #   * anything else               -> :unsupported (resource/struct returns are
+  #     Tier C — they need field selection, issue #56)
+  defp generic_action_return(nil, _rpc_name, _resource, _formatter), do: {:void, []}
 
-  defp generic_action_return(type) do
+  defp generic_action_return(%{kind: :map, fields: fields}, rpc_name, resource, formatter)
+       when is_list(fields) and fields != [] do
+    result_struct_name = pascal_case(rpc_name) <> "Result"
+
+    case collect_result_struct_fields(fields, result_struct_name, resource, formatter) do
+      {:ok, struct_fields, nested_structs} ->
+        result_struct = %{
+          struct_name: result_struct_name,
+          fields: struct_fields,
+          decodable?: true
+        }
+
+        {{:typed, result_struct_name}, [result_struct | nested_structs]}
+
+      :unsupported ->
+        :unsupported
+    end
+  end
+
+  defp generic_action_return(type, _rpc_name, _resource, _formatter) do
     case TypeMap.generic_swift_type(type) do
-      {:ok, swift_type} -> {:typed, swift_type}
+      {:ok, swift_type} -> {{:typed, swift_type}, []}
+      :unsupported -> :unsupported
+    end
+  end
+
+  # The fields of a typed-`:map` return struct, plus any nested structs an
+  # `{:array, :map}` field generated. Symmetric with collect_generic_action_inputs/4
+  # but for the return side: each field maps via generic_field_swift_type/5 (so an
+  # array-of-constrained-map field becomes `[<Result><Field>Item]` + a nested
+  # struct, an array-of-scalar `[Scalar]`, a plain map `[String: AshJSON]`), and a
+  # field's optionality is its `allow_nil?` — required only when explicitly `false`,
+  # matching the map-constraint nullable-by-default rule (collect_record_struct_fields).
+  # The generated structs are tagged `decodable?: true` so the emitter renders them
+  # as Decodable result structs, not Encodable input structs. Any unmappable field
+  # makes the whole return — and so the action — unsupported.
+  defp collect_result_struct_fields(fields, name_prefix, resource, formatter) do
+    fields
+    |> Enum.reduce_while({:ok, [], []}, fn field, {:ok, fields_acc, structs_acc} ->
+      case generic_field_swift_type(field.type, name_prefix, field.name, resource, formatter) do
+        {:ok, swift_type, nested_structs} ->
+          struct_field = %{
+            name: FieldFormatter.format_field_for_client(field.name, resource, formatter),
+            swift_type: swift_type,
+            required?: field.allow_nil? == false
+          }
+
+          decodable = Enum.map(nested_structs, &Map.put(&1, :decodable?, true))
+          {:cont, {:ok, [struct_field | fields_acc], decodable ++ structs_acc}}
+
+        :unsupported ->
+          {:halt, :unsupported}
+      end
+    end)
+    |> case do
+      {:ok, struct_fields, structs} -> {:ok, Enum.sort_by(struct_fields, & &1.name), structs}
       :unsupported -> :unsupported
     end
   end
