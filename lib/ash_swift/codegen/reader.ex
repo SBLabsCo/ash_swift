@@ -360,7 +360,8 @@ defmodule AshSwift.Codegen.Reader do
          {actions_acc, structs_acc} = acc
        ) do
     with gen_return when gen_return != :unsupported <- generic_action_return(maction.returns),
-         {:ok, inputs} <- collect_generic_action_inputs(maction, resource, formatter) do
+         {:ok, inputs, nested_structs} <-
+           collect_generic_action_inputs(maction, rpc_action, resource, formatter) do
       input_struct_name = if inputs == [], do: nil, else: pascal_case(rpc_action.name) <> "Input"
 
       action = %{
@@ -380,12 +381,14 @@ defmodule AshSwift.Codegen.Reader do
         generic_return: gen_return
       }
 
-      new_struct =
+      # The action's own input struct plus any nested structs its array-of-record
+      # arguments generated (e.g. `UploadStartClipsItem` for a `clips` argument).
+      new_structs =
         if input_struct_name,
-          do: [%{struct_name: input_struct_name, fields: inputs}],
-          else: []
+          do: [%{struct_name: input_struct_name, fields: inputs} | nested_structs],
+          else: nested_structs
 
-      {[action | actions_acc], new_struct ++ structs_acc}
+      {[action | actions_acc], new_structs ++ structs_acc}
     else
       # A return that needs field selection / maps to no Swift type, or an argument
       # of an unmappable type (e.g. a list/array arg) — skip the whole action with
@@ -419,32 +422,108 @@ defmodule AshSwift.Codegen.Reader do
 
   # Maps a generic action's arguments to input-struct fields. Unlike create/update
   # inputs (resolved against resource attributes), a generic action's inputs are
-  # action arguments carrying their own manifest type, so the Swift type comes from
-  # TypeMap.generic_swift_type/1 and optionality from `input.required?` (the presence flag
-  # the Argument moduledoc points consumers at). If ANY argument has an unmappable
-  # type (module: nil array, struct, …), the whole action is unsupported —
-  # returning {:unsupported, name} so the caller skips it, symmetric with the
-  # return-type gate. Otherwise returns {:ok, fields} sorted by name.
-  defp collect_generic_action_inputs(maction, resource, formatter) do
+  # action arguments carrying their own manifest type. A scalar or map argument
+  # maps directly via TypeMap.generic_swift_type/1; an **array** argument maps its
+  # element type — an array of a scalar becomes `[Scalar]`, an array of a
+  # constrained map (a typed record, e.g. `clips`) becomes `[ActionArgItem]` plus a
+  # generated nested input struct. Optionality comes from `input.required?`. If ANY
+  # argument has an unmappable type (an unconstrained array element, struct, …) the
+  # whole action is unsupported — returning {:unsupported, name} so the caller skips
+  # it, symmetric with the return-type gate. Otherwise returns {:ok, fields,
+  # nested_structs} with fields sorted by name.
+  defp collect_generic_action_inputs(maction, rpc_action, resource, formatter) do
     maction.inputs
-    |> Enum.reduce_while({:ok, []}, fn input, {:ok, acc} ->
-      case TypeMap.generic_swift_type(input.type) do
-        {:ok, swift_type} ->
+    |> Enum.reduce_while({:ok, [], []}, fn input, {:ok, fields_acc, structs_acc} ->
+      case generic_input_swift_type(input.type, rpc_action.name, input.name, resource, formatter) do
+        {:ok, swift_type, nested_structs} ->
           field = %{
             name: FieldFormatter.format_field_for_client(input.name, resource, formatter),
             swift_type: swift_type,
             required?: input.required?
           }
 
-          {:cont, {:ok, [field | acc]}}
+          # Accumulation order of nested_structs doesn't matter: collect_query_surface
+          # sorts all input_structs by struct name, so output stays deterministic.
+          {:cont, {:ok, [field | fields_acc], nested_structs ++ structs_acc}}
 
         :unsupported ->
           {:halt, {:unsupported, input.name}}
       end
     end)
     |> case do
-      {:ok, fields} -> {:ok, Enum.sort_by(fields, & &1.name)}
+      {:ok, fields, structs} -> {:ok, Enum.sort_by(fields, & &1.name), structs}
       unsupported -> unsupported
+    end
+  end
+
+  # The Swift type for one generic-action argument, plus any nested input structs it
+  # generates. Arrays map their element type; everything else defers to
+  # TypeMap.generic_swift_type/1 (scalar → its Swift type, map → `[String: AshJSON]`).
+  defp generic_input_swift_type(
+         %{kind: :array, item_type: item},
+         action_name,
+         arg_name,
+         resource,
+         formatter
+       )
+       when not is_nil(item) do
+    case item do
+      # An array of a constrained map = a typed record list. Generate a named nested
+      # struct (e.g. `UploadStartClipsItem`) so the element is compiler-checked
+      # rather than an untyped `[[String: AshJSON]]`.
+      %{kind: :map, fields: item_fields} when is_list(item_fields) and item_fields != [] ->
+        case collect_record_struct_fields(item_fields, resource, formatter) do
+          {:ok, struct_fields} ->
+            struct_name = pascal_case(action_name) <> pascal_case(arg_name) <> "Item"
+
+            {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
+
+          :unsupported ->
+            :unsupported
+        end
+
+      # An array of a scalar (or an unconstrained map) maps element-wise.
+      element ->
+        case TypeMap.generic_swift_type(element) do
+          {:ok, swift} -> {:ok, "[#{swift}]", []}
+          :unsupported -> :unsupported
+        end
+    end
+  end
+
+  defp generic_input_swift_type(type, _action_name, _arg_name, _resource, _formatter) do
+    case TypeMap.generic_swift_type(type) do
+      {:ok, swift} -> {:ok, swift, []}
+      :unsupported -> :unsupported
+    end
+  end
+
+  # The fields of a generated nested record struct (an array-of-map argument's
+  # element). Each field maps via TypeMap.generic_swift_type/1; a field is required
+  # only when `allow_nil?` is explicitly `false` — map-constraint fields are
+  # nullable by default, so an unset (`nil`) `allow_nil?` is an optional Swift
+  # property, not a required one. Any unmappable field type makes the whole element
+  # — and so the action — unsupported.
+  defp collect_record_struct_fields(fields, resource, formatter) do
+    fields
+    |> Enum.reduce_while({:ok, []}, fn field, {:ok, acc} ->
+      case TypeMap.generic_swift_type(field.type) do
+        {:ok, swift} ->
+          struct_field = %{
+            name: FieldFormatter.format_field_for_client(field.name, resource, formatter),
+            swift_type: swift,
+            required?: field.allow_nil? == false
+          }
+
+          {:cont, {:ok, [struct_field | acc]}}
+
+        :unsupported ->
+          {:halt, :unsupported}
+      end
+    end)
+    |> case do
+      {:ok, struct_fields} -> {:ok, Enum.sort_by(struct_fields, & &1.name)}
+      :unsupported -> :unsupported
     end
   end
 

@@ -26,8 +26,10 @@ and a TypeScript client stay wire-identical by construction.
 > (`count`/`exists`/`max`-style derived values plus computed calculations, decoded
 > into the generated model like any other field). **Generic actions**
 > (`:action`-type, command-style calls such as an auth bootstrap) also generate —
-> with typed argument inputs and void/scalar/map returns (typed-record returns
-> needing field selection are tracked separately). Under the
+> with typed argument inputs (scalars, maps, and **arrays**, including arrays of
+> constrained-map records that become nested input structs) and void/scalar/map
+> returns (typed-record *returns* needing field selection are tracked separately).
+> Under the
 > hood, codegen now reads Ash's native API manifest (`Ash.Info.Manifest`) as its
 > sole metadata source rather than walking resource reflection directly — see
 > [ADR-0009](https://github.com/SBLabsCo/ash_swift/blob/main/docs/adr/0009-adopt-ash-info-manifest-as-codegen-ir.md).
@@ -51,9 +53,13 @@ and a TypeScript client stay wire-identical by construction.
 - **Generic actions** — command-style `:action`-type actions (e.g. an auth
   bootstrap like `requestMagicLink`) generate a callable function whose typed
   input struct is built from the action's *arguments*, returning the action's
-  result: nothing (a side-effecting `async throws`), a scalar, or a JSON map. A
-  generic action returning a resource/struct that needs field selection is not
-  generated yet ([#56](https://github.com/SBLabsCo/ash_swift/issues/56)).
+  result: nothing (a side-effecting `async throws`), a scalar, or a JSON map.
+  Arguments may be **arrays** — an array of a scalar becomes `[Scalar]`, and an
+  array of a constrained map (a typed record) generates a nested input struct so
+  the element is compiler-checked rather than untyped JSON (e.g. an
+  `uploadStart(input:)` taking `[UploadStartClipsItem]`). A generic action
+  *returning* a resource/struct that needs field selection is not generated yet
+  ([#56](https://github.com/SBLabsCo/ash_swift/issues/56)).
 - **Ad-hoc field selection** — request only the fields a screen needs, including
   fields on nested relationships. Every model field is `Optional`, so unselected
   fields safely decode as `nil`.
