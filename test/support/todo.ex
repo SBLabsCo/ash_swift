@@ -173,5 +173,13 @@ defmodule AshSwift.Test.Todo do
       argument :matrix, {:array, {:array, :string}}, allow_nil?: true
       run fn _input, _ctx -> :ok end
     end
+
+    # An **unconstrained** `{:array, :map}` argument (no `items: [fields: ...]`): the
+    # element is a plain map, so it maps element-wise to `[[String: AshJSON]]` rather
+    # than a generated struct. Regression guard for that fall-through branch.
+    action :bulk_raw, :map do
+      argument :rows, {:array, :map}, allow_nil?: false
+      run fn _input, _ctx -> {:ok, %{}} end
+    end
   end
 end

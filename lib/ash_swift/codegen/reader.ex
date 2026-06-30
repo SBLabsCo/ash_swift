@@ -442,6 +442,8 @@ defmodule AshSwift.Codegen.Reader do
             required?: input.required?
           }
 
+          # Accumulation order of nested_structs doesn't matter: collect_query_surface
+          # sorts all input_structs by struct name, so output stays deterministic.
           {:cont, {:ok, [field | fields_acc], nested_structs ++ structs_acc}}
 
         :unsupported ->
@@ -497,10 +499,11 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # The fields of a generated nested record struct (an array-of-map argument's
-  # element). Each field maps via TypeMap.generic_swift_type/1; a field's optionality
-  # is its `allow_nil?` (an argument map's `allow_nil? true` field is optional in
-  # Swift). Any unmappable field type makes the whole element — and so the action —
-  # unsupported.
+  # element). Each field maps via TypeMap.generic_swift_type/1; a field is required
+  # only when `allow_nil?` is explicitly `false` — map-constraint fields are
+  # nullable by default, so an unset (`nil`) `allow_nil?` is an optional Swift
+  # property, not a required one. Any unmappable field type makes the whole element
+  # — and so the action — unsupported.
   defp collect_record_struct_fields(fields, resource, formatter) do
     fields
     |> Enum.reduce_while({:ok, []}, fn field, {:ok, acc} ->
@@ -509,7 +512,7 @@ defmodule AshSwift.Codegen.Reader do
           struct_field = %{
             name: FieldFormatter.format_field_for_client(field.name, resource, formatter),
             swift_type: swift,
-            required?: field.allow_nil? != true
+            required?: field.allow_nil? == false
           }
 
           {:cont, {:ok, [struct_field | acc]}}

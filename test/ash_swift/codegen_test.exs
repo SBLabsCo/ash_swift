@@ -960,6 +960,17 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "try container.encodeIfPresent(priority, forKey: .priority)"
     end
 
+    test "an unconstrained array-of-map argument maps to [[String: AshJSON]]", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      types = files["AshRpcTypes.swift"]
+
+      # `bulk_raw` takes a `{:array, :map}` with no field constraints — the element
+      # is a plain map, so it falls through to `[[String: AshJSON]]` rather than a
+      # generated struct.
+      assert functions =~ "public func bulkRaw(input: BulkRawInput) async throws"
+      assert types =~ "public var rows: [[String: AshJSON]]"
+    end
+
     test "a nested-array argument (unmappable element) is still skipped with a warning", %{
       files: files
     } do

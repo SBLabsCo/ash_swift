@@ -35,6 +35,7 @@ defmodule AshSwift.Test.Domain do
       rpc_action(:broadcast, :broadcast)
       rpc_action(:bulk_create, :bulk_create)
       rpc_action(:deep_broadcast, :deep_broadcast)
+      rpc_action(:bulk_raw, :bulk_raw)
     end
 
     resource AshSwift.Test.User do
