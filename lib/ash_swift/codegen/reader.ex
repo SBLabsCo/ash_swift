@@ -417,7 +417,7 @@ defmodule AshSwift.Codegen.Reader do
 
   defp warn_skip_generic(maction, reason) do
     Logger.warning(
-      "AshSwift: generic action #{inspect(maction.name)} #{reason}; skipping. Typed-record " <>
+      "AshSwift: generic action #{inspect(maction.name)} #{reason}; skipping. Resource/struct " <>
         "returns (field selection) are tracked in issue #56; other unmapped shapes are out of " <>
         "scope for the generic-action slice (#54)."
     )
