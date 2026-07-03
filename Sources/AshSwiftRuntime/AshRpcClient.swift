@@ -13,9 +13,23 @@ public struct AshRpcClient: Sendable {
     public let transport: Transport
 
     // Owned once rather than per-call: this is the hot path under every
-    // generated function, and a single coder is the natural seam for
-    // configuring key/date strategies in a later slice.
-    private let encoder = JSONEncoder()
+    // generated function. Symmetric with `decoder` below: an `Ash.Type.UtcDatetime`
+    // / `UtcDatetimeUsec` argument is a Swift `Date`, and the backend expects it as
+    // an ISO 8601 UTC string. Foundation's default `.deferredToDate` would encode a
+    // bare Double (Apple reference-date seconds), which the RPC pipeline can't cast
+    // to a datetime — so an action taking a `captured_at`-style `Date` argument would
+    // be rejected. Encode with fractional seconds (the `UtcDatetimeUsec` shape); a
+    // plain `UtcDatetime` field accepts the fractional form and truncates it.
+    private let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .custom { date, encoder in
+            let fmt = ISO8601DateFormatter()
+            fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            var container = encoder.singleValueContainer()
+            try container.encode(fmt.string(from: date))
+        }
+        return e
+    }()
 
     // Configured at init time to decode Ash.Type.UtcDatetime and
     // Ash.Type.UtcDatetimeUsec fields. Both arrive as ISO 8601 UTC strings:

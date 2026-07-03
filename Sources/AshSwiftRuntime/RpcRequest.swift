@@ -100,15 +100,17 @@ public struct DestroyBody: Encodable, Sendable {
     let identity: String
 }
 
-/// Body for generic (`:action`-type) actions: the action name plus the typed
-/// `input` when the action takes arguments. `input` is omitted from the JSON
-/// when nil (the synthesized `encodeIfPresent`), so a no-argument generic action
-/// sends just `{"action": …}`. Generic actions in this slice carry no field
-/// selection (typed-record returns that would need it are deferred), so there is
-/// no `fields` key — wire-confirmed against the RPC pipeline (issue #54).
+/// Body for generic (`:action`-type) actions: the action name, the typed `input`
+/// when the action takes arguments, and — for a **typed-map return** — the field
+/// selection the RPC pipeline requires. `input` and `fields` are each omitted from
+/// the JSON when nil (the synthesized `encodeIfPresent`): a no-argument, void or
+/// scalar generic action sends just `{"action": …}` (wire-confirmed, issue #54),
+/// while a constrained-`:map` return (a typed `{Rpc}Result` struct) sends `fields`
+/// exactly like a read/create — the backend rejects it otherwise (issue #73).
 public struct GenericActionBody<I: Encodable & Sendable>: Encodable, Sendable {
     let action: String
     let input: I?
+    let fields: [FieldSelection]?
 }
 
 /// The input type for a generic action that takes no arguments. Pins the input
@@ -360,23 +362,28 @@ public struct DestroyRequest: RpcRequest {
 }
 
 /// A generic (`:action`-type) action that returns a value: encodes the optional
-/// typed `input` and decodes the response's `data` into `O` (a scalar or a
-/// `[String: AshJSON]` map). For a no-argument action, pin `I` to
-/// `EmptyActionInput` and leave `input` nil. See issue #54.
+/// typed `input` and decodes the response's `data` into `O` (a scalar, a
+/// `[String: AshJSON]` map, or a typed `{Rpc}Result` struct). Pass `fields` when
+/// `O` is a constrained-`:map` result struct — the RPC pipeline requires field
+/// selection for it, exactly like a read (issue #73); leave it nil for a scalar or
+/// untyped-map return. For a no-argument action, pin `I` to `EmptyActionInput` and
+/// leave `input` nil. See issue #54.
 public struct GenericActionRequest<O: Decodable & Sendable, I: Encodable & Sendable>:
     DataEnvelopeRequest
 {
     public typealias Output = O
     let action: String
     let input: I?
+    let fields: [FieldSelection]?
 
-    public init(action: String, input: I? = nil) {
+    public init(action: String, input: I? = nil, fields: [FieldSelection]? = nil) {
         self.action = action
         self.input = input
+        self.fields = fields
     }
 
     public func makeBody() -> GenericActionBody<I> {
-        GenericActionBody(action: action, input: input)
+        GenericActionBody(action: action, input: input, fields: fields)
     }
 }
 
@@ -395,7 +402,8 @@ public struct VoidActionRequest<I: Encodable & Sendable>: RpcRequest {
     }
 
     public func makeBody() -> GenericActionBody<I> {
-        GenericActionBody(action: action, input: input)
+        // A void action returns nothing, so it never carries field selection.
+        GenericActionBody(action: action, input: input, fields: nil)
     }
 
     public func decode(from data: Data, using decoder: JSONDecoder) throws {

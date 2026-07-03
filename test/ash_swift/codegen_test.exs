@@ -1000,12 +1000,19 @@ defmodule AshSwift.CodegenTest do
 
       # `upload_start` returns a `:map` carrying `fields:` constraints — the typed
       # manifest mirrors SwingClips' upload_start. The function returns the generated
-      # struct (not `[String: AshJSON]`), and the input generic infers from `input:`.
+      # struct (not `[String: AshJSON]`), the input generic infers from `input:`, and
+      # — because the return is field-selectable — it carries a required `fields:`
+      # selection the RPC pipeline demands (issue #73).
       assert functions =~
-               "public func uploadStart(input: UploadStartInput) async throws -> UploadStartResult {"
+               "public func uploadStart(input: UploadStartInput, fields: [FieldSelection]) async throws -> UploadStartResult {"
 
       assert functions =~
-               ~s[return try await client.execute(GenericActionRequest(action: "upload_start", input: input))]
+               ~s[return try await client.execute(GenericActionRequest(action: "upload_start", input: input, fields: fields))]
+
+      # Regression (issue #73): the fields-less form the RPC pipeline rejects must
+      # not be emitted for a field-selectable typed-record return.
+      refute functions =~
+               "public func uploadStart(input: UploadStartInput) async throws -> UploadStartResult {"
 
       # Decode-only struct (no encode/CodingKeys — Swift synthesises init(from:)).
       assert types =~ "public struct UploadStartResult: Decodable, Sendable, Equatable {"

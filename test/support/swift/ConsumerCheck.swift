@@ -120,8 +120,11 @@ enum ConsumerCheck {
         // manifest decodes into a generated `UploadStartResult` struct, so result
         // fields are compiler-checked rather than dug out of an untyped
         // [String: AshJSON]. The nested {:array, :map} field decodes element structs.
+        // A field-selectable typed-record return carries a `fields:` selection the
+        // RPC pipeline requires (issue #73) — including the nested relationship form.
         let manifest: UploadStartResult = try await rpc.uploadStart(
-            input: UploadStartInput(filename: "clip.mov")
+            input: UploadStartInput(filename: "clip.mov"),
+            fields: ["videoId", .relationship("clips", ["clipId", "orderIndex", "uploadUrl"])]
         )
         let _: String = manifest.videoId             // required → non-optional
         let _: String? = manifest.caption            // nullable-default → optional
