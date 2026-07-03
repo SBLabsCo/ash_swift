@@ -417,7 +417,7 @@ defmodule AshSwift.Codegen.Reader do
 
   defp warn_skip_generic(maction, reason) do
     Logger.warning(
-      "AshSwift: generic action #{inspect(maction.name)} #{reason}; skipping. Typed-record " <>
+      "AshSwift: generic action #{inspect(maction.name)} #{reason}; skipping. Resource/struct " <>
         "returns (field selection) are tracked in issue #56; other unmapped shapes are out of " <>
         "scope for the generic-action slice (#54)."
     )
@@ -752,12 +752,14 @@ defmodule AshSwift.Codegen.Reader do
   # whole action):
   #
   #   * `nil`                       -> {:void, []}        (a side-effecting action)
-  #   * a **constrained** `:map`    -> {{:typed, "<Rpc>Result"}, [result struct | nested]}
+  #   * a **constrained** `:map`    -> {{:typed_record, "<Rpc>Result"}, [result struct | nested]}
   #     (a `:map` carrying `fields:` constraints, e.g. SwingClips' upload_start
   #     manifest) — generate a typed Decodable struct so the caller gets
   #     `UploadStartResult { videoId, clips: [UploadStartResultClipsItem] }` instead
   #     of an untyped `[String: AshJSON]`. An `{:array, :map}` field rides the same
-  #     nested-struct machinery as an array-of-record argument (issue #70).
+  #     nested-struct machinery as an array-of-record argument (issue #70). Tagged
+  #     `:typed_record` (not `:typed`) because the RPC pipeline requires a `fields:`
+  #     selection for it, so the emitter threads a `fields:` argument (issue #73).
   #   * an **unconstrained** `:map` -> {{:typed, "[String: AshJSON]"}, []}
   #     (no `fields:` — the action opted out of typing, keys are the caller's)
   #   * a scalar                    -> {{:typed, t}, []}
@@ -777,7 +779,10 @@ defmodule AshSwift.Codegen.Reader do
           decodable?: true
         }
 
-        {{:typed, result_struct_name}, [result_struct | nested_structs]}
+        # `:typed_record` (not `:typed`) so the emitter knows this return is a
+        # field-selectable typed struct: the RPC pipeline requires a `fields:`
+        # selection for it (issue #73), unlike a scalar or untyped-map return.
+        {{:typed_record, result_struct_name}, [result_struct | nested_structs]}
 
       :unsupported ->
         :unsupported

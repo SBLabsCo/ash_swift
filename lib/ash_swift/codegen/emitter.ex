@@ -552,11 +552,14 @@ defmodule AshSwift.Codegen.Emitter do
   end
 
   # Generic (`:action`-type) actions (#54). Inputs are action arguments collected
-  # into an input struct (nil when the action takes none); the return is :void or
-  # {:typed, swift_type} (scalar/map — typed-record returns are skipped upstream).
-  # The body is just {action, input?} — no field selection in this slice. When the
-  # action takes no arguments the request's input generic has nothing to infer it
-  # from, so it's pinned explicitly to the runtime's EmptyActionInput sentinel.
+  # into an input struct (nil when the action takes none); the return is :void,
+  # {:typed, swift_type} (scalar/untyped-map), or {:typed_record, swift_type} (a
+  # constrained-`:map` return typed as a generated `{Rpc}Result` struct, #70). The
+  # body is {action, input?, fields?}: only a `:typed_record` return carries field
+  # selection — the RPC pipeline requires `fields:` for it, exactly like a read
+  # (#73); a void/scalar/untyped-map return sends none. When the action takes no
+  # arguments the request's input generic has nothing to infer it from, so it's
+  # pinned explicitly to the runtime's EmptyActionInput sentinel.
   defp method_spec(
          %{
            rpc_name: rpc_name,
@@ -583,24 +586,34 @@ defmodule AshSwift.Codegen.Emitter do
           {nil, "VoidActionRequest"}
 
         # Typed + no input: O can't infer through execute without an `input:` to
-        # anchor I, so both generics are explicit.
-        {{:typed, swift_type}, nil} ->
+        # anchor I, so both generics are explicit. Covers scalar/untyped-map and the
+        # field-selectable typed-record return (same request type — they differ only
+        # in whether a `fields:` argument is threaded, handled below).
+        {{typed, swift_type}, nil} when typed in [:typed, :typed_record] ->
           {swift_type, "GenericActionRequest<#{swift_type}, EmptyActionInput>"}
 
         # Typed + input: I infers from `input:`, O from the return position through
         # execute (as create/update infer their record type).
-        {{:typed, swift_type}, _} ->
+        {{typed, swift_type}, _} when typed in [:typed, :typed_record] ->
           {swift_type, "GenericActionRequest"}
+      end
+
+    # A field-selectable typed-record return carries a required `fields:` selection
+    # (spliced after `input`); scalar/untyped-map/void returns carry none (#73).
+    {fields_params, fields_args} =
+      case gen_return do
+        {:typed_record, _} -> {[fields_param()], [{"fields", "fields"}]}
+        _ -> {[], []}
       end
 
     %{
       rpc_name: rpc_name,
       func_name: lower_camel(rpc_name),
       doc: "generic action",
-      params: params,
+      params: params ++ fields_params,
       return_type: return_type,
       request_type: request_type,
-      request_args: [{"action", swift_string(rpc_name)}] ++ input_args
+      request_args: [{"action", swift_string(rpc_name)}] ++ input_args ++ fields_args
     }
   end
 

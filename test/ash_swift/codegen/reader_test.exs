@@ -157,8 +157,10 @@ defmodule AshSwift.Codegen.ReaderTest do
       todo = resource(Reader.read(@domains), "Todo")
       upload = Enum.find(todo.actions, &(&1.rpc_name == :upload_start))
 
-      # The return is the generated struct, not [String: AshJSON].
-      assert upload.generic_return == {:typed, "UploadStartResult"}
+      # The return is the generated struct, not [String: AshJSON]. Tagged
+      # `:typed_record` (not `:typed`) so the emitter threads the required `fields:`
+      # selection for this field-selectable return (issue #73).
+      assert upload.generic_return == {:typed_record, "UploadStartResult"}
 
       result = Enum.find(todo.input_structs, &(&1.struct_name == "UploadStartResult"))
       assert result, "expected a generated UploadStartResult struct"
