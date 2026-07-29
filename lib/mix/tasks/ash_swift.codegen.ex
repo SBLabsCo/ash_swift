@@ -2,7 +2,7 @@ defmodule Mix.Tasks.AshSwift.Codegen do
   @shortdoc "Generates a type-safe Swift client for Ash RPC actions"
 
   @moduledoc """
-  Generates Swift client source from the project's reused `typescript_rpc`
+  Generates Swift client source from the project's reused `rpc`
   configuration (ADR-0003) and writes it to a configurable output directory.
 
   ## Usage

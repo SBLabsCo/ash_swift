@@ -61,10 +61,11 @@ defmodule AshSwift.MixProject do
       # 3.29 introduced `Ash.Info.Manifest`, the language-agnostic codegen IR this
       # extension reads as its sole metadata source (ADR-0009). Earlier 3.x lacks it.
       {:ash, "~> 3.29"},
-      # Pinned to the minor we build the codegen against: it reads AshTypescript
-      # internals (RPC entity shape, Resource.Info type_name accessor) that can
-      # change across 0.x minors (ADR-0003).
-      {:ash_typescript, "~> 0.17"},
+      # The shared RPC core (ADR-0011): the `rpc` DSL, `Rpc.Info`, `Resource.Info`
+      # type_name accessor, field formatters, and the runtime pipeline this
+      # extension's codegen reads and its e2e tests exercise. Extracted from
+      # ash_typescript; a git dep (so CI resolves it) until ash_rpc is on Hex.
+      {:ash_rpc, github: "SBLabsCo/ash_rpc"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end

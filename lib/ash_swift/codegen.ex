@@ -1,6 +1,6 @@
 defmodule AshSwift.Codegen do
   @moduledoc """
-  Generates Swift source from a domain's reused `typescript_rpc` configuration.
+  Generates Swift source from a domain's reused `rpc` configuration.
 
   The generator is intentionally a plain module function: `build_files/1` is
   pure (domains in, `%{relative_path => source}` out) so tests can assert on the

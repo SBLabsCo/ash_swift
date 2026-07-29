@@ -4,7 +4,7 @@ defmodule AshSwift.Test.Todo do
   use Ash.Resource,
     domain: AshSwift.Test.Domain,
     data_layer: Ash.DataLayer.Ets,
-    extensions: [AshTypescript.Resource]
+    extensions: [AshRpc.Resource]
 
   typescript do
     type_name("Todo")
@@ -51,7 +51,7 @@ defmodule AshSwift.Test.Todo do
     end
 
     # A *pure* get? read: no get_by, so the manifest surfaces no lookup inputs
-    # and the record is fetched by primary key. ash_typescript routes a pure
+    # and the record is fetched by primary key. ash_rpc routes a pure
     # get? through the top-level `identity` param, not `input` (issue #66).
     read :fetch do
       get? true

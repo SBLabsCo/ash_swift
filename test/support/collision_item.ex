@@ -4,7 +4,7 @@ defmodule AshSwift.Test.CollisionItem do
   use Ash.Resource,
     domain: AshSwift.Test.CollisionDomain,
     data_layer: Ash.DataLayer.Ets,
-    extensions: [AshTypescript.Resource]
+    extensions: [AshRpc.Resource]
 
   typescript do
     type_name("CollisionItem")

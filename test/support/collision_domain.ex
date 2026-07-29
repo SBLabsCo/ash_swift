@@ -3,10 +3,10 @@ defmodule AshSwift.Test.CollisionDomain do
 
   use Ash.Domain,
     otp_app: :ash_swift,
-    extensions: [AshTypescript.Rpc],
+    extensions: [AshRpc.Rpc],
     validate_config_inclusion?: false
 
-  typescript_rpc do
+  rpc do
     resource AshSwift.Test.CollisionItem do
       rpc_action(:list_collision_items, :read)
     end
