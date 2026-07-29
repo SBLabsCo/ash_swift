@@ -1,6 +1,6 @@
 import Config
 
-# AshSwift reuses AshRpc's RPC runtime and DSL (ADR-0003). Its verifier
+# AshSwift reuses AshRpc's RPC runtime and DSL (ADR-0011). Its verifier
 # requires the field formatters to be set; camelCase matches the Swift idiom we
 # emit for output field/function names (ADR-0002).
 config :ash_rpc,

@@ -3,7 +3,7 @@ defmodule Mix.Tasks.AshSwift.Codegen do
 
   @moduledoc """
   Generates Swift client source from the project's reused `rpc`
-  configuration (ADR-0003) and writes it to a configurable output directory.
+  configuration (ADR-0011) and writes it to a configurable output directory.
 
   ## Usage
 

@@ -1,7 +1,7 @@
 defmodule AshSwift do
   @moduledoc """
   AshSwift is an Elixir/Mix Ash extension that reads Ash resources and their
-  reused `rpc` configuration (see ADR-0003) and generates a
+  reused `rpc` configuration (see ADR-0011) and generates a
   type-safe Swift client — `Codable` models plus `async`/`await` functions —
   that talks JSON over HTTP to the same RPC endpoint AshRpc serves.
 
