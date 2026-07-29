@@ -4,7 +4,7 @@ defmodule AshSwift.Test.User do
   use Ash.Resource,
     domain: AshSwift.Test.Domain,
     data_layer: Ash.DataLayer.Ets,
-    extensions: [AshTypescript.Resource]
+    extensions: [AshRpc.Resource]
 
   typescript do
     type_name("User")

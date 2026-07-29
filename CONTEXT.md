@@ -20,13 +20,13 @@ An Ash action exposed to clients through the domain's RPC configuration, for whi
 The compile-time process (a Mix task) that reads the Ash API manifest and writes the generated client. _Avoid_: "build step", "transpile".
 
 **API manifest** (`Ash.Info.Manifest`):
-Ash's native, language-agnostic intermediate representation of a domain's resources, types, action entrypoints, and filter/sort/pagination capabilities (added in Ash 3.29). Codegen's sole metadata source (ADR-0009); the `typescript_rpc` config still gates which actions are exposed. _Avoid_: "schema dump", "reflection" — it is a structured IR, not raw `Ash.Resource.Info` introspection.
+Ash's native, language-agnostic intermediate representation of a domain's resources, types, action entrypoints, and filter/sort/pagination capabilities (added in Ash 3.29). Codegen's sole metadata source (ADR-0009); the `rpc` config (the `AshRpc.Rpc` DSL) still gates which actions are exposed. _Avoid_: "schema dump", "reflection" — it is a structured IR, not raw `Ash.Resource.Info` introspection.
 
 **Codegen IR**:
 The intermediate representation codegen passes from manifest-reading to Swift-emission: plain (untyped) maps describing each resource and its fields, enums, actions, input structs, and sort/filter surface. Named as the seam between the **Reader** and **Emitter** (ADR-0010). _Avoid_: "AST", "schema" — it is codegen's own internal shape, neither Ash's manifest nor Swift syntax.
 
 **Reader** (`AshSwift.Codegen.Reader`):
-The manifest-facing half of codegen: reads `Ash.Info.Manifest` (plus the `typescript_rpc` config and `TypeMap`) into the **Codegen IR**. Sole entry point `read/1`. Knows about Ash; knows nothing about Swift string formatting. _Avoid_: "parser", "loader".
+The manifest-facing half of codegen: reads `Ash.Info.Manifest` (plus the `rpc` config from `AshRpc.Rpc.Info` and `TypeMap`) into the **Codegen IR**. Sole entry point `read/1`. Knows about Ash; knows nothing about Swift string formatting. _Avoid_: "parser", "loader".
 
 **Emitter** (`AshSwift.Codegen.Emitter`):
 The Swift-facing half of codegen: pure string work turning the **Codegen IR** into the two generated `.swift` files (`render_types/1`, `render_functions/1`). Reads no manifest and never calls back into the **Reader**. _Avoid_: "printer", "renderer" (the functions are `render_*`, but the module is the Emitter), "serializer".
