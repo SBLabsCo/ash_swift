@@ -3,7 +3,7 @@ defmodule AshSwift.SwiftBuildTest do
   The essential M1 guarantee: generated Swift type-checks against the
   AshSwiftRuntime package. Type-safety is the product, so a string-comparison
   test alone is insufficient — this runs the real Swift compiler over the
-  output, mirroring how ash_typescript runs `tsc` over its generated TypeScript.
+  output, mirroring how AshTypescript runs `tsc` over its generated TypeScript.
   """
   use ExUnit.Case, async: false
 

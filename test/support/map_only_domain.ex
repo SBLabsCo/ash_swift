@@ -10,10 +10,10 @@ defmodule AshSwift.Test.MapOnlyDomain do
 
   use Ash.Domain,
     otp_app: :ash_swift,
-    extensions: [AshRpc.Rpc],
+    extensions: [AshTypescript.Rpc],
     validate_config_inclusion?: false
 
-  rpc do
+  typescript_rpc do
     resource AshSwift.Test.MapOnly do
       rpc_action(:list_map_onlys, :read, enable_sort?: false)
       # Sort enabled (default) over a resource with zero sortable attributes —

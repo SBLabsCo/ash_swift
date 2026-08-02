@@ -127,7 +127,7 @@ defmodule AshSwift.Codegen.TypeMap do
   def scalar_filter_group(Ash.Type.Boolean), do: :equatable
   def scalar_filter_group(Ash.Type.Map), do: :exclude
   # String, CiString, UUID, unconstrained Atom, and any unmapped scalar fall to
-  # the equality+membership group — matching AshRpc's `default` filter
+  # the equality+membership group — matching AshTypescript's `default` filter
   # classification (eq/notEq/in over the mapped Swift type, which is String).
   def scalar_filter_group(_type), do: :enum
 
