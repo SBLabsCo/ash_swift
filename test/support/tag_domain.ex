@@ -3,10 +3,10 @@ defmodule AshSwift.Test.TagDomain do
 
   use Ash.Domain,
     otp_app: :ash_swift,
-    extensions: [AshRpc.Rpc],
+    extensions: [AshTypescript.Rpc],
     validate_config_inclusion?: false
 
-  rpc do
+  typescript_rpc do
     resource AshSwift.Test.Tag do
       rpc_action(:list_tags, :read)
     end

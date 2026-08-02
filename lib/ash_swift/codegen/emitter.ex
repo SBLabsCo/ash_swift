@@ -42,7 +42,7 @@ defmodule AshSwift.Codegen.Emitter do
 
   # The logical combinators every `{Resource}Filter` carries (issue #36). Each is
   # rendered as an optional array of the SAME filter type — the idiomatic-Swift
-  # mirror of AshRpc's `and?`/`or?`/`not?` operators. `and`/`or`/`not` are
+  # mirror of AshTypescript's `and?`/`or?`/`not?` operators. `and`/`or`/`not` are
   # the literal wire keys `Ash.Query.filter_input` consumes (confirmed live against
   # the RPC pipeline, including nested and predicate-adjacent forms): they are
   # single words, so the field formatter leaves them untouched, and none is a Swift
@@ -297,7 +297,7 @@ defmodule AshSwift.Codegen.Emitter do
   # two: the unchanged bare `[T]` spec PLUS an overloaded paginated spec whose
   # `page` argument is required. Swift resolves a `page:`-less call to the `[T]`
   # overload and a `page:`-bearing call to the paginated one — the idiomatic-Swift
-  # mirror of AshRpc's `ConditionalPaginatedResult` return type (the return
+  # mirror of AshTypescript's `ConditionalPaginatedResult` return type (the return
   # type is conditional on whether a page argument is supplied). See ADR-0007's
   # optional-pagination addendum.
   defp method_specs(action, type_name) do
@@ -503,7 +503,7 @@ defmodule AshSwift.Codegen.Emitter do
 
   # Update actions: primary-key params + typed input struct + returns the updated record.
   # M1: single primary-key field only; its value travels as the `identity` string
-  # in the AshRpc RPC wire protocol (ADR-0003).
+  # in the AshTypescript RPC wire protocol (ADR-0003).
   defp method_spec(
          %{
            rpc_name: rpc_name,
@@ -634,7 +634,7 @@ defmodule AshSwift.Codegen.Emitter do
   # the RPC backend rejects an empty fields array (`empty_fields_array`), so a
   # `= []` default would compile into a call that always fails at runtime. Omitting
   # the default makes a fields-less call a compile error instead — matching
-  # AshRpc's deliberate "no select-all" field-selection design. See issue #59.
+  # AshTypescript's deliberate "no select-all" field-selection design. See issue #59.
   defp fields_param, do: %{name: "fields", type: "[FieldSelection]", default: nil}
 
   # The optional typed `sort:` parameter and its request argument, threaded into

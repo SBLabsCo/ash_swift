@@ -4,7 +4,7 @@ defmodule AshSwift.Test.CollisionItemPriority do
   use Ash.Resource,
     domain: AshSwift.Test.CollisionDomain,
     data_layer: Ash.DataLayer.Ets,
-    extensions: [AshRpc.Resource]
+    extensions: [AshTypescript.Resource]
 
   typescript do
     type_name("CollisionItemPriority")

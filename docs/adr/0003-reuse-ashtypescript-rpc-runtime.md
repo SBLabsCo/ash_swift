@@ -1,10 +1,5 @@
 # Reuse AshTypescript's RPC runtime for v1; shared `ash_rpc` core is the north star
 
-> **Superseded by [ADR-0011](0011-extract-ash-rpc-shared-core.md)**, which executes
-> the `ash_rpc` extraction this ADR named as the north star. The v1 reuse decision
-> below is the historical record of why we depended on all of `ash_typescript`
-> first.
-
 ash_typescript is two layers: a language-agnostic RPC runtime (request pipeline, field-selection processing, input/output formatting, error building — JSON in, JSON out) and a TypeScript-specific codegen layer on top. For v1, AshSwift depends on `ash_typescript` and reuses its runtime, its `typescript_rpc` DSL, and its HTTP endpoint unchanged — AshSwift adds only a Swift codegen layer plus a small Swift client runtime. This means one RPC configuration on the server feeds both a TypeScript web client and a Swift iOS client hitting the same endpoint, guaranteeing wire compatibility and giving the fastest path to a working dogfood.
 
 We accept two costs short-term: a hard dependency on the whole `ash_typescript` package (esbuild/zod/React installer baggage we don't use) and a DSL named `typescript_rpc` even for Swift-only apps.

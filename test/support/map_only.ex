@@ -9,7 +9,7 @@ defmodule AshSwift.Test.MapOnly do
   use Ash.Resource,
     domain: AshSwift.Test.MapOnlyDomain,
     data_layer: Ash.DataLayer.Ets,
-    extensions: [AshRpc.Resource]
+    extensions: [AshTypescript.Resource]
 
   typescript do
     type_name("MapOnly")

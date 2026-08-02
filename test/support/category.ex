@@ -4,7 +4,7 @@ defmodule AshSwift.Test.Category do
   use Ash.Resource,
     domain: AshSwift.Test.TagDomain,
     data_layer: Ash.DataLayer.Ets,
-    extensions: [AshRpc.Resource]
+    extensions: [AshTypescript.Resource]
 
   typescript do
     type_name("Category")

@@ -1,7 +1,7 @@
 defmodule AshSwift.E2ETest do
   @moduledoc """
   End-to-end wire compatibility: runs actions in-process through the reused
-  AshRpc RPC pipeline, then verifies generated Swift models can decode
+  AshTypescript RPC pipeline, then verifies generated Swift models can decode
   the real JSON responses.
 
   This proves that the Elixir backend and the generated Swift client agree on
@@ -39,14 +39,14 @@ defmodule AshSwift.E2ETest do
       domain: AshSwift.Test.Domain
     )
 
-    # Run the list action through the real AshRpc RPC pipeline.
+    # Run the list action through the real AshTypescript RPC pipeline.
     # A minimal Plug.Conn suffices — no auth needed for these fixture actions.
     # `userId` is sent in client (camelCase) format, the way the Swift client emits
     # it; the pipeline parses it back to `user_id` and formats the response key as
     # `userId`, which must match the generated Swift property name.
     conn = %Plug.Conn{private: %{}, assigns: %{}}
     params = %{"action" => "list_todos", "fields" => ["id", "title", "completed", "userId"]}
-    rpc_result = AshRpc.Rpc.run_action(:ash_swift, conn, params)
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
 
     assert rpc_result["success"] == true
     assert is_list(rpc_result["data"]) and rpc_result["data"] != []
@@ -63,7 +63,7 @@ defmodule AshSwift.E2ETest do
     import AshSwiftRuntime
     import GeneratedClient
 
-    // Decodes a real JSON response from the AshRpc RPC pipeline using
+    // Decodes a real JSON response from the AshTypescript RPC pipeline using
     // the generated Swift model, proving the server and client are wire-compatible.
     final class E2EDecodeTest: XCTestCase {
         func testListResponseDecodesIntoGeneratedModel() throws {
@@ -130,7 +130,7 @@ defmodule AshSwift.E2ETest do
       "fields" => ["id", "title", %{"user" => ["name", "email"]}]
     }
 
-    rpc_result = AshRpc.Rpc.run_action(:ash_swift, conn, params)
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
 
     assert rpc_result["success"] == true
     data = rpc_result["data"]
@@ -207,7 +207,7 @@ defmodule AshSwift.E2ETest do
 
     conn = %Plug.Conn{private: %{}, assigns: %{}}
     params = %{"action" => "list_todos", "fields" => ["id", "title", "priority"]}
-    rpc_result = AshRpc.Rpc.run_action(:ash_swift, conn, params)
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
 
     assert rpc_result["success"] == true
     data = rpc_result["data"]
@@ -289,7 +289,7 @@ defmodule AshSwift.E2ETest do
       "fields" => ["id", "title"]
     }
 
-    get_result = AshRpc.Rpc.run_action(:ash_swift, conn, get_params)
+    get_result = AshTypescript.Rpc.run_action(:ash_swift, conn, get_params)
     assert get_result["success"] == true
     assert is_map(get_result["data"])
 
@@ -304,7 +304,7 @@ defmodule AshSwift.E2ETest do
       "fields" => ["id"]
     }
 
-    find_result = AshRpc.Rpc.run_action(:ash_swift, conn, find_params)
+    find_result = AshTypescript.Rpc.run_action(:ash_swift, conn, find_params)
     assert find_result["success"] == true
     assert find_result["data"] == nil
 
@@ -372,7 +372,7 @@ defmodule AshSwift.E2ETest do
     # no `id` input, so the pipeline rejects it (NoSuchInput) — the failure that
     # compiled fine and only surfaced at runtime.
     input_result =
-      AshRpc.Rpc.run_action(:ash_swift, conn, %{
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
         "action" => "fetch_todo",
         "input" => %{"id" => todo_id},
         "fields" => ["id", "title"]
@@ -383,7 +383,7 @@ defmodule AshSwift.E2ETest do
     # The fix: the pk crosses the wire as the top-level `identity` param — exactly
     # what the generated GetRequest now emits (`identity: id`) — and round-trips.
     identity_result =
-      AshRpc.Rpc.run_action(:ash_swift, conn, %{
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
         "action" => "fetch_todo",
         "identity" => todo_id,
         "fields" => ["id", "title"]
@@ -412,7 +412,7 @@ defmodule AshSwift.E2ETest do
       "fields" => ["id", "title", "completed"]
     }
 
-    create_result = AshRpc.Rpc.run_action(:ash_swift, conn, create_params)
+    create_result = AshTypescript.Rpc.run_action(:ash_swift, conn, create_params)
     assert create_result["success"] == true
     assert is_map(create_result["data"])
     todo_id = create_result["data"]["id"]
@@ -421,7 +421,7 @@ defmodule AshSwift.E2ETest do
     create_json = Jason.encode!(create_result)
 
     # --- Update ---
-    # The AshRpc RPC wire protocol uses `identity` (not `input`) to
+    # The AshTypescript RPC wire protocol uses `identity` (not `input`) to
     # identify the record for update/destroy actions (ADR-0003).
     update_params = %{
       "action" => "update_todo",
@@ -430,7 +430,7 @@ defmodule AshSwift.E2ETest do
       "fields" => ["id", "title", "completed"]
     }
 
-    update_result = AshRpc.Rpc.run_action(:ash_swift, conn, update_params)
+    update_result = AshTypescript.Rpc.run_action(:ash_swift, conn, update_params)
     assert update_result["success"] == true
     assert update_result["data"]["title"] == "E2E Updated Todo"
 
@@ -442,7 +442,7 @@ defmodule AshSwift.E2ETest do
       "identity" => todo_id
     }
 
-    destroy_result = AshRpc.Rpc.run_action(:ash_swift, conn, destroy_params)
+    destroy_result = AshTypescript.Rpc.run_action(:ash_swift, conn, destroy_params)
     assert destroy_result["success"] == true
 
     destroy_json = Jason.encode!(destroy_result)
@@ -665,7 +665,7 @@ defmodule AshSwift.E2ETest do
       "page" => %{"limit" => 2, "offset" => 0}
     }
 
-    rpc_result = AshRpc.Rpc.run_action(:ash_swift, conn, params)
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
 
     assert rpc_result["success"] == true
     data = rpc_result["data"]
@@ -682,7 +682,7 @@ defmodule AshSwift.E2ETest do
     import AshSwiftRuntime
     import GeneratedClient
 
-    // Decodes a real paginated JSON response from the AshRpc RPC pipeline
+    // Decodes a real paginated JSON response from the AshTypescript RPC pipeline
     // using the generated OffsetPage<Todo> type, proving wire compatibility for
     // offset-paginated read actions (issue #16).
     final class E2EOffsetPageTest: XCTestCase {
@@ -763,7 +763,7 @@ defmodule AshSwift.E2ETest do
 
     # Page 1: limit 2, offset 0 -> the two highest-scoring matches, hasMore true.
     page1 =
-      AshRpc.Rpc.run_action(
+      AshTypescript.Rpc.run_action(
         :ash_swift,
         conn,
         Map.put(base_params, "page", %{"limit" => 2, "offset" => 0})
@@ -779,7 +779,7 @@ defmodule AshSwift.E2ETest do
     # Page 2: offset 2 -> the single remaining match, hasMore false. Proves offset
     # walks the filtered + sorted result set, not the unfiltered table.
     page2 =
-      AshRpc.Rpc.run_action(
+      AshTypescript.Rpc.run_action(
         :ash_swift,
         conn,
         Map.put(base_params, "page", %{"limit" => 2, "offset" => 2})
@@ -927,7 +927,7 @@ defmodule AshSwift.E2ETest do
     # Page 1: limit 2 (no cursor) -> the two highest matches, hasMore true, and a
     # `nextPage` cursor to walk forward with.
     page1 =
-      AshRpc.Rpc.run_action(
+      AshTypescript.Rpc.run_action(
         :ash_swift,
         conn,
         Map.put(base_params, "page", %{"limit" => 2})
@@ -942,7 +942,7 @@ defmodule AshSwift.E2ETest do
     # Page 2: same query, `after` the page-1 cursor -> the single remaining match,
     # hasMore false. Proves the cursor round-trips through the generated overload.
     page2 =
-      AshRpc.Rpc.run_action(
+      AshTypescript.Rpc.run_action(
         :ash_swift,
         conn,
         Map.put(base_params, "page", %{"limit" => 2, "after" => after_cursor})
@@ -1091,7 +1091,7 @@ defmodule AshSwift.E2ETest do
       ]
     }
 
-    rpc_result = AshRpc.Rpc.run_action(:ash_swift, conn, params)
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
     assert rpc_result["success"] == true
     data = rpc_result["data"]
     assert is_list(data) and data != []
@@ -1222,7 +1222,7 @@ defmodule AshSwift.E2ETest do
       "sort" => "-title"
     }
 
-    desc_result = AshRpc.Rpc.run_action(:ash_swift, conn, desc_params)
+    desc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, desc_params)
     assert desc_result["success"] == true
     desc_json = Jason.encode!(desc_result)
 
@@ -1232,7 +1232,7 @@ defmodule AshSwift.E2ETest do
       "sort" => "++score"
     }
 
-    nils_first_result = AshRpc.Rpc.run_action(:ash_swift, conn, nils_first_params)
+    nils_first_result = AshTypescript.Rpc.run_action(:ash_swift, conn, nils_first_params)
     assert nils_first_result["success"] == true
     nils_first_json = Jason.encode!(nils_first_result)
 
@@ -1335,7 +1335,7 @@ defmodule AshSwift.E2ETest do
       "filter" => filter_map
     }
 
-    result = AshRpc.Rpc.run_action(:ash_swift, conn, params)
+    result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
     assert result["success"] == true, inspect(result)
     json = Jason.encode!(result)
 
@@ -1445,7 +1445,7 @@ defmodule AshSwift.E2ETest do
       "filter" => filter_map
     }
 
-    result = AshRpc.Rpc.run_action(:ash_swift, conn, params)
+    result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
     assert result["success"] == true, inspect(result)
     json = Jason.encode!(result)
 
@@ -1458,7 +1458,7 @@ defmodule AshSwift.E2ETest do
     not_filter_map = %{"not" => [%{"completed" => %{"eq" => false}}]}
 
     not_result =
-      AshRpc.Rpc.run_action(:ash_swift, conn, %{
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
         "action" => "list_todos",
         "fields" => ["title", "completed", "score", "priority"],
         "filter" => not_filter_map
@@ -1604,7 +1604,7 @@ defmodule AshSwift.E2ETest do
       ]
     }
 
-    rpc_result = AshRpc.Rpc.run_action(:ash_swift, conn, params)
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
     assert rpc_result["success"] == true
     assert is_list(rpc_result["data"]) and rpc_result["data"] != []
 
@@ -1694,7 +1694,7 @@ defmodule AshSwift.E2ETest do
       "fields" => ["id", "name", "displayName"]
     }
 
-    rpc_result = AshRpc.Rpc.run_action(:ash_swift, conn, params)
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
     assert rpc_result["success"] == true
     assert is_list(rpc_result["data"]) and rpc_result["data"] != []
 

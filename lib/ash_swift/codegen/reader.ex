@@ -4,7 +4,7 @@ defmodule AshSwift.Codegen.Reader do
   emitters render. `read/1` is the sole entry point: domains in, a
   `%{primary_resources, all_resources}` map of plain resource/action/field maps
   out. This is the manifest-facing half of codegen (ADR-0009) — it knows about
-  Ash, AshRpc, and `AshSwift.Codegen.TypeMap`; the emitter half is pure
+  Ash, AshTypescript, and `AshSwift.Codegen.TypeMap`; the emitter half is pure
   string work on the maps produced here.
 
   ## IR shape
@@ -47,9 +47,9 @@ defmodule AshSwift.Codegen.Reader do
   alias Ash.Info.Manifest
   alias Ash.Info.Manifest.Resource, as: ManifestResource
   alias AshSwift.Codegen.TypeMap
-  alias AshRpc.FieldFormatter
-  alias AshRpc.Resource.Info, as: ResourceInfo
-  alias AshRpc.Rpc.Info, as: RpcInfo
+  alias AshTypescript.FieldFormatter
+  alias AshTypescript.Resource.Info, as: ResourceInfo
+  alias AshTypescript.Rpc.Info, as: RpcInfo
 
   # Built-in Swift types that are always safe to reference from related-resource
   # structs (no generated struct needed, never "2 hops away"). Includes scalar
@@ -97,7 +97,7 @@ defmodule AshSwift.Codegen.Reader do
   # domain is configured app-wide (the test suite relies on this).
   #
   # The manifest is the sole resource-metadata source (ADR-0009): which resources
-  # and actions are exposed still comes from the `rpc` DSL, but every
+  # and actions are exposed still comes from the `typescript_rpc` DSL, but every
   # field, type, relationship, action input, and pagination detail is read from
   # the manifest rather than `Ash.Resource.Info`.
   defp build_manifest([]), do: %{resources: %{}, actions: %{}, types: %{}}
@@ -107,7 +107,7 @@ defmodule AshSwift.Codegen.Reader do
 
     entrypoints =
       domains
-      |> Enum.flat_map(&RpcInfo.rpc/1)
+      |> Enum.flat_map(&RpcInfo.typescript_rpc/1)
       |> Enum.flat_map(fn %{resource: resource, rpc_actions: rpc_actions} ->
         Enum.map(rpc_actions, fn rpc_action -> {resource, rpc_action.action} end)
       end)
@@ -181,12 +181,12 @@ defmodule AshSwift.Codegen.Reader do
   # output deterministic regardless of domain/declaration order.
   defp collect_resources(domains, manifest) do
     domains
-    |> Enum.flat_map(&RpcInfo.rpc/1)
+    |> Enum.flat_map(&RpcInfo.typescript_rpc/1)
     |> Enum.map(fn %{resource: resource, rpc_actions: rpc_actions} ->
       type_name = ResourceInfo.typescript_type_name!(resource)
       mres = Map.fetch!(manifest.resources, resource)
       {fields, enums} = collect_fields(mres, type_name, manifest.types)
-      formatter = AshRpc.output_field_formatter() || :camel_case
+      formatter = AshTypescript.output_field_formatter() || :camel_case
 
       # A resource's sortable public attributes, computed once. When empty, the
       # resource has no sort surface: a sortable read with zero sortable attributes
@@ -286,7 +286,7 @@ defmodule AshSwift.Codegen.Reader do
 
     not_found_error? =
       case Map.get(rpc_action, :not_found_error?) do
-        nil -> AshRpc.Rpc.not_found_error?()
+        nil -> AshTypescript.Rpc.not_found_error?()
         value -> value
       end
 
@@ -619,13 +619,13 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # Reads the RPC action's `enable_sort?` flag, defaulting to true (the
-  # AshRpc default) when unset. This relies on AshRpc's Spark
+  # AshTypescript default) when unset. This relies on AshTypescript's Spark
   # entity carrying the option through on the rpc_action struct — the same
   # pass-through contract `not_found_error?` above depends on.
   defp sort_enabled?(rpc_action), do: Map.get(rpc_action, :enable_sort?, true)
 
   # Reads the RPC action's `enable_filter?` flag, defaulting to true (the
-  # AshRpc default). Same Spark pass-through contract as `enable_sort?`.
+  # AshTypescript default). Same Spark pass-through contract as `enable_sort?`.
   defp filter_enabled?(rpc_action), do: Map.get(rpc_action, :enable_filter?, true)
 
   # Collects the typed filter properties for a resource: one per public,
@@ -685,14 +685,14 @@ defmodule AshSwift.Codegen.Reader do
   # Returns a tuple {fields, enums} for the resource.
   #
   # fields: sorted list of %{name, swift_type} for public scalar attributes and
-  # public relationships. Field names go through the same formatter AshRpc
+  # public relationships. Field names go through the same formatter AshTypescript
   # uses for output. Enum attributes produce a generated Swift enum type name
   # instead of the default "String" fallback.
   #
   # enums: sorted list of %{enum_name, cases} for each attribute whose Ash type
   # is an enum (Ash.Type.Atom with one_of constraint, or Ash.Type.Enum subtype).
   defp collect_fields(mres, type_name, types) do
-    formatter = AshRpc.output_field_formatter() || :camel_case
+    formatter = AshTypescript.output_field_formatter() || :camel_case
     resource = mres.module
 
     {attr_fields, enums} =
@@ -844,7 +844,7 @@ defmodule AshSwift.Codegen.Reader do
   # type mapping, same `.scalar("name")` wire path — with one calculation-specific
   # gate: only a calculation that takes *no arguments at all* is selectable via the
   # plain `.scalar` path. Any argument-bearing calculation — even one whose
-  # arguments are all optional — is rejected by the reused AshRpc RPC
+  # arguments are all optional — is rejected by the reused AshTypescript RPC
   # pipeline with "Calculation requires arguments" unless selected through the
   # args-bearing shape ({ calcName: { args: {...} } }), which doesn't exist yet.
   # So argument-bearing calculations are deferred to M3 and dropped here rather
@@ -1060,7 +1060,7 @@ defmodule AshSwift.Codegen.Reader do
 
       rpc_get? || maction.get? ->
         # Pure get? (no explicit field list): look up by primary key. The
-        # ash_rpc RPC pipeline routes a get? pk lookup through the
+        # ash_typescript RPC pipeline routes a get? pk lookup through the
         # top-level `identity` param (Map.pop(other_params, "identity") →
         # Ash.get(resource, identity)), NOT `input` — sending the pk under
         # `input` fails at runtime with NoSuchInput. Mirror update/destroy and
