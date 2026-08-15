@@ -406,6 +406,47 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public var username: NullableEnumOperators<String>?"
     end
 
+    test "an {:array, :string} attribute maps to [String], not a scalar String (#78)", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+
+      # The property a consumer actually receives. Before #78 this emitted
+      # `public var tags: String?`, which compiles and then throws typeMismatch
+      # when the server sends the JSON array — so assert the scalar form is gone
+      # as well as the array form being present.
+      assert types =~ "public var tags: [String]?"
+      refute types =~ "public var tags: String?"
+
+      # Arrays of the other mapped element types ride the same path.
+      assert types =~ "public var scores: [Int]?"
+      assert types =~ "public var labels: [TodoLabels]?"
+      assert types =~ "public var notes: [[String: AshJSON]]?"
+
+      # An array whose elements may be nil is a different shape from an optional
+      # array: the element carries the `?`, and the field's own `?` is unchanged.
+      assert types =~ "public var nilTags: [String?]?"
+
+      # An array element that maps to no Swift type is dropped rather than guessed.
+      refute types =~ "public var matrix"
+    end
+
+    test "array attributes stay out of the filter and sort surfaces (#78)", %{files: files} do
+      types = files["AshRpcTypes.swift"]
+
+      # The operator generics describe scalar predicates, and Ash errors when asked
+      # to sort by an array — so neither surface may carry an array attribute.
+      refute types =~ "public var tags: EnumOperators<String>?"
+      refute types =~ "public var tags: NullableEnumOperators<String>?"
+
+      sort_enum =
+        Regex.run(~r/public enum TodoSortField: String, Sendable \{.*?\n\}/s, types) |> hd()
+
+      for name <- ["tags", "scores", "labels", "nilTags", "notes"] do
+        refute sort_enum =~ "case #{name}"
+      end
+    end
+
     test "backtick-escapes Swift reserved keywords used as function names", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
       # :init is a Swift declaration keyword; bare `public func init(...)` is a syntax error.

@@ -177,6 +177,19 @@ enum ConsumerCheck {
             }
         }
 
+        // Array attributes (issue #78): the server sends a JSON array, so the
+        // generated property must be a Swift array. When it was a scalar `String?`
+        // this decode threw typeMismatch — the failure the fix exists to prevent.
+        let withArrays = try decoder.decode(
+            Todo.self,
+            from: Data(#"{"tags":["a","b"],"scores":[1,2],"labels":["red"],"nilTags":["a",null]}"#.utf8)
+        )
+        let _: [String]? = withArrays.tags
+        let _: [Int]? = withArrays.scores
+        let _: [TodoLabels]? = withArrays.labels
+        // An array of optional elements is a distinct shape from an optional array.
+        let _: [String?]? = withArrays.nilTags
+
         // Partial response: fields not selected decode as nil.
         let partial = try decoder.decode(Todo.self, from: Data(#"{"id":"1","title":"Test"}"#.utf8))
         _ = partial.completed  // nil — field absent from partial response

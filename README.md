@@ -53,6 +53,15 @@ and a TypeScript client stay wire-identical by construction.
   fully typed (`async throws -> [T]` with field selection); get actions reflect
   `get?` / `get_by` / `not_found_error?` and return `T` or `T?` accordingly;
   create/update/destroy take compiler-enforced typed input structs.
+- **Array attributes** — an `{:array, T}` attribute becomes a Swift array of `T`'s
+  mapped type: `{:array, :string}` → `[String]`, `{:array, :integer}` → `[Int]`,
+  and an array of a constrained atom → an array of the generated Swift enum. An
+  array whose `nil_items?` constraint permits nil members carries the optionality
+  on the element (`[String?]`), which is distinct from the array itself being
+  optional. Arrays are excluded from the filter and sort surfaces — the operator
+  generics describe scalar predicates, and Ash rejects ordering by an array. An
+  array whose element type maps to no Swift type (a nested array, say) is omitted
+  with a warning rather than emitted with a guessed type.
 - **Generic actions** — command-style `:action`-type actions (e.g. an auth
   bootstrap like `requestMagicLink`) generate a callable function whose typed
   input struct is built from the action's *arguments*, returning the action's

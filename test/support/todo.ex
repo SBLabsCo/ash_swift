@@ -30,6 +30,29 @@ defmodule AshSwift.Test.Todo do
     attribute :started_at, :naive_datetime, public?: true
     attribute :amount, :decimal, public?: true
     attribute :metadata, :map, public?: true
+    # Issue #78: array attributes. `tags` is the canonical non-null array of a
+    # mapped scalar; `scores` a nullable array of a non-String scalar; `labels` an
+    # array whose element is an enum (one_of under `items:`); `nil_tags` an array
+    # that explicitly permits nil elements; `notes` an array of unconstrained maps;
+    # `matrix` a nested array, whose element maps to no Swift type at all.
+    # (`default []` throughout: the ETS data layer cannot dump a nil array, so a
+    # nil-valued array attribute breaks every E2E create. `allow_nil?` is left at
+    # its default of true for all but `tags`, which is what the codegen reads.)
+    attribute :tags, {:array, :string}, default: [], allow_nil?: false, public?: true
+    attribute :scores, {:array, :integer}, default: [], public?: true
+
+    attribute :labels, {:array, :atom},
+      constraints: [items: [one_of: [:red, :green]]],
+      default: [],
+      public?: true
+
+    attribute :nil_tags, {:array, :string},
+      constraints: [nil_items?: true],
+      default: [],
+      public?: true
+
+    attribute :notes, {:array, :map}, default: [], public?: true
+    attribute :matrix, {:array, {:array, :string}}, default: [], public?: true
     # Private members: regression guard for codegen's public-only scope. The
     # manifest is built without include_private_*, so these must NOT appear in the
     # generated Swift. The golden snapshot (unchanged by their presence) proves it.
