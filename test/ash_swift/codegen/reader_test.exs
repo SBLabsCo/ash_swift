@@ -14,6 +14,8 @@ defmodule AshSwift.Codegen.ReaderTest do
 
   defp resource(ir, type_name), do: Enum.find(ir.all_resources, &(&1.type_name == type_name))
 
+  defp attr_type(res, name), do: Enum.find(res.fields, &(&1.name == name)).swift_type
+
   describe "read/1 shape" do
     test "returns primary and all resource lists of plain maps" do
       ir = Reader.read(@domains)
@@ -110,6 +112,74 @@ defmodule AshSwift.Codegen.ReaderTest do
       # array (:bulk_create) both generate.
       assert :broadcast in rpc_names
       assert :bulk_create in rpc_names
+    end
+  end
+
+  describe "array attributes (#78)" do
+    test "an array attribute maps to the Swift array of its element type" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      # The regression this guards: `{:array, :string}` used to read `type.module`
+      # (nil for an array) and fall through to the String catch-all, emitting a
+      # scalar `String?` the device then failed to decode.
+      assert attr_type(todo, "tags") == "[String]"
+
+      # Element mapping is the shared scalar table, not a String special case.
+      assert attr_type(todo, "scores") == "[Int]"
+      assert attr_type(todo, "notes") == "[[String: AshJSON]]"
+    end
+
+    test "an array of an enum element maps to the generated Swift enum and emits it" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      assert attr_type(todo, "labels") == "[TodoLabels]"
+
+      labels = Enum.find(todo.enums, &(&1.enum_name == "TodoLabels"))
+      assert labels.cases == [:red, :green]
+    end
+
+    test "element nullability comes from nil_items?, not the attribute's allow_nil?" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      # `tags` is allow_nil?: false and `scores` allow_nil?: true, yet neither
+      # permits nil *elements* — only `nil_tags` sets `nil_items?: true`. The array's
+      # own optionality is applied by the emitter (every model field is Optional), so
+      # the two nullabilities stay independent.
+      assert attr_type(todo, "nilTags") == "[String?]"
+      refute attr_type(todo, "tags") =~ "?"
+      refute attr_type(todo, "scores") =~ "?"
+    end
+
+    test "an array whose element maps to no Swift type is omitted, not mis-typed" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      # `matrix` is {:array, {:array, :string}}: the element is itself an array, which
+      # maps to no Swift type. Omitting it makes a consumer's use site a compile
+      # error; emitting a guessed `String` would compile and fail at decode instead.
+      refute Enum.any?(todo.fields, &(&1.name == "matrix"))
+
+      refute Enum.any?(todo.input_structs, fn s -> Enum.any?(s.fields, &(&1.name == "matrix")) end)
+    end
+
+    test "array attributes are excluded from the filter and sort surfaces" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      filter_names = Enum.map(todo.filter_struct.fields, & &1.name)
+
+      for name <- ["tags", "scores", "labels", "nilTags", "notes", "matrix"] do
+        refute name in filter_names, "#{name} must not be filterable"
+        refute name in todo.sort_field.fields, "#{name} must not be sortable"
+      end
+    end
+
+    test "an array attribute still reaches the create input struct with its array type" do
+      todo = resource(Reader.read(@domains), "Todo")
+      create = Enum.find(todo.input_structs, &(&1.struct_name == "CreateTodoInput"))
+
+      # allow_nil?: false but `default []`, so it is accepted yet not required —
+      # the array-ness must not disturb the existing required? rule.
+      assert %{swift_type: "[String]", required?: false} =
+               Enum.find(create.fields, &(&1.name == "tags"))
     end
   end
 

@@ -132,12 +132,13 @@ map their resolved `field.type` through the existing `ash_type_to_swift` + `mani
 machinery, emit them as Optional struct members, and select them on the wire via the existing
 `.scalar("name")` path (Ash RPC loads them through the same `fields` param — no `FieldSelection`
 or request-body change). Two non-obvious gotchas: (1) the manifest is public-only by default, so
-private aggregates/calcs are excluded for free — no extra gating. (2) Unlike an attribute (where
-`ash_type_to_swift` String-fallbacks an unknown type), a derived field's type is *computed*, not
-author-controlled, so gate emission on `field.type.kind` and **skip** anything that isn't a
-concrete scalar/enum (a `list` aggregate is `kind: :array, module: nil`) — a wrong String guess
-silently mis-decodes, whereas omission is safe. See `@derived_scalar_kinds` /
-`collect_aggregate_fields` in `codegen.ex` (issue #51).
+private aggregates/calcs are excluded for free — no extra gating. (2) A derived field's type is
+*computed*, not author-controlled, so gate emission on `field.type.kind` and **skip** anything
+that isn't a concrete scalar/enum (a `list` aggregate is `kind: :array, module: nil`) — a wrong
+String guess silently mis-decodes, whereas omission is safe. See `@derived_scalar_kinds` /
+`collect_aggregate_fields` in `codegen.ex` (issue #51). Attributes now refuse module-less types
+the same way (issue #78, `attribute_swift_type/3` in `reader.ex`); only a *module-bearing*
+attribute type with no explicit mapping still String-fallbacks.
 
 One sharp edge to expect, not fix: an enum-typed derived field (e.g. `first :top_priority, :todos,
 :priority`) emits a *per-resource* enum (`UserTopPriority`) with the same raw cases as the source
@@ -176,11 +177,12 @@ actions need their own collector that maps each argument from its own manifest
 type with optionality from `input.required?` (the presence flag the `Argument`
 moduledoc points consumers at). See `collect_generic_action_inputs` in
 `codegen.ex` (issue #54). **Gate the argument type the same way as a computed
-return — do NOT just `ash_type_to_swift(input.type.module)`.** Unlike a resolved
-resource attribute (always a concrete module, where a String fallback is
-harmless), an *argument*'s type can be a module-less container: a `{:array, _}`
-arg is `kind: :array, module: nil`, and `ash_type_to_swift(nil)` silently returns
-`"String"` — a compilable but wrong input field. Route both the argument types
+return — do NOT just `ash_type_to_swift(input.type.module)`.** An *argument*'s
+type can be a module-less container: a `{:array, _}` arg is `kind: :array,
+module: nil`, and `ash_type_to_swift(nil)` silently returns
+`"String"` — a compilable but wrong input field. (A resource *attribute* has the
+same shape when it is an array; that was issue #78, fixed separately by
+`unwrap_array/1` in `reader.ex`.) Route both the argument types
 and the return through one `generic_swift_type/1` classifier (handles `:map`,
 gates scalars on `@derived_scalar_kinds and not is_nil(module)`, else
 `:unsupported`) and **skip the whole action** when any argument is unsupported,

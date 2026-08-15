@@ -142,22 +142,110 @@ defmodule AshSwift.Codegen.Reader do
 
   # A resource's public attributes, normalised into the minimal shape the
   # decision helpers consume: the raw name (for the field formatter), the
-  # underlying Ash type module (for Swift mapping and filter grouping),
-  # nullability and default presence (for input-struct required? detection), and
-  # the enum value list when the attribute is an enum. Sourced from the manifest
-  # field list, which is public-only and already sorted by name.
+  # manifest type of the attribute's *value* plus its Ash type module (for Swift
+  # mapping and filter grouping), the two array flags, nullability and default
+  # presence (for input-struct required? detection), and the enum value list when
+  # the attribute is an enum. Sourced from the manifest field list, which is
+  # public-only and already sorted by name.
   defp manifest_attributes(mres, types) do
     mres
     |> ManifestResource.fields_by_kind(:attribute)
     |> Enum.map(fn field ->
+      {value_type, array?, nil_items?} = unwrap_array(field.type)
+
       %{
         name: field.name,
-        ash_type: field.type.module,
+        value_type: value_type,
+        ash_type: value_type.module,
+        array?: array?,
+        nil_items?: nil_items?,
         allow_nil?: field.allow_nil?,
         has_default?: field.has_default?,
-        enum_values: manifest_enum_values(field.type, types)
+        enum_values: manifest_enum_values(value_type, types)
       }
     end)
+  end
+
+  # Splits an attribute's manifest type into {value_type, array?, nil_items?}.
+  #
+  # An array attribute (`{:array, :string}`) carries `kind: :array` with `module:
+  # nil` and its real value type under `item_type` — so reading `type.module`
+  # directly yields nil and String-guesses the whole attribute (issue #78).
+  # Unwrapping here means every attribute consumer downstream sees one shape: the
+  # element's manifest type plus the two array facts that change the emitted Swift.
+  #
+  # The two nullabilities are deliberately distinct and must not be conflated: the
+  # field's own `allow_nil?` says whether the *array* may be nil, while the array
+  # type's `nil_items?` constraint says whether its *elements* may be nil —
+  # `[String]?` vs `[String?]`. Ash defaults `nil_items?` to false, so an element
+  # is non-optional unless the resource explicitly opted in.
+  defp unwrap_array(%{kind: :array, item_type: %{} = item} = type) do
+    nil_items? = Keyword.get(type.constraints || [], :nil_items?, false) == true
+    {item, true, nil_items?}
+  end
+
+  defp unwrap_array(type), do: {type, false, false}
+
+  # The Swift type for one attribute, plus the Swift enum it generates (or nil).
+  # Returns `:unsupported` when the attribute maps to no Swift type at all.
+  #
+  # An enum attribute takes its generated Swift enum name; everything else maps
+  # its Ash type module. An array attribute maps its *element* that way and wraps
+  # the result in `[...]`, making the element itself optional when the array
+  # permits nil members.
+  #
+  # A manifest type with no module has no Ash type to map at all — a nested array
+  # is the case that reaches here, since Ash resolves the inner `{:array, _}` to a
+  # `kind: :array` type with `module: nil`. `TypeMap.ash_type_to_swift/1` would
+  # String-guess it, which is the silent decode-breaking mis-type of issue #78, so
+  # it is refused here instead. This mirrors the gate `emit_derived_fields/5` and
+  # `TypeMap.generic_swift_type/1` already apply on their own nil-module types.
+  #
+  # The gate is deliberately nil-module-only. A type that carries a module but has
+  # no explicit mapping keeps the existing `ash_type_to_swift/1` String fallback so
+  # custom types (e.g. an `Ash.Type.NewType`) are not regressed by this change.
+  # Tuples and unions fall in that group, not this one: Ash's `TypeResolver` sets
+  # `module: Ash.Type.Tuple` / `module: Ash.Type.Union`, so they take the
+  # module-bearing branch below and are still emitted as `String`.
+  defp attribute_swift_type(attr, formatted_name, type_name) do
+    element =
+      case TypeMap.extract_enum_cases(attr) do
+        {:ok, cases} ->
+          enum_name = enum_type_name(type_name, formatted_name)
+          {:ok, enum_name, %{enum_name: enum_name, cases: cases}}
+
+        :not_enum ->
+          case attr.value_type do
+            %{module: nil} -> :unsupported
+            %{module: module} -> {:ok, TypeMap.ash_type_to_swift(module), nil}
+          end
+      end
+
+    case element do
+      {:ok, swift, enum} -> {:ok, wrap_array(swift, attr), enum}
+      :unsupported -> :unsupported
+    end
+  end
+
+  defp wrap_array(swift, %{array?: false}), do: swift
+  defp wrap_array(swift, %{array?: true, nil_items?: true}), do: "[#{swift}?]"
+  defp wrap_array(swift, %{array?: true}), do: "[#{swift}]"
+
+  # An attribute whose type maps to no Swift type is omitted from the generated
+  # output rather than String-guessed. Omission is the safe failure mode: a
+  # missing property is a compile error at the consumer's use site, whereas a
+  # wrong-typed one compiles and then throws `typeMismatch` at decode time on
+  # device — the exact shape of issue #78.
+  defp warn_unsupported_attribute(attr, resource) do
+    what =
+      if attr.array?,
+        do: "is an array whose element type (#{inspect(attr.value_type.kind)})",
+        else: "has a type (#{inspect(attr.value_type.kind)}) that"
+
+    Logger.warning(
+      "AshSwift: attribute #{inspect(resource)}.#{attr.name} #{what} maps to no Swift type; " <>
+        "omitting it from the generated output. Open an issue if you need this type supported."
+    )
   end
 
   # The enum value list for a manifest field type, or nil when it isn't an enum.
@@ -611,10 +699,23 @@ defmodule AshSwift.Codegen.Reader do
   # AshJSON]`) are not — Ash returns an error when asked to sort by them, so
   # emitting them as typed sort fields would be a runtime footgun with no valid
   # use. Relationship/aggregate/calculation sorting stays out of scope for M2.
+  #
+  # An array is likewise not orderable, and is excluded on its own clause rather
+  # than left to the Swift-type check below: an array of a sortable scalar maps to
+  # `[String]`, which is absent from @sortable_swift_types today but would silently
+  # become sortable if that set ever grew a collection type (issue #78).
+  defp sortable_attribute?(%{array?: true}), do: false
+
   defp sortable_attribute?(attr) do
     case TypeMap.extract_enum_cases(attr) do
-      {:ok, _} -> true
-      :not_enum -> MapSet.member?(@sortable_swift_types, TypeMap.ash_type_to_swift(attr.ash_type))
+      {:ok, _} ->
+        true
+
+      :not_enum ->
+        case attr.ash_type do
+          nil -> false
+          module -> MapSet.member?(@sortable_swift_types, TypeMap.ash_type_to_swift(module))
+        end
     end
   end
 
@@ -660,16 +761,24 @@ defmodule AshSwift.Codegen.Reader do
   # The single `TypeMap.extract_enum_cases/1` call decides both axes: enums share the
   # equality+membership group (eq/notEq/in) and filter over their generated Swift
   # enum; everything else takes its group and value type from the Ash scalar type.
+  #
+  # Array attributes are excluded outright, alongside the composite types: the
+  # operator generics describe scalar predicates (`eq`/`in` over a single value),
+  # not the array predicates (`contains`, `has_any`) an array field would need, so
+  # an emitted `EnumOperators<String>` over an `{:array, :string}` would be a
+  # request the backend rejects (issue #78).
   defp filter_field(attr, resource, type_name, formatter) do
     name = FieldFormatter.format_field_for_client(attr.name, resource, formatter)
 
     {group, value_type} =
-      case TypeMap.extract_enum_cases(attr) do
-        {:ok, _} ->
-          {:enum, enum_type_name(type_name, name)}
-
-        :not_enum ->
-          {TypeMap.scalar_filter_group(attr.ash_type), TypeMap.ash_type_to_swift(attr.ash_type)}
+      if attr.array? do
+        {:exclude, nil}
+      else
+        case attribute_swift_type(attr, name, type_name) do
+          {:ok, swift_type, nil} -> {TypeMap.scalar_filter_group(attr.ash_type), swift_type}
+          {:ok, enum_name, _enum} -> {:enum, enum_name}
+          :unsupported -> {:exclude, nil}
+        end
       end
 
     case group do
@@ -701,16 +810,19 @@ defmodule AshSwift.Codegen.Reader do
       |> Enum.reduce({[], []}, fn attr, {fields_acc, enums_acc} ->
         formatted_name = FieldFormatter.format_field_for_client(attr.name, resource, formatter)
 
-        case TypeMap.extract_enum_cases(attr) do
-          {:ok, cases} ->
-            en_name = enum_type_name(type_name, formatted_name)
-            field = %{name: formatted_name, swift_type: en_name}
-            enum = %{enum_name: en_name, cases: cases}
-            {[field | fields_acc], [enum | enums_acc]}
+        case attribute_swift_type(attr, formatted_name, type_name) do
+          {:ok, swift_type, nil} ->
+            {[%{name: formatted_name, swift_type: swift_type} | fields_acc], enums_acc}
 
-          :not_enum ->
-            field = %{name: formatted_name, swift_type: TypeMap.ash_type_to_swift(attr.ash_type)}
-            {[field | fields_acc], enums_acc}
+          {:ok, swift_type, enum} ->
+            {[%{name: formatted_name, swift_type: swift_type} | fields_acc], [enum | enums_acc]}
+
+          :unsupported ->
+            # The one place an unmappable attribute is reported: the other consumers
+            # (filter, sort, action inputs) drop it through the same gate and would
+            # only repeat this warning per action.
+            warn_unsupported_attribute(attr, resource)
+            {fields_acc, enums_acc}
         end
       end)
 
@@ -1002,9 +1114,12 @@ defmodule AshSwift.Codegen.Reader do
   # resource struct — i.e., all referenced types are either built-in or
   # defined in the emitted output (resource types, enums).
   #
-  # Handles: scalars ("String?"), arrays ("[Todo]?"), and dicts ("[String: AshJSON]").
-  # The dict case strips the leading "[String: " and trailing "]" to get the
-  # value type, then checks it independently.
+  # Handles: scalars ("String?"), arrays ("[Todo]?", "[String?]"), and dicts
+  # ("[String: AshJSON]"). The dict case strips the leading "[String: " and
+  # trailing "]" to get the value type, then checks it independently. The "?" is
+  # trimmed on both sides of the bracket strip so an array of optional elements
+  # (`[String?]`, from a `nil_items?: true` attribute) resolves to its element type
+  # rather than the unknown-to-everything "String?".
   #
   # Known limitation: nested generics (e.g. "[String: [AshJSON]]") are not
   # handled — stripping one bracket layer yields "[AshJSON]" as the value type,
@@ -1016,6 +1131,7 @@ defmodule AshSwift.Codegen.Reader do
       |> String.trim_trailing("?")
       |> String.trim_leading("[")
       |> String.trim_trailing("]")
+      |> String.trim_trailing("?")
 
     if String.starts_with?(bare, "String: ") do
       value_type = String.replace_prefix(bare, "String: ", "")
@@ -1109,14 +1225,24 @@ defmodule AshSwift.Codegen.Reader do
         attr ->
           formatted_name = FieldFormatter.format_field_for_client(input.name, resource, formatter)
 
-          swift_type =
-            case TypeMap.extract_enum_cases(attr) do
-              {:ok, _} -> enum_type_name(type_name, formatted_name)
-              :not_enum -> TypeMap.ash_type_to_swift(attr.ash_type)
-            end
+          # Same gate as the model field: an attribute that maps to no Swift type is
+          # omitted rather than String-guessed. collect_fields/3 has already warned
+          # about it once for this resource, so this drop stays quiet.
+          #
+          # Unlike the model field, dropping here is only safe for an OPTIONAL
+          # attribute: a required one (create, `allow_nil?: false`, no default) still
+          # yields an input struct that compiles, and the create then fails
+          # server-side at run time rather than at build time. Tracked in issue #79.
+          case attribute_swift_type(attr, formatted_name, type_name) do
+            {:ok, swift_type, _enum} ->
+              required? =
+                maction.type == :create and not attr.allow_nil? and not attr.has_default?
 
-          required? = maction.type == :create and not attr.allow_nil? and not attr.has_default?
-          [%{name: formatted_name, swift_type: swift_type, required?: required?}]
+              [%{name: formatted_name, swift_type: swift_type, required?: required?}]
+
+            :unsupported ->
+              []
+          end
       end
     end)
     |> Enum.sort_by(& &1.name)

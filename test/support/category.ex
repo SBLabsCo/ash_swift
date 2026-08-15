@@ -17,6 +17,11 @@ defmodule AshSwift.Test.Category do
   attributes do
     uuid_primary_key :id
     attribute :name, :string, public?: true
+    # Issue #78: a related (non-primary) resource's fields are filtered through the
+    # 2-hop safety check, which strips one bracket layer to find the element type.
+    # An array of optional elements (`[String?]`) is the shape that check has to
+    # understand, or the field is silently dropped from the emitted struct.
+    attribute :aliases, {:array, :string}, constraints: [nil_items?: true], public?: true
   end
 
   relationships do
