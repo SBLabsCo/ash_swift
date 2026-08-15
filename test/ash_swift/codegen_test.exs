@@ -1120,6 +1120,20 @@ defmodule AshSwift.CodegenTest do
     } do
       assert files["AshRpcTypes.swift"] =~ "public var category: Category?"
     end
+
+    test "keeps an array-of-optional-elements field on a related struct (#78)", %{files: files} do
+      category =
+        Regex.run(
+          ~r/public struct Category: Codable, Sendable, Equatable \{.*?\n\}/s,
+          files["AshRpcTypes.swift"]
+        )
+        |> hd()
+
+      # The safety check strips one bracket layer to reach the element type; unless
+      # it also drops the element's own `?`, `[String?]` resolves to the unknown
+      # "String?" and the field disappears from the generated struct entirely.
+      assert category =~ "public var aliases: [String?]?"
+    end
   end
 
   describe "enum/struct type name collision detection" do
