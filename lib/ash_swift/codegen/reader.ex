@@ -194,11 +194,19 @@ defmodule AshSwift.Codegen.Reader do
   # the result in `[...]`, making the element itself optional when the array
   # permits nil members.
   #
-  # A manifest type with no module is a composite Ash never resolves to a scalar —
-  # a nested array, a tuple, a union. `TypeMap.ash_type_to_swift/1` would
+  # A manifest type with no module has no Ash type to map at all — a nested array
+  # is the case that reaches here, since Ash resolves the inner `{:array, _}` to a
+  # `kind: :array` type with `module: nil`. `TypeMap.ash_type_to_swift/1` would
   # String-guess it, which is the silent decode-breaking mis-type of issue #78, so
   # it is refused here instead. This mirrors the gate `emit_derived_fields/5` and
   # `TypeMap.generic_swift_type/1` already apply on their own nil-module types.
+  #
+  # The gate is deliberately nil-module-only. A type that carries a module but has
+  # no explicit mapping keeps the existing `ash_type_to_swift/1` String fallback so
+  # custom types (e.g. an `Ash.Type.NewType`) are not regressed by this change.
+  # Tuples and unions fall in that group, not this one: Ash's `TypeResolver` sets
+  # `module: Ash.Type.Tuple` / `module: Ash.Type.Union`, so they take the
+  # module-bearing branch below and are still emitted as `String`.
   defp attribute_swift_type(attr, formatted_name, type_name) do
     element =
       case TypeMap.extract_enum_cases(attr) do
@@ -1220,6 +1228,11 @@ defmodule AshSwift.Codegen.Reader do
           # Same gate as the model field: an attribute that maps to no Swift type is
           # omitted rather than String-guessed. collect_fields/3 has already warned
           # about it once for this resource, so this drop stays quiet.
+          #
+          # Unlike the model field, dropping here is only safe for an OPTIONAL
+          # attribute: a required one (create, `allow_nil?: false`, no default) still
+          # yields an input struct that compiles, and the create then fails
+          # server-side at run time rather than at build time. Tracked in issue #79.
           case attribute_swift_type(attr, formatted_name, type_name) do
             {:ok, swift_type, _enum} ->
               required? =
