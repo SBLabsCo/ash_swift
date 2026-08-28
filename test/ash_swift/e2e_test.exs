@@ -641,6 +641,102 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "a real backend error decodes with its vars, shortMessage, fields and path" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    # Provoke a real validation failure: `title` is `allow_nil?: false`, so the
+    # pipeline returns a `required` error carrying the affected field in `vars`.
+    # This is the shape issue #81 is about — a typed refusal whose *data* lives
+    # in `vars` — sourced from the real pipeline rather than a hand-written
+    # fixture, so it also pins the wire keys (`shortMessage`, not
+    # `short_message`: error keys go through the output field formatter too).
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    params = %{
+      "action" => "create_todo",
+      "input" => %{"completed" => true},
+      "fields" => ["id"]
+    }
+
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+
+    assert rpc_result["success"] == false
+    assert [error] = rpc_result["errors"]
+    assert error["type"] == "required"
+    assert error["shortMessage"] == "Required field"
+    assert error["vars"] == %{"field" => "title"}
+
+    json = Jason.encode!(rpc_result)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Decodes a real failure envelope from the AshTypescript RPC pipeline through
+    // the generated client, proving an error's payload survives the decode
+    // boundary rather than being dropped (issue #81).
+    final class E2EErrorVarsTest: XCTestCase {
+        private struct StubTransport: Transport {
+            let body: Data
+
+            func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+                let http = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+                return (body, http)
+            }
+        }
+
+        func testRealBackendErrorSurfacesItsVars() async throws {
+            let json = #{inspect(json, binaries: :as_strings)}
+            let stub = StubTransport(body: Data(json.utf8))
+            let config = AshRpcConfig(baseURL: URL(string: "https://example.com")!)
+            let rpc = AshRpc(client: AshRpcClient(config: config, transport: stub))
+
+            do {
+                // The request body is irrelevant here — the stub replays the real
+                // failure envelope the backend produced for a missing title, which
+                // the generated signature makes unrepresentable on the client.
+                let input = CreateTodoInput(title: "ignored")
+                let _: Todo = try await rpc.createTodo(input: input, fields: ["id"])
+                XCTFail("expected AshRpcError.server to be thrown")
+            } catch let AshRpcError.server(errors) {
+                let error = try XCTUnwrap(errors.first)
+                XCTAssertEqual(error.type, "required")
+                XCTAssertEqual(error.shortMessage, "Required field")
+                XCTAssertEqual(error.vars?["field"], .string("title"))
+                XCTAssertEqual(error.fields, ["title"])
+                XCTAssertEqual(error.path, [])
+                XCTAssertNotNil(error.message)
+            } catch {
+                XCTFail("unexpected error type: \\(error)")
+            }
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EErrorVarsTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EErrorVarsTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   test "offset-paginated action decodes real backend JSON into OffsetPage<T>" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)

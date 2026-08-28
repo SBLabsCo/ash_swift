@@ -299,7 +299,27 @@ let actionable: [Todo] = try await rpc.listTodos(filter: filter, fields: ["id", 
 Every selectable field on a generated model is `Optional` so that ad-hoc field
 selection is safe — unselected fields decode as `nil` rather than failing to
 decode. Backend errors surface as a thrown, typed `AshRpcError` you handle with
-`do`/`catch`.
+`do`/`catch`:
+
+```swift
+do {
+    let video: Video = try await rpc.createVideo(input: input, fields: ["id"])
+} catch let AshRpcError.server(errors) {
+    // `type` is the stable code to branch on; `vars` carries the error's data,
+    // so the UI can be specific instead of re-deriving the numbers itself.
+    if let quota = errors.first(where: { $0.type == "video_quota_exceeded" }),
+       case .number(let limit)? = quota.vars?["limit"] {
+        show(title: quota.shortMessage, body: "You've used all \(Int(limit)) videos")
+    }
+}
+```
+
+An `AshRpcServerError` carries the whole shape your `AshTypescript.Rpc.Error`
+implementation returns — `type`, `message`, `shortMessage`, `vars`, `fields`,
+`path`, `details` — each optional, since which of them an error sets varies by
+error class. Keys go through the backend's output field formatter like any other
+response, so a multi-word `vars` key arrives camelCased (`max_length` →
+`maxLength`).
 
 #### Custom transport
 
