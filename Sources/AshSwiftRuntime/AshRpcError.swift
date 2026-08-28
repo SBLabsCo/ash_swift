@@ -72,12 +72,8 @@ public struct AshRpcServerError: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        func string(_ key: CodingKeys) -> String? {
-            (try? container.decodeIfPresent(String.self, forKey: key)) ?? nil
-        }
-
-        func object(_ key: CodingKeys) -> [String: AshJSON]? {
-            (try? container.decodeIfPresent([String: AshJSON].self, forKey: key)) ?? nil
+        func lenient<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
+            (try? container.decodeIfPresent(type, forKey: key)) ?? nil
         }
 
         // `fields` and `path` are arrays of names, but a path into a nested
@@ -85,8 +81,7 @@ public struct AshRpcServerError: Codable, Sendable, Equatable {
         // `[String]` would drop the whole path in exactly the nested case where
         // it matters most. Decode dynamically and stringify the scalars.
         func stringArray(_ key: CodingKeys) -> [String]? {
-            guard let raw = (try? container.decodeIfPresent([AshJSON].self, forKey: key)) ?? nil
-            else { return nil }
+            guard let raw = lenient([AshJSON].self, key) else { return nil }
 
             var segments: [String] = []
             segments.reserveCapacity(raw.count)
@@ -104,13 +99,13 @@ public struct AshRpcServerError: Codable, Sendable, Equatable {
             return segments
         }
 
-        self.type = string(.type)
-        self.message = string(.message)
-        self.shortMessage = string(.shortMessage)
-        self.vars = object(.vars)
+        self.type = lenient(String.self, .type)
+        self.message = lenient(String.self, .message)
+        self.shortMessage = lenient(String.self, .shortMessage)
+        self.vars = lenient([String: AshJSON].self, .vars)
         self.fields = stringArray(.fields)
         self.path = stringArray(.path)
-        self.details = object(.details)
+        self.details = lenient([String: AshJSON].self, .details)
     }
 
     /// Renders a numeric path segment as a list index (`0`) rather than a

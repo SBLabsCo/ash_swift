@@ -85,7 +85,14 @@ final class AshRpcClientTests: XCTestCase {
     // which limit it hit rather than re-reading the numbers from elsewhere.
     func testExecuteCarriesErrorVarsThroughFailureEnvelope() async {
         let json = #"""
-        {"success":false,"errors":[{"type":"video_quota_exceeded",        "message":"Video limit of %{limit} reached","shortMessage":"Video limit reached",        "vars":{"limit":10,"created":10},"fields":[],"path":[]}]}
+        {"success":false,"errors":[{
+          "type":"video_quota_exceeded",
+          "message":"Video limit of %{limit} reached",
+          "shortMessage":"Video limit reached",
+          "vars":{"limit":10,"created":10},
+          "fields":["videoCount"],
+          "path":["account"]
+        }]}
         """#
         let stub = StubTransport(status: 200, body: Data(json.utf8)) { _ in }
         let client = AshRpcClient(config: config(), transport: stub)
@@ -99,6 +106,8 @@ final class AshRpcClientTests: XCTestCase {
             XCTAssertEqual(error?.shortMessage, "Video limit reached")
             XCTAssertEqual(error?.vars?["limit"], .number(10))
             XCTAssertEqual(error?.vars?["created"], .number(10))
+            XCTAssertEqual(error?.fields, ["videoCount"])
+            XCTAssertEqual(error?.path, ["account"])
         } catch {
             XCTFail("unexpected error: \(error)")
         }

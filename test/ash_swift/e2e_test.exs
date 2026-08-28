@@ -611,7 +611,7 @@ defmodule AshSwift.E2ETest do
         // generated call must throw AshRpcError.server so callers can match on it
         // in a do/catch block and inspect the typed server errors.
         func testBackendErrorSurfacesAsTypedAshRpcError() async {
-            let errorBody = Data(#"{"success":false,"errors":[{"type":"unauthorized","message":"not allowed","field":null}]}"#.utf8)
+            let errorBody = Data(#"{"success":false,"errors":[{"type":"unauthorized","message":"not allowed"}]}"#.utf8)
             let stub = StubTransport(status: 200, body: errorBody) { _ in }
 
             let config = AshRpcConfig(baseURL: URL(string: "https://example.com")!)

@@ -109,6 +109,7 @@ final class AshRpcErrorTests: XCTestCase {
         XCTAssertEqual(object["vars"] as? [String: String], ["field": "title"])
         XCTAssertNil(object["path"])
         XCTAssertNil(object["details"])
-        XCTAssertEqual(try decode(String(data: data, encoding: .utf8)!), error)
+        let encoded = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertEqual(try decode(encoded), error)
     }
 }

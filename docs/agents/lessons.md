@@ -247,9 +247,14 @@ other payload, so `short_message` arrives as `shortMessage`, and the keys *insid
 through `AshTypescript.Rpc.run_action` before typing a field on
 `AshRpcServerError` — the atom key in `error_builder.ex` is not what the client
 sees. The canonical top-level set is exactly `type`, `message`, `short_message`,
-`vars`, `fields`, `path`, `details`; note that the *fallback* paths in
-`errors.ex` (unhandled exception, no protocol impl) emit `code` + `error_id`
-instead of `type`, so `type` is nil for those. See issue #81.
+`vars`, `fields`, `path`, `details`.
+
+`errors.ex` also has two paths that emit `code` (+ `error_id`) *instead of*
+`type`, which looks like a hole in that set. It is very nearly unreachable, and
+an unhandled exception is **not** how you reach it: `Ash.Error.to_error_class/1`
+turns one into `Ash.Error.Unknown.UnknownError`, which has a protocol impl
+emitting `type: "unknown_error"`. Only a struct with no impl at all, or an impl
+that itself raises, lands on `code`. Probe it; don't assume either way. See issue #81.
 
 Decode errors leniently, per field. The envelope decode is what turns a
 `success: false` body into `AshRpcError.server`; if one unexpected field throws,
