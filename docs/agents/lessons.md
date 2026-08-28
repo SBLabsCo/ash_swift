@@ -238,6 +238,29 @@ emit duplicate `struct` definitions and `swift build` fails. Hence
 the name from the action alone. When #56 adds field-selectable struct returns,
 keep the prefix distinct the same way. See issue #70.
 
+### Error maps are output-formatted too — including `vars` *keys*
+
+An error's wire shape is not the snake_case map an `AshTypescript.Rpc.Error`
+implementation returns. The response formatter runs over error maps like any
+other payload, so `short_message` arrives as `shortMessage`, and the keys *inside*
+`vars` are formatted as well (`action_name` → `actionName`). Probe a real failure
+through `AshTypescript.Rpc.run_action` before typing a field on
+`AshRpcServerError` — the atom key in `error_builder.ex` is not what the client
+sees. The canonical top-level set is exactly seven keys — `type`, `message`,
+`short_message` (`shortMessage` once formatted), `vars`, `fields`, `path`,
+`details`.
+
+`errors.ex` also has two paths that emit `code` (+ `error_id`) *instead of*
+`type`, which looks like a hole in that set. It is very nearly unreachable, and
+an unhandled exception is **not** how you reach it: `Ash.Error.to_error_class/1`
+turns one into `Ash.Error.Unknown.UnknownError`, which has a protocol impl
+emitting `type: "unknown_error"`. Only a struct with no impl at all, or an impl
+that itself raises, lands on `code`. Probe it; don't assume either way. See issue #81.
+
+Decode errors leniently, per field. The envelope decode is what turns a
+`success: false` body into `AshRpcError.server`; if one unexpected field throws,
+the caller gets `decodingFailed` and loses the refusal entirely.
+
 ## Test patterns
 
 ### Extend the fixture domain when the bug class needs it
