@@ -72,6 +72,15 @@ final class AshRpcErrorTests: XCTestCase {
         XCTAssertEqual(error.path, ["rows", "0", "label"])
     }
 
+    // `fields` holds field names, so a non-string entry is a malformed shape,
+    // not a segment to stringify the way a numeric `path` index is. It has to
+    // degrade rather than promote `0` into a plausible-looking `"0"` field.
+    func testMixedTypeFieldsArrayDegradesToNil() throws {
+        let error = try decode(#"{"fields":["title",0]}"#)
+
+        XCTAssertNil(error.fields)
+    }
+
     // A field whose shape we don't expect degrades to nil. It must not throw:
     // the envelope decode is what turns a `success: false` body into
     // `AshRpcError.server`, and a throw there would surface as `decodingFailed`

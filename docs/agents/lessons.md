@@ -246,8 +246,9 @@ other payload, so `short_message` arrives as `shortMessage`, and the keys *insid
 `vars` are formatted as well (`action_name` → `actionName`). Probe a real failure
 through `AshTypescript.Rpc.run_action` before typing a field on
 `AshRpcServerError` — the atom key in `error_builder.ex` is not what the client
-sees. The canonical top-level set is exactly `type`, `message`, `short_message`,
-`vars`, `fields`, `path`, `details`.
+sees. The canonical top-level set is exactly seven keys — `type`, `message`,
+`short_message` (`shortMessage` once formatted), `vars`, `fields`, `path`,
+`details`.
 
 `errors.ex` also has two paths that emit `code` (+ `error_id`) *instead of*
 `type`, which looks like a hole in that set. It is very nearly unreachable, and

@@ -73,15 +73,17 @@ public struct AshRpcServerError: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         func lenient<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
-            (try? container.decodeIfPresent(type, forKey: key)) ?? nil
+            try? container.decode(type, forKey: key)
         }
 
-        // `fields` and `path` are arrays of names, but a path into a nested
-        // input carries list indices as JSON numbers — decoding straight to
-        // `[String]` would drop the whole path in exactly the nested case where
-        // it matters most. Decode dynamically and stringify the scalars.
-        func stringArray(_ key: CodingKeys) -> [String]? {
-            guard let raw = lenient([AshJSON].self, key) else { return nil }
+        // A path into a nested input carries list indices as JSON numbers, so
+        // decoding straight to `[String]` would drop the whole path in exactly
+        // the nested case where it matters most. Decode dynamically and
+        // stringify the scalars instead. (`fields` gets no such treatment: its
+        // entries are field names, so a non-string one is a malformed shape
+        // rather than an index to render.)
+        func pathSegments() -> [String]? {
+            guard let raw = lenient([AshJSON].self, .path) else { return nil }
 
             var segments: [String] = []
             segments.reserveCapacity(raw.count)
@@ -103,8 +105,8 @@ public struct AshRpcServerError: Codable, Sendable, Equatable {
         self.message = lenient(String.self, .message)
         self.shortMessage = lenient(String.self, .shortMessage)
         self.vars = lenient([String: AshJSON].self, .vars)
-        self.fields = stringArray(.fields)
-        self.path = stringArray(.path)
+        self.fields = lenient([String].self, .fields)
+        self.path = pathSegments()
         self.details = lenient([String: AshJSON].self, .details)
     }
 
