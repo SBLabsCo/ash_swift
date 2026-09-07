@@ -21,7 +21,7 @@ defmodule AshSwift.Codegen.Reader do
       %{
         resource_module: module | nil,        # nil for a related-only entry
         domain:          module | nil,        # nil for a related-only entry (ADR-0009: read
-                                               # straight off the IR, not Ash.Resource.Info.domain/1)
+                                              # straight off the IR, not Ash.Resource.Info.domain/1)
         type_name:       "Todo",
         fields:          [%{name, swift_type}],   # attributes + relationships + derived
         enums:           [%{enum_name, cases}],

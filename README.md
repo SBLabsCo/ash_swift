@@ -282,7 +282,11 @@ order — this document's own key/array ordering is a promise only about two
 runs of *this* `Jason` version, not a cross-version one. Exclude
 `ash_swift_version` from the diff (it's metadata — which AshSwift build
 produced the document — not contract content, and it changes on every release
-regardless of whether the contract itself did), and assert `contract_version`
+regardless of whether the contract itself did); likewise exclude each action's
+`domain`/`resource_module` (provenance breadcrumbs back to the Elixir module
+that produced the action — they never reach the emitted Swift, so a
+server-side module rename would otherwise be misclassified as breaking by a
+name-keyed structural diff). Assert `contract_version`
 for **equality** before diffing anything else — a mismatch means the document
 *shape* changed, which a diff written for the old shape can't safely interpret.
 
@@ -426,6 +430,10 @@ diffs the contract against what `AshSwift.Codegen.Emitter` actually renders
 for the same fixture domain, so the two can't drift apart unnoticed; after an
 intentional contract change, regenerate the snapshot with
 `MIX_ENV=test mix ash_swift.contract --output test/fixtures/contract/test_domain.json`.
+The snapshot comparison itself deletes `ash_swift_version` from both the
+freshly-built document and the decoded fixture before comparing — that field
+is excluded metadata (see above), not contract content, so the test doesn't
+couple to `mix.exs`'s package version.
 
 ## Design decisions
 

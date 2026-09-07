@@ -15,7 +15,15 @@ defmodule AshSwift.Codegen.ContractTest do
     * the golden cross-check: the contract is diffed against what
       `AshSwift.Codegen.Emitter` *actually renders* for the same domain, so a
       change to either side that the other doesn't follow fails a real test
-      rather than resting on a comment.
+      rather than resting on a comment. It covers three things, no more: every
+      `{action name, return type}` pair (including optional-pagination
+      overloads), every top-level struct/enum *name* the emitter declares, and
+      — for filter types specifically — the *field names* the emitter renders
+      inside each `{Resource}Filter` struct (combinator fields included). It
+      does **not** cross-check field names/types on resource or input/result
+      structs, nor enum case values — a whole-document byte-for-byte guarantee
+      is what the "matches the committed snapshot fixture" test provides
+      instead.
     * `build_from_ir/1` against small hand-built IR maps, so a field-add or
       action-removal is one map edit rather than a second compiled Ash
       resource.
@@ -182,7 +190,29 @@ defmodule AshSwift.Codegen.ContractTest do
       # (never pipe the bare stdout form into the fixture — it interleaves
       # compile output and reader Logger warnings with the JSON; --output
       # writes the contract as the file's only content.)
-      assert Contract.encode(@domains) <> "\n" == File.read!(@fixture_path)
+      #
+      # `ash_swift_version` is deleted from both sides before comparing: it's
+      # excluded metadata (moduledoc, "Two fields carry deliberately different
+      # consumption rules"), so a byte-for-byte assertion has no business
+      # depending on it — it would otherwise couple this test to mix.exs's
+      # `@version` for no reason (the dedicated "carries the ash_swift Hex
+      # version" test above already asserts that field on its own, so nothing
+      # is lost). The committed fixture file itself keeps its real
+      # `ash_swift_version` value; only the in-test comparison neutralises it.
+      actual =
+        @domains
+        |> Contract.build()
+        |> Map.delete(:ash_swift_version)
+        |> Contract.encode_document()
+
+      expected =
+        @fixture_path
+        |> File.read!()
+        |> Jason.decode!()
+        |> Map.delete("ash_swift_version")
+        |> Contract.encode_document()
+
+      assert actual == expected
     end
   end
 
@@ -249,6 +279,44 @@ defmodule AshSwift.Codegen.ContractTest do
         )
 
       assert contract_names == emitted_names
+    end
+
+    # The name-only check above would stay green even if a filter struct's
+    # *fields* drifted from what the emitter renders — e.g. `Contract` restating
+    # the `and`/`or`/`not` combinators as its own literal instead of reading
+    # `Emitter.filter_combinators/0` (see `filter_struct_type/2`'s comment).
+    # This walks every `kind: "filter"` entry in the contract and asserts its
+    # field-name set equals the `public var` property names inside that exact
+    # `public struct {name}: Encodable, Sendable { ... }` block in the emitted
+    # types text — predicate fields and combinator fields alike, since
+    # `render_filter_struct/1` renders both from the same block with no
+    # syntactic distinction between them.
+    test "each filter type's fields equal the properties Emitter renders inside that exact struct",
+         %{doc: doc, types_text: types_text} do
+      filter_types = Enum.filter(doc.types, &(&1.kind == "filter"))
+      assert filter_types != [], "expected at least one filter type in the fixture domain"
+
+      Enum.each(filter_types, fn filter ->
+        struct_regex =
+          ~r/public struct #{Regex.escape(filter.name)}: Encodable, Sendable \{\n(.*?)\n\}/s
+
+        [_, body] =
+          Regex.run(struct_regex, types_text) ||
+            flunk("no `#{filter.name}` struct found in the emitted types text")
+
+        emitted_field_names =
+          ~r/public var (\S+):/
+          |> Regex.scan(body, capture: :all_but_first)
+          |> List.flatten()
+          |> Enum.map(&String.trim(&1, "`"))
+          |> MapSet.new()
+
+        contract_field_names = MapSet.new(filter.fields, & &1.name)
+
+        assert contract_field_names == emitted_field_names,
+               "#{filter.name}: contract fields #{inspect(MapSet.to_list(contract_field_names))} " <>
+                 "!= emitted fields #{inspect(MapSet.to_list(emitted_field_names))}"
+      end)
     end
   end
 
@@ -489,6 +557,34 @@ defmodule AshSwift.Codegen.ContractTest do
 
       assert action.sortable == true
       assert action.filterable == true
+    end
+
+    # Mirrors the raise/no-regression pair in AshSwift.CodegenTest ("enum/struct
+    # type name collision detection", ~line 1141): `dedupe_by_name!/2` is the
+    # same naming-collision guard, exercised here directly against hand-built IR
+    # rather than a real (and harder to construct) colliding Ash resource pair.
+    test "two same-named resources with different fields raise a Mix.Error naming collision" do
+      widget_a = base_resource(%{fields: [%{name: "name", swift_type: "String"}]})
+      widget_b = base_resource(%{fields: [%{name: "name", swift_type: "Int"}]})
+
+      assert_raise Mix.Error,
+                   ~r/type name "Widget" maps to multiple, different definitions/,
+                   fn ->
+                     Contract.build_from_ir(%{
+                       primary_resources: [],
+                       all_resources: [widget_a, widget_b]
+                     })
+                   end
+    end
+
+    test "two same-named resources with identical content dedupe silently to one entry (no regression)" do
+      widget_a = base_resource()
+      widget_b = base_resource()
+
+      doc =
+        Contract.build_from_ir(%{primary_resources: [], all_resources: [widget_a, widget_b]})
+
+      assert Enum.count(doc.types, &(&1.name == "Widget" and &1.kind == "resource")) == 1
     end
 
     defp fields_of(types, name) do

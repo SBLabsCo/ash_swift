@@ -22,8 +22,12 @@ defmodule AshSwift.Codegen.Contract do
         enums: [%{name, values}]
       }
 
-  `actions` covers every RPC-exposed action on every primary (RPC-exposed)
-  resource. `sortable`/`filterable` mirror the action's `enable_sort?`/
+  `actions` covers every action the reader models on every primary (RPC-exposed)
+  resource — a generic action whose return or argument shape the reader can't
+  map to Swift is skipped with a `Logger.warning` (`Reader`'s `warn_skip_generic/2`)
+  rather than surfaced as an unsupported entry here, so it is simply absent
+  from `actions` rather than present with an empty/placeholder shape.
+  `sortable`/`filterable` mirror the action's `enable_sort?`/
   `enable_filter?` (and, for `sortable`, whether the resource has any sortable
   attribute at all — see `AshSwift.Codegen.Reader`'s `has_sortable_fields?`):
   either can flip a `sort:`/`filter:` parameter into or out of existence without
@@ -63,11 +67,18 @@ defmodule AshSwift.Codegen.Contract do
   for them today. Once the reader gains a first-class union/embedded model,
   extend this document rather than diffing Swift text for that instead.
 
-  Two fields carry deliberately different consumption rules: `ash_swift_version`
+  Some fields carry deliberately different consumption rules: `ash_swift_version`
   is metadata (which AshSwift build produced the document, the same role a Hex
   package manifest's own version plays) and is excluded from additive/breaking
   classification — it changes on every release regardless of contract content,
-  so diffing it would flag noise as a change. `contract_version` is the
+  so diffing it would flag noise as a change. Likewise `domain` and
+  `resource_module` on each action entry are provenance, not contract — pure
+  breadcrumbs back to the Elixir module that produced the action, never
+  reaching the emitted Swift (the client never sees a domain or resource
+  module name); a server-side module rename changes them without changing the
+  generated function signature at all, so they too are excluded from
+  additive/breaking classification, on pain of a name-keyed structural diff
+  flagging a harmless rename as breaking. `contract_version` is the
   document *shape*'s own version (this module's `@contract_version`); a
   consumer should assert it for **equality** before diffing anything else — a
   mismatch means the shape itself may have grown/renamed top-level keys, which
@@ -87,7 +98,7 @@ defmodule AshSwift.Codegen.Contract do
   implied by the reader's own sorting (see `AshSwift.Codegen.ContractTest`).
   """
 
-  alias AshSwift.Codegen.Reader
+  alias AshSwift.Codegen.{Emitter, Reader}
 
   @contract_version 1
 
@@ -200,6 +211,18 @@ defmodule AshSwift.Codegen.Contract do
           end)
       end
 
+    # `lookup_inputs` is listed first on purpose: for an `:update` action whose
+    # accept list happens to also name the primary-key attribute (rare, but
+    # legal — nothing stops a resource from allowing its own PK to be
+    # reassigned), the same name shows up in both lists with different
+    # `required` values — `true` from the identity param that selects which
+    # record to update, `false` from the struct field (every update field is
+    # optional; see `collect_action_inputs/5` in `Reader`). `uniq_by/2` keeps
+    # the first occurrence, so the identity param wins: it is the value a
+    # caller must always supply to make the call at all, which is the more
+    # useful "required" answer for a single collapsed entry even though the
+    # two names travel as genuinely separate wire keys (`identity` vs.
+    # `input.{name}`) in the emitted Swift.
     (lookup_inputs ++ struct_inputs)
     |> Enum.uniq_by(& &1.name)
     |> Enum.sort_by(& &1.name)
@@ -215,8 +238,9 @@ defmodule AshSwift.Codegen.Contract do
   # half — params, request type, docstring — is deliberately not reproduced
   # here; only the resulting type is part of the contract). Kept in sync with
   # the emitter by the fixture-domain golden cross-check
-  # (`AshSwift.Codegen.ContractTest` "matches the functions Emitter.render_functions/1
-  # emits"): it renders `AshSwift.Test.Domain` through the real emitter and
+  # (`AshSwift.Codegen.ContractTest` "the contract's {action name, overloads} set
+  # equals the functions Emitter.render_functions/1 emits"): it renders
+  # `AshSwift.Test.Domain` through the real emitter and
   # asserts every contract result_type/optional_pagination.result_type shows up
   # as a return type in the generated Swift, so any drift between this and
   # `Emitter.method_spec/2` fails a real test rather than resting on this
@@ -320,9 +344,12 @@ defmodule AshSwift.Codegen.Contract do
   # Mirrors Emitter.render_filter_struct/1: one Optional operator-generic
   # property per filterable attribute, plus the fixed `and`/`or`/`not`
   # logical-combinator properties every filter struct carries (each an Optional
-  # array of the same filter type) — see Emitter's `@filter_combinators`. A
-  # filter's own name doubles as its element type, so the combinator field type
-  # is simply `[{name}]`.
+  # array of the same filter type) — read from `Emitter.filter_combinators/0`
+  # rather than restated as a literal here, so a combinator added there is
+  # reflected here automatically instead of silently under-reported (see the
+  # type cross-check test in `AshSwift.Codegen.ContractTest`). A filter's own
+  # name doubles as its element type, so the combinator field type is simply
+  # `[{name}]`.
   defp filter_struct_type(name, fields) do
     predicate_fields =
       Enum.map(fields, fn %{name: fname, swift_type: type} ->
@@ -330,7 +357,7 @@ defmodule AshSwift.Codegen.Contract do
       end)
 
     combinator_fields =
-      Enum.map(~w(and or not), fn combinator ->
+      Enum.map(Emitter.filter_combinators(), fn combinator ->
         %{name: combinator, type: "[#{name}]", optional: true}
       end)
 
