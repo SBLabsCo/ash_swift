@@ -65,6 +65,10 @@ defmodule AshSwift.MixProject do
       # internals (RPC entity shape, Resource.Info type_name accessor) that can
       # change across 0.x minors (ADR-0003).
       {:ash_typescript, "~> 0.17"},
+      # Already pulled in transitively (ash, reactor, spark); declared directly
+      # because AshSwift.Codegen.Contract encodes the RPC contract JSON itself
+      # (`Jason.OrderedObject`, added in 1.4) rather than only via a test dep.
+      {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end

@@ -226,13 +226,44 @@ as reviewable diffs.
 Two files are emitted: `AshRpcTypes.swift` (the `Codable` models) and
 `AshRpcFunctions.swift` (the RPC functions).
 
-### 3. Add the runtime to your iOS app
+### 3. Export the RPC contract for compatibility diffing
+
+`mix ash_swift.codegen` renders the same intermediate model codegen reads into
+Swift; `mix ash_swift.contract` renders it as a stable, sorted JSON document
+instead — every RPC action (name, resource, inputs, result type), every
+generated type/struct (fields, optionality), and every enum (its values):
+
+```sh
+# Print to stdout
+mix ash_swift.contract
+
+# Write to a file
+mix ash_swift.contract --output contract.json
+```
+
+Two runs against the same domains produce byte-identical JSON. The intended
+use is a **structural compatibility gate** in CI: fetch the contract JSON at a
+prior shipped release (a git tag, a stored CI artifact, …) and at the current
+revision, then diff the two documents to classify each change —
+
+- **additive**: a new optional field, a new action, a new enum value
+- **breaking**: a removed action/field/enum value, a changed type, a newly
+  required input
+
+Diffing this document is far more robust than diffing the emitted Swift text,
+which churns on formatting and naming details that carry no contract meaning.
+See `AshSwift.Codegen.Contract` for the exact document shape, and
+`AshSwift.Codegen.contract/1` for the programmatic entry point if you want the
+document as an Elixir map (e.g. to build the diff/classification step itself
+in Elixir rather than shelling out to the Mix task).
+
+### 4. Add the runtime to your iOS app
 
 Add `AshSwiftRuntime` via Swift Package Manager, and add the generated files to a
 target that depends on it. Platform baseline is **iOS 16+ / macOS 13+,
 Swift 5.9+** (`async`/`await` and modern `Codable`).
 
-### 4. Call your backend
+### 5. Call your backend
 
 ```swift
 import AshSwiftRuntime
