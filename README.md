@@ -278,17 +278,17 @@ which churns on formatting and naming details that carry no contract meaning.
 Two runs against the same domains always produce byte-identical JSON, but
 still compare the two documents **structurally, keyed by name** (decode each
 and index its lists by `name`) rather than byte-for-byte or key-order-for-key-
-order — this document's own key/array ordering is a promise only about two
-runs of *this* `Jason` version, not a cross-version one. Exclude
-`ash_swift_version` from the diff (it's metadata — which AshSwift build
-produced the document — not contract content, and it changes on every release
-regardless of whether the contract itself did); likewise exclude each action's
-`domain`/`resource_module` (provenance breadcrumbs back to the Elixir module
-that produced the action — they never reach the emitted Swift, so a
-server-side module rename would otherwise be misclassified as breaking by a
-name-keyed structural diff). Assert `contract_version`
-for **equality** before diffing anything else — a mismatch means the document
-*shape* changed, which a diff written for the old shape can't safely interpret.
+order — this document's own key/array ordering is a promise only about two runs
+of *this* `Jason` version, not a cross-version one. Exclude `ash_swift_version`
+from the diff (it's metadata — which AshSwift build produced the document — not
+contract content, and it changes on every release regardless of whether the
+contract itself did); likewise exclude each action's `domain`/`resource_module`
+(provenance breadcrumbs back to the Elixir module that produced the action —
+they never reach the emitted Swift, so a server-side module rename would
+otherwise be misclassified as breaking by a name-keyed structural diff). Assert
+`contract_version` for **equality** before diffing anything else — a mismatch
+means the document *shape* changed, which a diff written for the old shape
+can't safely interpret.
 
 See `AshSwift.Codegen.Contract`'s moduledoc for the exact document shape
 (including what it deliberately does **not** capture — wire-only changes with

@@ -53,8 +53,10 @@ defmodule AshSwift.Codegen.Emitter do
 
   @doc """
   The logical combinator field names every `{Resource}Filter` carries (`and`,
-  `or`, `not`) — see `@filter_combinators` above for why these three and why
-  they're safe to leave unescaped. Exposed so `AshSwift.Codegen.Contract` can
+  `or`, `not`): the literal wire keys `Ash.Query.filter_input` consumes, each
+  rendered as an optional array of the same filter type. None is a Swift
+  reserved keyword and each is a single word the field formatter leaves
+  untouched, so they need no escaping. Exposed so `AshSwift.Codegen.Contract` can
   describe the same combinator fields on the contract's filter types without
   restating this list as its own literal — a fourth combinator added here
   should change the contract too, not silently diverge from it.
