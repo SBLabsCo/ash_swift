@@ -20,6 +20,8 @@ defmodule AshSwift.Codegen.Reader do
 
       %{
         resource_module: module | nil,        # nil for a related-only entry
+        domain:          module | nil,        # nil for a related-only entry (ADR-0009: read
+                                              # straight off the IR, not Ash.Resource.Info.domain/1)
         type_name:       "Todo",
         fields:          [%{name, swift_type}],   # attributes + relationships + derived
         enums:           [%{enum_name, cases}],
@@ -269,8 +271,17 @@ defmodule AshSwift.Codegen.Reader do
   # output deterministic regardless of domain/declaration order.
   defp collect_resources(domains, manifest) do
     domains
-    |> Enum.flat_map(&RpcInfo.typescript_rpc/1)
-    |> Enum.map(fn %{resource: resource, rpc_actions: rpc_actions} ->
+    |> Enum.flat_map(fn domain ->
+      # `RpcInfo.typescript_rpc/1` entries are `AshTypescript.Rpc.Resource` structs
+      # (a fixed defstruct), so the owning domain can't be stashed onto them with
+      # `Map.put/3` — it's paired alongside instead, and unpacked in the very next
+      # step. This is how `domain` (ADR-0009: read off the IR, never
+      # `Ash.Resource.Info.domain/1`) reaches the resource map below.
+      domain
+      |> RpcInfo.typescript_rpc()
+      |> Enum.map(&{domain, &1})
+    end)
+    |> Enum.map(fn {domain, %{resource: resource, rpc_actions: rpc_actions}} ->
       type_name = ResourceInfo.typescript_type_name!(resource)
       mres = Map.fetch!(manifest.resources, resource)
       {fields, enums} = collect_fields(mres, type_name, manifest.types)
@@ -321,6 +332,7 @@ defmodule AshSwift.Codegen.Reader do
         actions_unsorted,
         input_structs_unsorted,
         resource,
+        domain,
         type_name,
         fields,
         enums,
@@ -637,6 +649,7 @@ defmodule AshSwift.Codegen.Reader do
          actions_unsorted,
          input_structs_unsorted,
          resource,
+         domain,
          type_name,
          fields,
          enums,
@@ -670,6 +683,7 @@ defmodule AshSwift.Codegen.Reader do
 
     %{
       resource_module: resource,
+      domain: domain,
       type_name: type_name,
       fields: fields,
       enums: enums,
@@ -1083,6 +1097,7 @@ defmodule AshSwift.Codegen.Reader do
 
         %{
           resource_module: nil,
+          domain: nil,
           type_name: type_name,
           fields: safe_fields,
           enums: enums,

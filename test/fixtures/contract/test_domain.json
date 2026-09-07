@@ -1,0 +1,1429 @@
+{
+  "actions": [
+    {
+      "action": "broadcast",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "tags",
+          "required": false,
+          "type": "[String]"
+        }
+      ],
+      "name": "broadcast",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": null,
+      "sortable": false
+    },
+    {
+      "action": "bulk_create",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "rows",
+          "required": true,
+          "type": "[BulkCreateRowsItem]"
+        }
+      ],
+      "name": "bulk_create",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[String: AshJSON]",
+      "sortable": false
+    },
+    {
+      "action": "bulk_raw",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "rows",
+          "required": true,
+          "type": "[[String: AshJSON]]"
+        }
+      ],
+      "name": "bulk_raw",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[String: AshJSON]",
+      "sortable": false
+    },
+    {
+      "action": "create",
+      "action_type": "create",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "amount",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "completed",
+          "required": false,
+          "type": "Bool"
+        },
+        {
+          "name": "deadline",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "default",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "dueAt",
+          "required": false,
+          "type": "Date"
+        },
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "labels",
+          "required": false,
+          "type": "[TodoLabels]"
+        },
+        {
+          "name": "metadata",
+          "required": false,
+          "type": "[String: AshJSON]"
+        },
+        {
+          "name": "nilTags",
+          "required": false,
+          "type": "[String?]"
+        },
+        {
+          "name": "notes",
+          "required": false,
+          "type": "[[String: AshJSON]]"
+        },
+        {
+          "name": "priority",
+          "required": false,
+          "type": "TodoPriority"
+        },
+        {
+          "name": "scheduledAt",
+          "required": false,
+          "type": "Date"
+        },
+        {
+          "name": "score",
+          "required": false,
+          "type": "Int"
+        },
+        {
+          "name": "scores",
+          "required": false,
+          "type": "[Int]"
+        },
+        {
+          "name": "startedAt",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "status",
+          "required": false,
+          "type": "TodoStatus"
+        },
+        {
+          "name": "tags",
+          "required": false,
+          "type": "[String]"
+        },
+        {
+          "name": "title",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "userId",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "username",
+          "required": false,
+          "type": "String"
+        }
+      ],
+      "name": "create_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
+      "action": "destroy",
+      "action_type": "destroy",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "destroy_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": null,
+      "sortable": false
+    },
+    {
+      "action": "echo",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "loud",
+          "required": false,
+          "type": "Bool"
+        },
+        {
+          "name": "message",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "echo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "String",
+      "sortable": false
+    },
+    {
+      "action": "echo_config",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "default",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "options",
+          "required": false,
+          "type": "[String: AshJSON]"
+        }
+      ],
+      "name": "echo_config",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "String",
+      "sortable": false
+    },
+    {
+      "action": "fetch",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "fetch_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
+      "action": "get_by_id",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "find_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo?",
+      "sortable": false
+    },
+    {
+      "action": "read",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "find_todo_by_title",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
+      "action": "get_by_id",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "get_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
+      "action": "get_by_score",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "score",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "get_todo_by_score",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
+      "action": "read",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [],
+      "name": "init",
+      "optional_pagination": {
+        "result_type": "OffsetPage<Todo>",
+        "type": "offset"
+      },
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[Todo]",
+      "sortable": true
+    },
+    {
+      "action": "read",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [],
+      "name": "list_todos",
+      "optional_pagination": {
+        "result_type": "OffsetPage<Todo>",
+        "type": "offset"
+      },
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[Todo]",
+      "sortable": true
+    },
+    {
+      "action": "list_keyset_paginated",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [],
+      "name": "list_todos_keyset",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "KeysetPage<Todo>",
+      "sortable": true
+    },
+    {
+      "action": "list_keyset_optional",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [],
+      "name": "list_todos_keyset_optional",
+      "optional_pagination": {
+        "result_type": "KeysetPage<Todo>",
+        "type": "keyset"
+      },
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[Todo]",
+      "sortable": true
+    },
+    {
+      "action": "read",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [],
+      "name": "list_todos_no_filter",
+      "optional_pagination": {
+        "result_type": "OffsetPage<Todo>",
+        "type": "offset"
+      },
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[Todo]",
+      "sortable": true
+    },
+    {
+      "action": "read",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [],
+      "name": "list_todos_no_sort",
+      "optional_pagination": {
+        "result_type": "OffsetPage<Todo>",
+        "type": "offset"
+      },
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[Todo]",
+      "sortable": false
+    },
+    {
+      "action": "list_offset_paginated",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [],
+      "name": "list_todos_offset",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "OffsetPage<Todo>",
+      "sortable": true
+    },
+    {
+      "action": "ping",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [],
+      "name": "ping",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "String",
+      "sortable": false
+    },
+    {
+      "action": "ping_void",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [],
+      "name": "ping_void",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": null,
+      "sortable": false
+    },
+    {
+      "action": "request_magic_link",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "email",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "request_magic_link",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": null,
+      "sortable": false
+    },
+    {
+      "action": "stats",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [],
+      "name": "stats",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[String: AshJSON]",
+      "sortable": false
+    },
+    {
+      "action": "update",
+      "action_type": "update",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "amount",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "completed",
+          "required": false,
+          "type": "Bool"
+        },
+        {
+          "name": "deadline",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "default",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "dueAt",
+          "required": false,
+          "type": "Date"
+        },
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "labels",
+          "required": false,
+          "type": "[TodoLabels]"
+        },
+        {
+          "name": "metadata",
+          "required": false,
+          "type": "[String: AshJSON]"
+        },
+        {
+          "name": "nilTags",
+          "required": false,
+          "type": "[String?]"
+        },
+        {
+          "name": "notes",
+          "required": false,
+          "type": "[[String: AshJSON]]"
+        },
+        {
+          "name": "priority",
+          "required": false,
+          "type": "TodoPriority"
+        },
+        {
+          "name": "scheduledAt",
+          "required": false,
+          "type": "Date"
+        },
+        {
+          "name": "score",
+          "required": false,
+          "type": "Int"
+        },
+        {
+          "name": "scores",
+          "required": false,
+          "type": "[Int]"
+        },
+        {
+          "name": "startedAt",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "status",
+          "required": false,
+          "type": "TodoStatus"
+        },
+        {
+          "name": "tags",
+          "required": false,
+          "type": "[String]"
+        },
+        {
+          "name": "title",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "userId",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "username",
+          "required": false,
+          "type": "String"
+        }
+      ],
+      "name": "update_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
+      "action": "upload_start",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "filename",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "upload_start",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "UploadStartResult",
+      "sortable": false
+    },
+    {
+      "action": "create",
+      "action_type": "create",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "email",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "create_user",
+      "optional_pagination": null,
+      "resource": "User",
+      "resource_module": "AshSwift.Test.User",
+      "result_type": "User",
+      "sortable": false
+    },
+    {
+      "action": "read",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [],
+      "name": "list_users",
+      "optional_pagination": {
+        "result_type": "OffsetPage<User>",
+        "type": "offset"
+      },
+      "resource": "User",
+      "resource_module": "AshSwift.Test.User",
+      "result_type": "[User]",
+      "sortable": true
+    }
+  ],
+  "ash_swift_version": "0.1.0",
+  "contract_version": 1,
+  "enums": [
+    {
+      "name": "TodoLabels",
+      "values": [
+        "green",
+        "red"
+      ]
+    },
+    {
+      "name": "TodoPriority",
+      "values": [
+        "high",
+        "low",
+        "medium"
+      ]
+    },
+    {
+      "name": "TodoSortField",
+      "values": [
+        "amount",
+        "completed",
+        "deadline",
+        "default",
+        "dueAt",
+        "id",
+        "priority",
+        "scheduledAt",
+        "score",
+        "startedAt",
+        "status",
+        "title",
+        "userId",
+        "username"
+      ]
+    },
+    {
+      "name": "TodoStatus",
+      "values": [
+        "active",
+        "archived",
+        "case",
+        "default",
+        "pending"
+      ]
+    },
+    {
+      "name": "UserNameSize",
+      "values": [
+        "long",
+        "short"
+      ]
+    },
+    {
+      "name": "UserSortField",
+      "values": [
+        "email",
+        "id",
+        "name"
+      ]
+    },
+    {
+      "name": "UserTopPriority",
+      "values": [
+        "high",
+        "low",
+        "medium"
+      ]
+    }
+  ],
+  "types": [
+    {
+      "fields": [
+        {
+          "name": "tags",
+          "optional": true,
+          "type": "[String]"
+        }
+      ],
+      "kind": "input",
+      "name": "BroadcastInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "rows",
+          "optional": false,
+          "type": "[BulkCreateRowsItem]"
+        }
+      ],
+      "kind": "input",
+      "name": "BulkCreateInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "label",
+          "optional": false,
+          "type": "String"
+        },
+        {
+          "name": "priority",
+          "optional": true,
+          "type": "Int"
+        }
+      ],
+      "kind": "input",
+      "name": "BulkCreateRowsItem"
+    },
+    {
+      "fields": [
+        {
+          "name": "rows",
+          "optional": false,
+          "type": "[[String: AshJSON]]"
+        }
+      ],
+      "kind": "input",
+      "name": "BulkRawInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "amount",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "completed",
+          "optional": true,
+          "type": "Bool"
+        },
+        {
+          "name": "deadline",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "default",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "dueAt",
+          "optional": true,
+          "type": "Date"
+        },
+        {
+          "name": "labels",
+          "optional": true,
+          "type": "[TodoLabels]"
+        },
+        {
+          "name": "metadata",
+          "optional": true,
+          "type": "[String: AshJSON]"
+        },
+        {
+          "name": "nilTags",
+          "optional": true,
+          "type": "[String?]"
+        },
+        {
+          "name": "notes",
+          "optional": true,
+          "type": "[[String: AshJSON]]"
+        },
+        {
+          "name": "priority",
+          "optional": true,
+          "type": "TodoPriority"
+        },
+        {
+          "name": "scheduledAt",
+          "optional": true,
+          "type": "Date"
+        },
+        {
+          "name": "score",
+          "optional": true,
+          "type": "Int"
+        },
+        {
+          "name": "scores",
+          "optional": true,
+          "type": "[Int]"
+        },
+        {
+          "name": "startedAt",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "status",
+          "optional": true,
+          "type": "TodoStatus"
+        },
+        {
+          "name": "tags",
+          "optional": true,
+          "type": "[String]"
+        },
+        {
+          "name": "title",
+          "optional": false,
+          "type": "String"
+        },
+        {
+          "name": "userId",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "username",
+          "optional": true,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "CreateTodoInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "email",
+          "optional": false,
+          "type": "String"
+        },
+        {
+          "name": "name",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "CreateUserInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "default",
+          "optional": false,
+          "type": "String"
+        },
+        {
+          "name": "options",
+          "optional": true,
+          "type": "[String: AshJSON]"
+        }
+      ],
+      "kind": "input",
+      "name": "EchoConfigInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "loud",
+          "optional": true,
+          "type": "Bool"
+        },
+        {
+          "name": "message",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "EchoInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "email",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "RequestMagicLinkInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "amount",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "completed",
+          "optional": true,
+          "type": "Bool"
+        },
+        {
+          "name": "deadline",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "default",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "dueAt",
+          "optional": true,
+          "type": "Date"
+        },
+        {
+          "name": "id",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "labels",
+          "optional": true,
+          "type": "[TodoLabels]"
+        },
+        {
+          "name": "metadata",
+          "optional": true,
+          "type": "[String: AshJSON]"
+        },
+        {
+          "name": "nilTags",
+          "optional": true,
+          "type": "[String?]"
+        },
+        {
+          "name": "notes",
+          "optional": true,
+          "type": "[[String: AshJSON]]"
+        },
+        {
+          "name": "priority",
+          "optional": true,
+          "type": "TodoPriority"
+        },
+        {
+          "name": "scheduledAt",
+          "optional": true,
+          "type": "Date"
+        },
+        {
+          "name": "score",
+          "optional": true,
+          "type": "Int"
+        },
+        {
+          "name": "scores",
+          "optional": true,
+          "type": "[Int]"
+        },
+        {
+          "name": "startedAt",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "status",
+          "optional": true,
+          "type": "TodoStatus"
+        },
+        {
+          "name": "tags",
+          "optional": true,
+          "type": "[String]"
+        },
+        {
+          "name": "title",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "user",
+          "optional": true,
+          "type": "User"
+        },
+        {
+          "name": "userId",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "username",
+          "optional": true,
+          "type": "String"
+        }
+      ],
+      "kind": "resource",
+      "name": "Todo"
+    },
+    {
+      "fields": [
+        {
+          "name": "amount",
+          "optional": true,
+          "type": "NullableComparableOperators<String>"
+        },
+        {
+          "name": "and",
+          "optional": true,
+          "type": "[TodoFilter]"
+        },
+        {
+          "name": "completed",
+          "optional": true,
+          "type": "EquatableOperators<Bool>"
+        },
+        {
+          "name": "deadline",
+          "optional": true,
+          "type": "NullableComparableOperators<String>"
+        },
+        {
+          "name": "default",
+          "optional": true,
+          "type": "NullableEnumOperators<String>"
+        },
+        {
+          "name": "dueAt",
+          "optional": true,
+          "type": "NullableComparableOperators<Date>"
+        },
+        {
+          "name": "id",
+          "optional": true,
+          "type": "EnumOperators<String>"
+        },
+        {
+          "name": "not",
+          "optional": true,
+          "type": "[TodoFilter]"
+        },
+        {
+          "name": "or",
+          "optional": true,
+          "type": "[TodoFilter]"
+        },
+        {
+          "name": "priority",
+          "optional": true,
+          "type": "NullableEnumOperators<TodoPriority>"
+        },
+        {
+          "name": "scheduledAt",
+          "optional": true,
+          "type": "NullableComparableOperators<Date>"
+        },
+        {
+          "name": "score",
+          "optional": true,
+          "type": "NullableComparableOperators<Int>"
+        },
+        {
+          "name": "startedAt",
+          "optional": true,
+          "type": "NullableComparableOperators<String>"
+        },
+        {
+          "name": "status",
+          "optional": true,
+          "type": "NullableEnumOperators<TodoStatus>"
+        },
+        {
+          "name": "title",
+          "optional": true,
+          "type": "EnumOperators<String>"
+        },
+        {
+          "name": "userId",
+          "optional": true,
+          "type": "NullableEnumOperators<String>"
+        },
+        {
+          "name": "username",
+          "optional": true,
+          "type": "NullableEnumOperators<String>"
+        }
+      ],
+      "kind": "filter",
+      "name": "TodoFilter"
+    },
+    {
+      "fields": [
+        {
+          "name": "amount",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "completed",
+          "optional": true,
+          "type": "Bool"
+        },
+        {
+          "name": "deadline",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "default",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "dueAt",
+          "optional": true,
+          "type": "Date"
+        },
+        {
+          "name": "labels",
+          "optional": true,
+          "type": "[TodoLabels]"
+        },
+        {
+          "name": "metadata",
+          "optional": true,
+          "type": "[String: AshJSON]"
+        },
+        {
+          "name": "nilTags",
+          "optional": true,
+          "type": "[String?]"
+        },
+        {
+          "name": "notes",
+          "optional": true,
+          "type": "[[String: AshJSON]]"
+        },
+        {
+          "name": "priority",
+          "optional": true,
+          "type": "TodoPriority"
+        },
+        {
+          "name": "scheduledAt",
+          "optional": true,
+          "type": "Date"
+        },
+        {
+          "name": "score",
+          "optional": true,
+          "type": "Int"
+        },
+        {
+          "name": "scores",
+          "optional": true,
+          "type": "[Int]"
+        },
+        {
+          "name": "startedAt",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "status",
+          "optional": true,
+          "type": "TodoStatus"
+        },
+        {
+          "name": "tags",
+          "optional": true,
+          "type": "[String]"
+        },
+        {
+          "name": "title",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "userId",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "username",
+          "optional": true,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "UpdateTodoInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "filename",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "UploadStartInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "caption",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "clips",
+          "optional": true,
+          "type": "[UploadStartResultClipsItem]"
+        },
+        {
+          "name": "metadata",
+          "optional": true,
+          "type": "[String: AshJSON]"
+        },
+        {
+          "name": "videoId",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "result",
+      "name": "UploadStartResult"
+    },
+    {
+      "fields": [
+        {
+          "name": "clipId",
+          "optional": false,
+          "type": "String"
+        },
+        {
+          "name": "orderIndex",
+          "optional": false,
+          "type": "Int"
+        },
+        {
+          "name": "uploadUrl",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "result",
+      "name": "UploadStartResultClipsItem"
+    },
+    {
+      "fields": [
+        {
+          "name": "averageScore",
+          "optional": true,
+          "type": "Double"
+        },
+        {
+          "name": "displayName",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "email",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "hasTodos",
+          "optional": true,
+          "type": "Bool"
+        },
+        {
+          "name": "highestScore",
+          "optional": true,
+          "type": "Int"
+        },
+        {
+          "name": "id",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "lowestScore",
+          "optional": true,
+          "type": "Int"
+        },
+        {
+          "name": "name",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "nameSize",
+          "optional": true,
+          "type": "UserNameSize"
+        },
+        {
+          "name": "todoCount",
+          "optional": true,
+          "type": "Int"
+        },
+        {
+          "name": "todos",
+          "optional": true,
+          "type": "[Todo]"
+        },
+        {
+          "name": "topPriority",
+          "optional": true,
+          "type": "UserTopPriority"
+        },
+        {
+          "name": "totalScore",
+          "optional": true,
+          "type": "Int"
+        }
+      ],
+      "kind": "resource",
+      "name": "User"
+    },
+    {
+      "fields": [
+        {
+          "name": "and",
+          "optional": true,
+          "type": "[UserFilter]"
+        },
+        {
+          "name": "email",
+          "optional": true,
+          "type": "EnumOperators<String>"
+        },
+        {
+          "name": "id",
+          "optional": true,
+          "type": "EnumOperators<String>"
+        },
+        {
+          "name": "name",
+          "optional": true,
+          "type": "EnumOperators<String>"
+        },
+        {
+          "name": "not",
+          "optional": true,
+          "type": "[UserFilter]"
+        },
+        {
+          "name": "or",
+          "optional": true,
+          "type": "[UserFilter]"
+        }
+      ],
+      "kind": "filter",
+      "name": "UserFilter"
+    }
+  ]
+}

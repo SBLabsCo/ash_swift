@@ -8,7 +8,7 @@ defmodule AshSwift.Codegen do
   deterministic, change-only writes.
   """
 
-  alias AshSwift.Codegen.{Emitter, Reader}
+  alias AshSwift.Codegen.{Contract, Emitter, Reader}
 
   @types_file "AshRpcTypes.swift"
   @functions_file "AshRpcFunctions.swift"
@@ -77,6 +77,21 @@ defmodule AshSwift.Codegen do
     |> Enum.map(fn {path, _} -> path end)
     |> Enum.sort()
   end
+
+  @doc """
+  Builds the stable, JSON-encodable RPC contract document for the given
+  domains — the reader's intermediate model, described independently of Swift
+  syntax, for a downstream CI gate to diff across two revisions (issue #85).
+  See `AshSwift.Codegen.Contract` for the document shape and `mix
+  ash_swift.contract` for the CLI entry point.
+
+  Calls the same `Reader.read/1` code path `build_files/1` uses, so a contract
+  built here always describes exactly the domains `build_files/1` would emit
+  Swift for. (It is its own read pass — the guarantee is shared code, not a
+  shared result.)
+  """
+  @spec contract([module()]) :: map()
+  def contract(domains) when is_list(domains), do: Contract.build(domains)
 
   defp write_if_changed(path, content) do
     current = if File.exists?(path), do: File.read!(path), else: :none
