@@ -360,6 +360,34 @@ defmodule AshSwift.Codegen.ContractTest do
 
     defp ir(resource), do: %{primary_resources: [resource], all_resources: [resource]}
 
+    test "a generic action whose return shape the contract doesn't model raises instead of reading as void" do
+      unmodelled =
+        base_resource(%{
+          actions: [
+            %{
+              rpc_name: :do_thing,
+              action: :do_thing,
+              action_type: :action,
+              generic_return: {:stream, "Thing"},
+              is_get?: false,
+              get_by_params: [],
+              get_by_location: nil,
+              not_found_error?: false,
+              input_struct_name: nil,
+              primary_key_params: [],
+              pagination_type: :none,
+              optional_pagination_type: :none,
+              sortable?: false,
+              filterable?: false
+            }
+          ]
+        })
+
+      assert_raise RuntimeError, ~r/unhandled generic_return \{:stream, "Thing"\}/, fn ->
+        Contract.build_from_ir(ir(unmodelled))
+      end
+    end
+
     test "an optional field added to a fixture resource appears in the JSON" do
       before_fields = Contract.build_from_ir(ir(base_resource())).types |> fields_of("Widget")
       refute Enum.any?(before_fields, &(&1.name == "color"))

@@ -85,9 +85,10 @@ defmodule AshSwift.Codegen do
   See `AshSwift.Codegen.Contract` for the document shape and `mix
   ash_swift.contract` for the CLI entry point.
 
-  Shares the same `Reader.read/1` call `build_files/1` makes, so a contract
+  Calls the same `Reader.read/1` code path `build_files/1` uses, so a contract
   built here always describes exactly the domains `build_files/1` would emit
-  Swift for — there is no separate read pass to drift out of sync.
+  Swift for. (It is its own read pass — the guarantee is shared code, not a
+  shared result.)
   """
   @spec contract([module()]) :: map()
   def contract(domains) when is_list(domains), do: Contract.build(domains)

@@ -165,12 +165,15 @@ defmodule AshSwift.Codegen.Contract do
   defp collect_actions(primary_resources) do
     primary_resources
     |> Enum.flat_map(fn resource ->
-      Enum.map(resource.actions, &action_entry(&1, resource))
+      # Indexed once per resource so each action's input-struct lookup is a
+      # map read rather than a scan of every input struct the resource owns.
+      input_structs_by_name = Map.new(resource.input_structs, &{&1.struct_name, &1})
+      Enum.map(resource.actions, &action_entry(&1, resource, input_structs_by_name))
     end)
     |> Enum.sort_by(&{&1.resource, &1.name})
   end
 
-  defp action_entry(action, resource) do
+  defp action_entry(action, resource, input_structs_by_name) do
     %{
       name: to_string(action.rpc_name),
       resource: resource.type_name,
@@ -180,7 +183,7 @@ defmodule AshSwift.Codegen.Contract do
       action_type: to_string(action.action_type),
       sortable: action.sortable?,
       filterable: action.filterable?,
-      inputs: action_inputs(action, resource),
+      inputs: action_inputs(action, input_structs_by_name),
       result_type: result_type(action, resource.type_name),
       optional_pagination: optional_pagination(action, resource.type_name)
     }
@@ -193,7 +196,7 @@ defmodule AshSwift.Codegen.Contract do
   # fields are client query capabilities, not RPC-contract inputs, and are
   # deliberately out of scope here (issue #85 asks for action inputs, not the
   # full method signature).
-  defp action_inputs(action, resource) do
+  defp action_inputs(action, input_structs_by_name) do
     lookup_inputs =
       (action.get_by_params ++ action.primary_key_params)
       |> Enum.map(fn %{name: name, swift_type: type} ->
@@ -201,7 +204,7 @@ defmodule AshSwift.Codegen.Contract do
       end)
 
     struct_inputs =
-      case find_input_struct(resource, action.input_struct_name) do
+      case Map.get(input_structs_by_name, action.input_struct_name) do
         nil ->
           []
 
@@ -226,12 +229,6 @@ defmodule AshSwift.Codegen.Contract do
     (lookup_inputs ++ struct_inputs)
     |> Enum.uniq_by(& &1.name)
     |> Enum.sort_by(& &1.name)
-  end
-
-  defp find_input_struct(_resource, nil), do: nil
-
-  defp find_input_struct(resource, struct_name) do
-    Enum.find(resource.input_structs, &(&1.struct_name == struct_name))
   end
 
   # Mirrors the return-type half of Emitter.method_spec/2 (the Swift-syntax
@@ -267,6 +264,15 @@ defmodule AshSwift.Codegen.Contract do
   defp result_type(%{action_type: :action, generic_return: {kind, swift_type}}, _type_name)
        when kind in [:typed, :typed_record],
        do: swift_type
+
+  # A generic action whose return the reader classified as something this
+  # module doesn't model must fail loudly: falling through to `nil` would make
+  # it indistinguishable from a void/destroy action and silently corrupt the
+  # contract — and no fixture-scoped test would notice a shape no fixture
+  # action exercises.
+  defp result_type(%{action_type: :action, generic_return: other}, _type_name) do
+    raise "AshSwift.Codegen.Contract: unhandled generic_return #{inspect(other)}"
+  end
 
   defp result_type(_action, _type_name), do: nil
 
