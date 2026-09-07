@@ -114,6 +114,10 @@ and a TypeScript client stay wire-identical by construction.
   networking stack (e.g. Alamofire) via a protocol.
 - **Deterministic, committable output** — regenerating with no schema change
   produces no diff.
+- **Contract export for compatibility diffing** — `mix ash_swift.contract` renders
+  the same codegen model as a stable, sorted JSON document instead of Swift, for a
+  CI gate that diffs two revisions without churning on Swift-formatting noise. See
+  [Usage step 4](#4-export-the-rpc-contract-for-compatibility-diffing).
 
 Typed (narrowed) queries, embedded resources,
 lifecycle hooks, and Phoenix Channel support are planned for upcoming milestones —
@@ -226,25 +230,44 @@ as reviewable diffs.
 Two files are emitted: `AshRpcTypes.swift` (the `Codable` models) and
 `AshRpcFunctions.swift` (the RPC functions).
 
-### 3. Export the RPC contract for compatibility diffing
+### 3. Add the runtime to your iOS app
 
-`mix ash_swift.codegen` renders the same intermediate model codegen reads into
-Swift; `mix ash_swift.contract` renders it as a stable, sorted JSON document
-instead — every RPC action (name, resource, inputs, result type), every
-generated type/struct (fields, optionality), and every enum (its values):
+Add `AshSwiftRuntime` via Swift Package Manager, and add the generated files to a
+target that depends on it. Platform baseline is **iOS 16+ / macOS 13+,
+Swift 5.9+** (`async`/`await` and modern `Codable`).
+
+### 4. Export the RPC contract for compatibility diffing
+
+`mix ash_swift.codegen` (step 2) renders the codegen model into Swift; `mix
+ash_swift.contract` renders the *same* model as a stable, sorted JSON document
+instead — every RPC action (name, resource, `sortable`/`filterable`, inputs,
+result type, and the second overload a supports-but-doesn't-require-pagination
+read gains), every generated type (fields, optionality — including each
+resource's `{Resource}Filter`), and every generated enum (its values —
+including each `{Resource}SortField`). It's a separate task rather than a
+`codegen` flag on purpose: the two have different lifecycles — you regenerate
+Swift on every schema change, but you'd typically snapshot a contract only at
+release tags, to diff "what shipped" against "what's about to ship".
 
 ```sh
-# Print to stdout
-mix ash_swift.contract
-
-# Write to a file
+# The documented CI path: the contract JSON is the file's only content.
 mix ash_swift.contract --output contract.json
+
+# Print to stdout instead — eyeball-only. This shares stdout with this task's
+# own `mix compile` and any reader warnings (e.g. an unsupported attribute
+# type), so don't pipe or parse this form; use --output for anything scripted.
+mix ash_swift.contract
 ```
 
-Two runs against the same domains produce byte-identical JSON. The intended
-use is a **structural compatibility gate** in CI: fetch the contract JSON at a
-prior shipped release (a git tag, a stored CI artifact, …) and at the current
-revision, then diff the two documents to classify each change —
+Note `--output` here takes a **file** path (the whole contract, one document);
+`ash_swift.codegen --output` takes a **directory** (two Swift files land
+inside it) — same flag name, different shape, because the two commands write
+fundamentally different things.
+
+The intended use is a **structural compatibility gate** in CI: fetch the
+contract JSON at a prior shipped release (a git tag, a stored CI artifact, …)
+and at the current revision, then diff the two documents to classify each
+change —
 
 - **additive**: a new optional field, a new action, a new enum value
 - **breaking**: a removed action/field/enum value, a changed type, a newly
@@ -252,16 +275,23 @@ revision, then diff the two documents to classify each change —
 
 Diffing this document is far more robust than diffing the emitted Swift text,
 which churns on formatting and naming details that carry no contract meaning.
-See `AshSwift.Codegen.Contract` for the exact document shape, and
-`AshSwift.Codegen.contract/1` for the programmatic entry point if you want the
-document as an Elixir map (e.g. to build the diff/classification step itself
-in Elixir rather than shelling out to the Mix task).
+Two runs against the same domains always produce byte-identical JSON, but
+still compare the two documents **structurally, keyed by name** (decode each
+and index its lists by `name`) rather than byte-for-byte or key-order-for-key-
+order — this document's own key/array ordering is a promise only about two
+runs of *this* `Jason` version, not a cross-version one. Exclude
+`ash_swift_version` from the diff (it's metadata — which AshSwift build
+produced the document — not contract content, and it changes on every release
+regardless of whether the contract itself did), and assert `contract_version`
+for **equality** before diffing anything else — a mismatch means the document
+*shape* changed, which a diff written for the old shape can't safely interpret.
 
-### 4. Add the runtime to your iOS app
-
-Add `AshSwiftRuntime` via Swift Package Manager, and add the generated files to a
-target that depends on it. Platform baseline is **iOS 16+ / macOS 13+,
-Swift 5.9+** (`async`/`await` and modern `Codable`).
+See `AshSwift.Codegen.Contract`'s moduledoc for the exact document shape
+(including what it deliberately does **not** capture — wire-only changes with
+no compiled-shape footprint), and `AshSwift.Codegen.contract/1` for the
+programmatic entry point if you want the document as an Elixir map (e.g. to
+build the diff/classification step itself in Elixir rather than shelling out
+to the Mix task).
 
 ### 5. Call your backend
 
@@ -389,7 +419,13 @@ emitted (structural assertions), that regenerating any domain is deterministic
 product), and whether it decodes real backend JSON (a thin end-to-end wire-compat
 test). Since the Reader/Emitter split (ADR-0010), the codegen IR seam is also
 tested directly — the manifest reader's classification against the IR, and the
-Ash→Swift `TypeMap` as a flat table.
+Ash→Swift `TypeMap` as a flat table. The RPC contract (`mix ash_swift.contract`)
+has its own committed snapshot fixture
+(`test/fixtures/contract/test_domain.json`) plus a golden cross-check that
+diffs the contract against what `AshSwift.Codegen.Emitter` actually renders
+for the same fixture domain, so the two can't drift apart unnoticed; after an
+intentional contract change, regenerate the snapshot with
+`MIX_ENV=test mix ash_swift.contract --output test/fixtures/contract/test_domain.json`.
 
 ## Design decisions
 
