@@ -437,8 +437,10 @@ defmodule AshSwift.Codegen.Reader do
 
     new_struct =
       if input_struct_name do
-        inputs = collect_action_inputs(maction, mres, type_name, formatter, types)
-        [%{struct_name: input_struct_name, fields: inputs}]
+        {inputs, nested_structs} =
+          collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types)
+
+        [%{struct_name: input_struct_name, fields: inputs} | nested_structs]
       else
         []
       end
@@ -1211,13 +1213,25 @@ defmodule AshSwift.Codegen.Reader do
     end)
   end
 
-  # Collects the accepted input fields for a create or update action, mapping
-  # each to its Swift type and whether it is required (create only).
+  # Collects the input fields for a create or update action, mapping each to its
+  # Swift type and whether it is required. Returns {fields, nested_structs}.
   #
-  # Only public attributes in the action's accept list are included; arguments
-  # and non-public attributes are skipped. All update fields are optional because
-  # update is always a partial operation.
-  defp collect_action_inputs(maction, mres, type_name, formatter, types) do
+  # The manifest normalizes an action's inputs into one list holding both its
+  # accepted attributes and its action *arguments* (issue #83), so each input is
+  # routed by what it is:
+  #
+  #   * an action argument maps from its own manifest type through the same
+  #     generic_field_swift_type/5 path generic actions use (scalar, map, array,
+  #     array-of-record → nested `<Action><Arg>Item` struct), with optionality from
+  #     the argument's `required?` presence flag — on update too, since a required
+  #     argument must be supplied even though the update itself is partial. An
+  #     argument of an unmappable type is omitted with a warning rather than
+  #     String-guessed. Arguments are checked first: an argument named like a
+  #     public attribute is still an argument on the wire, with the argument's type.
+  #   * an accepted public attribute maps via attribute_swift_type/3. All update
+  #     attribute fields are optional because update is always a partial operation.
+  #   * anything else (an accepted non-public attribute) is omitted with a warning.
+  defp collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types) do
     resource = mres.module
 
     attrs_map =
@@ -1225,42 +1239,101 @@ defmodule AshSwift.Codegen.Reader do
       |> manifest_attributes(types)
       |> Map.new(fn attr -> {attr.name, attr} end)
 
-    maction.inputs
-    |> Enum.flat_map(fn input ->
-      case Map.get(attrs_map, input.name) do
-        nil ->
-          Logger.warning(
-            "AshSwift: input #{inspect(input.name)} of action #{inspect(maction.name)} " <>
-              "is not a public attribute and will be omitted from the generated input struct. " <>
-              "Action arguments are not yet supported."
-          )
+    argument_names = action_argument_names(resource, maction.name)
 
-          []
+    {fields, structs} =
+      Enum.reduce(maction.inputs, {[], []}, fn input, {fields_acc, structs_acc} ->
+        formatted_name = FieldFormatter.format_field_for_client(input.name, resource, formatter)
 
-        attr ->
-          formatted_name = FieldFormatter.format_field_for_client(input.name, resource, formatter)
+        cond do
+          MapSet.member?(argument_names, input.name) ->
+            case generic_field_swift_type(
+                   input.type,
+                   pascal_case(rpc_action.name),
+                   input.name,
+                   resource,
+                   formatter
+                 ) do
+              {:ok, swift_type, nested_structs} ->
+                field = %{
+                  name: formatted_name,
+                  swift_type: swift_type,
+                  required?: input.required? == true
+                }
 
-          # Same gate as the model field: an attribute that maps to no Swift type is
-          # omitted rather than String-guessed. collect_fields/3 has already warned
-          # about it once for this resource, so this drop stays quiet.
-          #
-          # Unlike the model field, dropping here is only safe for an OPTIONAL
-          # attribute: a required one (create, `allow_nil?: false`, no default) still
-          # yields an input struct that compiles, and the create then fails
-          # server-side at run time rather than at build time. Tracked in issue #79.
-          case attribute_swift_type(attr, formatted_name, type_name) do
-            {:ok, swift_type, _enum} ->
-              required? =
-                maction.type == :create and not attr.allow_nil? and not attr.has_default?
+                {[field | fields_acc], nested_structs ++ structs_acc}
 
-              [%{name: formatted_name, swift_type: swift_type, required?: required?}]
+              :unsupported ->
+                Logger.warning(
+                  "AshSwift: argument #{inspect(input.name)} of action #{inspect(maction.name)} " <>
+                    "has a type that maps to no Swift type and will be omitted from the " <>
+                    "generated input struct."
+                )
 
-            :unsupported ->
-              []
-          end
-      end
-    end)
-    |> Enum.sort_by(& &1.name)
+                {fields_acc, structs_acc}
+            end
+
+          attr = Map.get(attrs_map, input.name) ->
+            # Same gate as the model field: an attribute that maps to no Swift type is
+            # omitted rather than String-guessed. collect_fields/3 has already warned
+            # about it once for this resource, so this drop stays quiet.
+            #
+            # Unlike the model field, dropping here is only safe for an OPTIONAL
+            # attribute: a required one (create, `allow_nil?: false`, no default) still
+            # yields an input struct that compiles, and the create then fails
+            # server-side at run time rather than at build time. Tracked in issue #79.
+            case attribute_swift_type(attr, formatted_name, type_name) do
+              {:ok, swift_type, _enum} ->
+                required? =
+                  maction.type == :create and not attr.allow_nil? and not attr.has_default?
+
+                field = %{name: formatted_name, swift_type: swift_type, required?: required?}
+                {[field | fields_acc], structs_acc}
+
+              :unsupported ->
+                {fields_acc, structs_acc}
+            end
+
+          true ->
+            Logger.warning(
+              "AshSwift: input #{inspect(input.name)} of action #{inspect(maction.name)} " <>
+                "is not a public attribute and will be omitted from the generated input struct."
+            )
+
+            {fields_acc, structs_acc}
+        end
+      end)
+
+    # Nested-struct order doesn't matter: collect_query_surface sorts all
+    # input_structs by struct name, so output stays deterministic.
+    {Enum.sort_by(fields, & &1.name), structs}
+  end
+
+  # The names of an action's PUBLIC arguments — exactly the argument entries the
+  # manifest puts in `inputs` (it drops private ones unless
+  # `include_private_arguments?`), so membership here can only ever match an
+  # argument the manifest actually surfaced. (Ash itself also removes an attribute
+  # from an action's effective `accept` when an argument shares its name, so an
+  # accepted attribute can't be shadowed by a private argument either way.)
+  #
+  # Deliberate ADR-0009 deviation: this is the one action-input detail read from
+  # `Ash.Resource.Info` instead of the manifest. `Ash.Info.Manifest.Action.inputs`
+  # merges accepted attributes and arguments into one list of `Argument` structs
+  # with no discriminator, and an argument may share an attribute's name, so the
+  # manifest alone can't tell them apart. Remove this once the manifest carries a
+  # per-input source flag (e.g. `kind: :argument | :attribute`). Until then, fail
+  # loudly if the action can't be found rather than silently treating every
+  # argument as an attribute.
+  defp action_argument_names(resource, action_name) do
+    case Ash.Resource.Info.action(resource, action_name) do
+      %{arguments: arguments} ->
+        arguments |> Enum.filter(& &1.public?) |> MapSet.new(& &1.name)
+
+      other ->
+        raise "AshSwift: expected Ash.Resource.Info.action(#{inspect(resource)}, " <>
+                "#{inspect(action_name)}) to return an action with arguments, got: " <>
+                inspect(other)
+    end
   end
 
   # snake_case to PascalCase (e.g. create_todo → CreateTodo).

@@ -219,8 +219,8 @@ defmodule AshSwift.Codegen.Contract do
     # legal — nothing stops a resource from allowing its own PK to be
     # reassigned), the same name shows up in both lists with different
     # `required` values — `true` from the identity param that selects which
-    # record to update, `false` from the struct field (every update field is
-    # optional; see `collect_action_inputs/5` in `Reader`). `uniq_by/2` keeps
+    # record to update, `false` from the struct field (every update *attribute*
+    # field is optional; see `collect_action_inputs/6` in `Reader`). `uniq_by/2` keeps
     # the first occurrence, so the identity param wins: it is the value a
     # caller must always supply to make the call at all, which is the more
     # useful "required" answer for a single collapsed entry even though the

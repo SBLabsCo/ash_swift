@@ -172,6 +172,50 @@
       "sortable": false
     },
     {
+      "action": "create_with_args",
+      "action_type": "create",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "checklist",
+          "required": false,
+          "type": "[CreateTodoWithArgsChecklistItem]"
+        },
+        {
+          "name": "extras",
+          "required": false,
+          "type": "[String: AshJSON]"
+        },
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "note",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "score",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "title",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "create_todo_with_args",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
       "action": "destroy",
       "action_type": "destroy",
       "domain": "AshSwift.Test.Domain",
@@ -482,6 +526,30 @@
       "resource": "Todo",
       "resource_module": "AshSwift.Test.Todo",
       "result_type": null,
+      "sortable": false
+    },
+    {
+      "action": "retitle",
+      "action_type": "update",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "newTitle",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "retitle_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
       "sortable": false
     },
     {
@@ -901,6 +969,53 @@
     {
       "fields": [
         {
+          "name": "done",
+          "optional": true,
+          "type": "Bool"
+        },
+        {
+          "name": "label",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "CreateTodoWithArgsChecklistItem"
+    },
+    {
+      "fields": [
+        {
+          "name": "checklist",
+          "optional": true,
+          "type": "[CreateTodoWithArgsChecklistItem]"
+        },
+        {
+          "name": "extras",
+          "optional": true,
+          "type": "[String: AshJSON]"
+        },
+        {
+          "name": "note",
+          "optional": false,
+          "type": "String"
+        },
+        {
+          "name": "score",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "title",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "CreateTodoWithArgsInput"
+    },
+    {
+      "fields": [
+        {
           "name": "email",
           "optional": false,
           "type": "String"
@@ -956,6 +1071,17 @@
       ],
       "kind": "input",
       "name": "RequestMagicLinkInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "newTitle",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "RetitleTodoInput"
     },
     {
       "fields": [
