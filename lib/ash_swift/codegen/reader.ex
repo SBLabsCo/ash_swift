@@ -1309,13 +1309,30 @@ defmodule AshSwift.Codegen.Reader do
     {Enum.sort_by(fields, & &1.name), structs}
   end
 
-  # The names of an action's declared arguments (public or not — the manifest has
-  # already dropped private ones from `inputs`, so membership here only needs to
-  # tell an argument apart from an accepted attribute).
+  # The names of an action's PUBLIC arguments — exactly the argument entries the
+  # manifest puts in `inputs` (it drops private ones unless
+  # `include_private_arguments?`), so membership here can only ever match an
+  # argument the manifest actually surfaced. (Ash itself also removes an attribute
+  # from an action's effective `accept` when an argument shares its name, so an
+  # accepted attribute can't be shadowed by a private argument either way.)
+  #
+  # Deliberate ADR-0009 deviation: this is the one action-input detail read from
+  # `Ash.Resource.Info` instead of the manifest. `Ash.Info.Manifest.Action.inputs`
+  # merges accepted attributes and arguments into one list of `Argument` structs
+  # with no discriminator, and an argument may share an attribute's name, so the
+  # manifest alone can't tell them apart. Remove this once the manifest carries a
+  # per-input source flag (e.g. `kind: :argument | :attribute`). Until then, fail
+  # loudly if the action can't be found rather than silently treating every
+  # argument as an attribute.
   defp action_argument_names(resource, action_name) do
     case Ash.Resource.Info.action(resource, action_name) do
-      %{arguments: arguments} -> MapSet.new(arguments, & &1.name)
-      _ -> MapSet.new()
+      %{arguments: arguments} ->
+        arguments |> Enum.filter(& &1.public?) |> MapSet.new(& &1.name)
+
+      other ->
+        raise "AshSwift: expected Ash.Resource.Info.action(#{inspect(resource)}, " <>
+                "#{inspect(action_name)}) to return an action with arguments, got: " <>
+                inspect(other)
     end
   end
 
