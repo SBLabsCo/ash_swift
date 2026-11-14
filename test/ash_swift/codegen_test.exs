@@ -1103,6 +1103,55 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
+  describe "arguments named like a private attribute (issue #84)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    test "an argument-only update keeps an argument whose same-named attribute is private", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+
+      assert types =~
+               ~r/public struct SetTodoDueDateInput: Encodable, Sendable \{\n    public var dueDate: String\n/
+
+      assert types =~ "public init(dueDate: String)"
+
+      refute types =~
+               ~r/public struct SetTodoDueDateInput: Encodable, Sendable \{\n    public init\(\) \{\}/
+
+      assert files["AshRpcFunctions.swift"] =~
+               "public func setTodoDueDate(id: String, input: SetTodoDueDateInput, fields: [FieldSelection]) async throws -> Todo {"
+    end
+
+    test "a generic action keeps an argument whose same-named attribute is private", %{
+      files: files
+    } do
+      types = files["AshRpcTypes.swift"]
+
+      assert types =~
+               ~r/public struct CheckTodoDueDateInput: Encodable, Sendable \{\n    public var dueDate: String\n/
+
+      assert files["AshRpcFunctions.swift"] =~
+               "public func checkTodoDueDate(input: CheckTodoDueDateInput) async throws -> Bool {"
+    end
+
+    test "the private attribute itself stays out of the model struct", %{files: files} do
+      [_, todo] =
+        String.split(files["AshRpcTypes.swift"], "public struct Todo: Codable", parts: 2)
+
+      refute todo |> String.split("\n}\n", parts: 2) |> hd() =~ "dueDate"
+    end
+
+    test "no omission warning is logged for either action" do
+      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
+
+      refute log =~ ":set_due_date"
+      refute log =~ ":check_due_date"
+    end
+  end
+
   describe "generic-action constrained-map return (issue #70)" do
     setup do
       %{files: Codegen.build_files(@domains)}

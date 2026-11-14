@@ -527,7 +527,7 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
-  test "create/update action arguments travel in `input` and the generated input structs encode them (issue #83)" do
+  test "create/update/generic action arguments travel in `input` and the generated input structs encode them (issues #83, #84)" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)
     sources = Path.join([tmp, "Sources", "GeneratedClient"])
@@ -574,8 +574,33 @@ defmodule AshSwift.E2ETest do
     assert retitle_result["success"] == true, inspect(retitle_result)
     assert retitle_result["data"]["title"] == "Retitled"
 
+    # Issue #84: an argument named like a PRIVATE attribute still reaches the
+    # action — on an argument-only update and on a generic action.
+    due_date_input = %{"dueDate" => "2026-12-31"}
+
+    set_due_date_result =
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
+        "action" => "set_todo_due_date",
+        "identity" => todo_id,
+        "input" => due_date_input,
+        "fields" => ["id"]
+      })
+
+    assert set_due_date_result["success"] == true, inspect(set_due_date_result)
+    # The private attribute isn't client-readable; check it was written server-side.
+    assert Ash.get!(AshSwift.Test.Todo, todo_id).due_date == ~D[2026-12-31]
+
+    check_due_date_result =
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
+        "action" => "check_todo_due_date",
+        "input" => due_date_input
+      })
+
+    assert check_due_date_result["success"] == true, inspect(check_due_date_result)
+
     create_input_json = Jason.encode!(create_input)
     retitle_input_json = Jason.encode!(retitle_input)
+    due_date_input_json = Jason.encode!(due_date_input)
 
     e2e_swift = """
     import XCTest
@@ -610,6 +635,12 @@ defmodule AshSwift.E2ETest do
             let encoded = try jsonObject(JSONEncoder().encode(RetitleTodoInput(newTitle: "Retitled")))
             let expected = try jsonObject(Data(#{inspect(retitle_input_json, binaries: :as_strings)}.utf8))
             XCTAssertEqual(encoded, expected)
+        }
+
+        func testPrivateAttributeNamedArgumentsEncode() throws {
+            let expected = try jsonObject(Data(#{inspect(due_date_input_json, binaries: :as_strings)}.utf8))
+            XCTAssertEqual(try jsonObject(JSONEncoder().encode(SetTodoDueDateInput(dueDate: "2026-12-31"))), expected)
+            XCTAssertEqual(try jsonObject(JSONEncoder().encode(CheckTodoDueDateInput(dueDate: "2026-12-31"))), expected)
         }
     }
     """
