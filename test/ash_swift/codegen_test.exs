@@ -1116,7 +1116,9 @@ defmodule AshSwift.CodegenTest do
       assert types =~
                ~r/public struct SetTodoDueDateInput: Encodable, Sendable \{\n    public var dueDate: String\n/
 
-      assert types =~ "public init(dueDate: String)"
+      # Scoped to this struct: CheckTodoDueDateInput emits the identical init.
+      assert types =~
+               ~r/public struct SetTodoDueDateInput: Encodable, Sendable \{[^}]*public init\(dueDate: String\)/
 
       refute types =~
                ~r/public struct SetTodoDueDateInput: Encodable, Sendable \{\n    public init\(\) \{\}/
@@ -1132,6 +1134,10 @@ defmodule AshSwift.CodegenTest do
 
       assert types =~
                ~r/public struct CheckTodoDueDateInput: Encodable, Sendable \{\n    public var dueDate: String\n/
+
+      # Scoped to this struct: SetTodoDueDateInput emits the identical init.
+      assert types =~
+               ~r/public struct CheckTodoDueDateInput: Encodable, Sendable \{[^}]*public init\(dueDate: String\)/
 
       assert files["AshRpcFunctions.swift"] =~
                "public func checkTodoDueDate(input: CheckTodoDueDateInput) async throws -> Bool {"
