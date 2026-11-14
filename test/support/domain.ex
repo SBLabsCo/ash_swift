@@ -24,6 +24,9 @@ defmodule AshSwift.Test.Domain do
       rpc_action(:create_todo, :create)
       rpc_action(:update_todo, :update)
       rpc_action(:destroy_todo, :destroy)
+      # Create/update actions with arguments (issue #83).
+      rpc_action(:create_todo_with_args, :create_with_args)
+      rpc_action(:retitle_todo, :retitle)
       # Generic actions (issue #54).
       rpc_action(:request_magic_link, :request_magic_link)
       rpc_action(:echo, :echo)

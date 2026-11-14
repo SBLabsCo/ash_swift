@@ -102,6 +102,42 @@ defmodule AshSwift.Test.Todo do
       pagination keyset?: true, offset?: false, required?: false
     end
 
+    # Create/update actions with action *arguments* (issue #83). The manifest folds
+    # arguments and accepted attributes into one `inputs` list; codegen must emit a
+    # field for each argument, typed the way a generic-action argument would be:
+    # a scalar (`note`, required), a map (`extras`), an array-of-record
+    # (`checklist` → nested `CreateTodoWithArgsChecklistItem`), and an unmappable
+    # nested array (`grid`, omitted with a warning). `score` shadows the integer
+    # `score` attribute's name but is a String *argument* — the argument's type wins.
+    create :create_with_args do
+      accept [:title]
+      argument :note, :string, allow_nil?: false
+      argument :extras, :map, allow_nil?: true
+
+      argument :checklist, {:array, :map},
+        allow_nil?: true,
+        constraints: [
+          items: [
+            fields: [
+              label: [type: :string, allow_nil?: false],
+              done: [type: :boolean, allow_nil?: true]
+            ]
+          ]
+        ]
+
+      argument :grid, {:array, {:array, :string}}, allow_nil?: true
+      argument :score, :string, allow_nil?: true
+    end
+
+    # Argument-only update (`accept []`) — the shape from the issue's report
+    # (`block_video_owner`). A required argument stays required on update even
+    # though update attribute fields are all optional.
+    update :retitle do
+      accept []
+      argument :new_title, :string, allow_nil?: false
+      change set_attribute(:title, arg(:new_title))
+    end
+
     # Generic actions (issue #54): command-style `:action`-type actions whose
     # inputs are action *arguments* (not attributes) and whose return is either
     # nil (void) or a custom type. These exercise the generic-action codegen path.

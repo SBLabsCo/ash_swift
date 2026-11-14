@@ -1029,6 +1029,80 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
+  describe "create/update action arguments (issue #83)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    # The body of one generated struct, up to its closing brace.
+    defp struct_body(types, name) do
+      [_, rest] = String.split(types, "public struct #{name}: Encodable, Sendable {", parts: 2)
+      rest |> String.split("\n}\n", parts: 2) |> hd()
+    end
+
+    test "a create action's arguments become input-struct fields alongside its accepted attributes",
+         %{files: files} do
+      body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput")
+
+      # accepted attribute (required on create)
+      assert body =~ "    public var title: String\n"
+      # scalar argument, required (allow_nil?: false) → non-optional
+      assert body =~ "    public var note: String\n"
+      # map argument → same mapping as a generic-action map argument
+      assert body =~ "    public var extras: [String: AshJSON]?\n"
+      # array-of-record argument → nested typed struct, like a generic action's
+      assert body =~ "    public var checklist: [CreateTodoWithArgsChecklistItem]?\n"
+
+      assert body =~
+               "public init(note: String, title: String, checklist: [CreateTodoWithArgsChecklistItem]? = nil, extras: [String: AshJSON]? = nil, score: String? = nil)"
+    end
+
+    test "an array-of-record argument generates its nested struct", %{files: files} do
+      body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsChecklistItem")
+
+      assert body =~ "    public var label: String\n"
+      assert body =~ "    public var done: Bool?\n"
+    end
+
+    test "an argument named like an attribute takes the argument's type", %{files: files} do
+      # `score` is an integer attribute but a String argument on this action.
+      body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput")
+
+      assert body =~ "    public var score: String?\n"
+      refute body =~ "score: Int"
+    end
+
+    test "an argument of an unmappable type is omitted with a warning, not String-guessed", %{
+      files: files
+    } do
+      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
+
+      assert log =~ "argument :grid of action :create_with_args"
+      refute struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput") =~ "grid"
+      # The rest of the action is still emitted.
+      assert files["AshRpcFunctions.swift"] =~
+               "public func createTodoWithArgs(input: CreateTodoWithArgsInput, fields: [FieldSelection]) async throws -> Todo {"
+    end
+
+    test "an argument-only update (accept []) gets an input struct; a required argument stays required",
+         %{files: files} do
+      body = struct_body(files["AshRpcTypes.swift"], "RetitleTodoInput")
+
+      assert body =~ "    public var newTitle: String\n"
+      assert body =~ "public init(newTitle: String)"
+
+      assert files["AshRpcFunctions.swift"] =~
+               "public func retitleTodo(id: String, input: RetitleTodoInput, fields: [FieldSelection]) async throws -> Todo {"
+    end
+
+    test "the 'arguments are not yet supported' warning is gone" do
+      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
+
+      refute log =~ "not yet supported"
+      refute log =~ "is not a public attribute"
+    end
+  end
+
   describe "generic-action constrained-map return (issue #70)" do
     setup do
       %{files: Codegen.build_files(@domains)}

@@ -169,11 +169,12 @@ wrong about runtime behavior.
 
 A generic (`:action`-type) action's inputs are action **arguments**, which the
 manifest exposes as `Argument` structs carrying their own `type` (a manifest
-`Type`) and a populated `required?`. They are NOT resource attributes — so the
-create/update input path (`collect_action_inputs`, which resolves each input
-against `manifest_attributes` and **drops anything that isn't a public attribute
-with a warning**) silently produces an empty input struct for them. Generic
-actions need their own collector that maps each argument from its own manifest
+`Type`) and a populated `required?`. They are NOT resource attributes — so they
+can't be resolved against `manifest_attributes`. (Create/update actions can carry
+arguments too: the manifest folds them into the same `inputs` list as accepted
+attributes, so `collect_action_inputs` tells them apart via the Ash action's
+declared `arguments` and maps arguments through the generic path — issue #83.)
+Generic actions need their own collector that maps each argument from its own manifest
 type with optionality from `input.required?` (the presence flag the `Argument`
 moduledoc points consumers at). See `collect_generic_action_inputs` in
 `codegen.ex` (issue #54). **Gate the argument type the same way as a computed

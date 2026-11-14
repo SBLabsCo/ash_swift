@@ -527,6 +527,104 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
+  test "create/update action arguments travel in `input` and the generated input structs encode them (issue #83)" do
+    repo_root = File.cwd!()
+    tmp = make_consumer_package(repo_root)
+    sources = Path.join([tmp, "Sources", "GeneratedClient"])
+    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    File.mkdir_p!(tests_dir)
+
+    assert {:ok, _written} = Codegen.generate(@domains, sources)
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # The exact `input` dicts the generated Swift encodes below. Arguments ride the
+    # same `input` key as accepted attributes, camelCased like any other key —
+    # including the nested array-of-record keys.
+    create_input = %{
+      "title" => "Args Todo",
+      "note" => "a note",
+      "extras" => %{"k" => "v"},
+      "checklist" => [%{"label" => "first", "done" => true}, %{"label" => "second"}],
+      "score" => "high"
+    }
+
+    create_result =
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
+        "action" => "create_todo_with_args",
+        "input" => create_input,
+        "fields" => ["id", "title"]
+      })
+
+    assert create_result["success"] == true, inspect(create_result)
+    todo_id = create_result["data"]["id"]
+
+    # An argument-only update: the argument must actually reach the action —
+    # `retitle` copies `new_title` onto the title attribute.
+    retitle_input = %{"newTitle" => "Retitled"}
+
+    retitle_result =
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
+        "action" => "retitle_todo",
+        "identity" => todo_id,
+        "input" => retitle_input,
+        "fields" => ["id", "title"]
+      })
+
+    assert retitle_result["success"] == true, inspect(retitle_result)
+    assert retitle_result["data"]["title"] == "Retitled"
+
+    create_input_json = Jason.encode!(create_input)
+    retitle_input_json = Jason.encode!(retitle_input)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // The generated create/update input structs must encode action arguments to
+    // exactly the `input` dicts the server accepted above.
+    final class E2EActionArgumentsTest: XCTestCase {
+        private func jsonObject(_ data: Data) throws -> NSDictionary {
+            try JSONSerialization.jsonObject(with: data) as! NSDictionary
+        }
+
+        func testCreateInputEncodesArguments() throws {
+            let input = CreateTodoWithArgsInput(
+                note: "a note",
+                title: "Args Todo",
+                checklist: [
+                    CreateTodoWithArgsChecklistItem(label: "first", done: true),
+                    CreateTodoWithArgsChecklistItem(label: "second")
+                ],
+                extras: ["k": .string("v")],
+                score: "high"
+            )
+            let encoded = try jsonObject(JSONEncoder().encode(input))
+            let expected = try jsonObject(Data(#{inspect(create_input_json, binaries: :as_strings)}.utf8))
+            XCTAssertEqual(encoded, expected)
+        }
+
+        func testArgumentOnlyUpdateInputEncodesArgument() throws {
+            let encoded = try jsonObject(JSONEncoder().encode(RetitleTodoInput(newTitle: "Retitled")))
+            let expected = try jsonObject(Data(#{inspect(retitle_input_json, binaries: :as_strings)}.utf8))
+            XCTAssertEqual(encoded, expected)
+        }
+    }
+    """
+
+    File.write!(Path.join(tests_dir, "E2EActionArgumentsTest.swift"), e2e_swift)
+
+    {output, status} =
+      System.cmd("swift", ["test", "--filter", "E2EActionArgumentsTest"],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "swift test failed:\n#{output}"
+  end
+
   test "custom headers are forwarded on generated calls; backend errors surface as typed AshRpcError" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)
