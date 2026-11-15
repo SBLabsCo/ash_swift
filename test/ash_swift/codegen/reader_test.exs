@@ -29,6 +29,30 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
+  describe "action IR key sets (#95)" do
+    @crud_keys ~w(rpc_name action action_type is_get? get_by_params get_by_location
+                  not_found_error? input_struct_name input_required? primary_key_params
+                  pagination_type optional_pagination_type sortable? filterable?)a
+               |> MapSet.new()
+
+    @generic_keys ~w(rpc_name action action_type is_get? get_by_params get_by_location
+                     not_found_error? input_struct_name primary_key_params pagination_type
+                     optional_pagination_type sortable? filterable? generic_return)a
+                  |> MapSet.new()
+
+    test "CRUD actions carry exactly the documented keys; generic actions their own set" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      for name <- [:list_todos, :get_todo, :fetch_todo, :create_todo, :update_todo, :destroy_todo] do
+        action = Enum.find(todo.actions, &(&1.rpc_name == name))
+        assert MapSet.new(Map.keys(action)) == @crud_keys, "CRUD keys drifted for #{name}"
+      end
+
+      ping = Enum.find(todo.actions, &(&1.rpc_name == :ping))
+      assert MapSet.new(Map.keys(ping)) == @generic_keys
+    end
+  end
+
   describe "enum classification" do
     test "an attribute with a one_of / Ash.Type.Enum type becomes a typed enum in the IR" do
       todo = resource(Reader.read(@domains), "Todo")

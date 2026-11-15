@@ -34,8 +34,11 @@ defmodule AshSwift.Codegen.Reader do
   ### Action
 
   Every `action` is a map with these keys. CRUD (`:read | :create | :update |
-  :destroy`) and generic (`:action`) actions share the uniform keys; the
-  `[read only]` and `[generic only]` keys are absent on the other kinds.
+  :destroy`) and generic (`:action`) actions share the uniform keys.
+  `input_required?` is present on CRUD actions only (always `false` outside a
+  read with a required argument) and `generic_return` on generic actions only;
+  every other key is present on every kind. A `[read only]` tag below means the
+  value is *meaningful* only on reads, not that the key is absent elsewhere.
 
       %{
         rpc_name:        String.t(),           # RPC action name; the Swift method name source
@@ -44,10 +47,15 @@ defmodule AshSwift.Codegen.Reader do
         is_get?:         boolean,              # true for a single-record read (native get?, or RPC get?/get_by); false otherwise
         get_by_params:   [%{name, swift_type}],  # lookup params of a get; [] when not a get or a pure get?
         get_by_location: :input | :get_by | :none | nil,   # see below
-        not_found_error?: boolean,             # get only: true => returns T and throws on missing, false => T?
-        input_struct_name: String.t() | nil,   # the `{Name}Input` struct, nil when the action takes no input
-        input_required?: boolean,              # [read only] whether `input:` must be supplied (some argument is required)
-        primary_key_params: [%{name, swift_type}],  # update/destroy: the record's PK; [] for other kinds
+        not_found_error?: boolean,             # meaningful only when is_get?: true => returns T and throws on missing, false => T?;
+                                               # on non-gets it carries the configured default and is ignored
+        input_struct_name: String.t() | nil,   # the `{Name}Input` struct. create/update: always set; destroy: always nil
+                                               # (even with arguments); read: set only when it has non-lookup arguments;
+                                               # generic: set only when it has inputs
+        input_required?: boolean,              # [CRUD only; absent on generic] meaningful only for reads: whether `input:`
+                                               # must be supplied (some argument is required); false otherwise
+        primary_key_params: [%{name, swift_type}],  # create/update/destroy: the resource's PK params; [] for read/generic.
+                                               # The emitter uses it only for update/destroy (create ignores it)
         pagination_type: :offset | :keyset | :none,           # required pagination => paginated return
         optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload
         sortable?:       boolean,              # list reads only: offers a `sort:` parameter
@@ -61,13 +69,16 @@ defmodule AshSwift.Codegen.Reader do
     * `:input` — a native Ash `get_by` key, sent inside the `input` dict.
     * `:get_by` — an RPC-level `get_by`, sent under the request's `getBy`.
     * `:none` — a get with no lookup channel at all (a pure `get?` action,
-      which narrows via its own filter and sends no identity; ADR-0003).
+      which narrows itself through its own arguments, sent as `input:`, and
+      sends no identity; the RPC pipeline never reads `identity` for a read,
+      see #91 and docs/agents/lessons.md).
     * `nil` — not a get (non-read actions, generic actions, list reads).
 
-  `:none` and `nil` stay separate on purpose: `nil` answers "is this a get?"
-  while `:none` answers "this *is* a get, but it has no lookup", and the
-  emitter needs to tell them apart (a pure get still emits a get function, with
-  no lookup parameter). They are *not* related to `:none` in the pagination
+  The invariant: `get_by_location == nil` exactly when `is_get?` is false, and
+  within a get `:none` means there is no lookup channel (a pure get still emits
+  a get function, with no lookup parameter). The emitter picks the get clause
+  on `is_get?`; keeping `:none` distinct from `nil` lets that clause's `case`
+  match every value with no `nil` fallthrough. They are *not* related to `:none` in the pagination
   keys, where it means "no pagination"; the two atoms live in different keys
   and are never compared across them.
 
