@@ -183,44 +183,6 @@ final class AshRpcClientTests: XCTestCase {
         XCTAssertEqual(page.previousPage, "prev-cursor")
     }
 
-    func testExecuteOffsetSendsPageParamsInRequestBody() async throws {
-        let captured = CapturedRequest()
-        let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":10,"count":null}}"#
-        let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
-        let client = AshRpcClient(config: config(), transport: stub)
-
-        struct Item: Decodable & Sendable {}
-        let _: OffsetPage<Item> = try await client.execute(
-            OffsetPageRequest(action: "list_todos_offset", page: OffsetPageParams(limit: 5, offset: 10))
-        )
-
-        let request = try XCTUnwrap(captured.value)
-        let body = try XCTUnwrap(request.httpBody)
-        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        let page = try XCTUnwrap(parsed["page"] as? [String: Any])
-        XCTAssertEqual(page["limit"] as? Int, 5)
-        XCTAssertEqual(page["offset"] as? Int, 10)
-    }
-
-    func testExecuteKeysetSendsPageParamsInRequestBody() async throws {
-        let captured = CapturedRequest()
-        let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"after":null,"before":null,"nextPage":null,"previousPage":null,"count":null}}"#
-        let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
-        let client = AshRpcClient(config: config(), transport: stub)
-
-        struct Item: Decodable & Sendable {}
-        let _: KeysetPage<Item> = try await client.execute(
-            KeysetPageRequest(action: "list_todos_keyset", page: KeysetPageParams(limit: 5, after: "cursor-abc"))
-        )
-
-        let request = try XCTUnwrap(captured.value)
-        let body = try XCTUnwrap(request.httpBody)
-        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        let page = try XCTUnwrap(parsed["page"] as? [String: Any])
-        XCTAssertEqual(page["limit"] as? Int, 5)
-        XCTAssertEqual(page["after"] as? String, "cursor-abc")
-    }
-
     func testExecuteDestroyReturnsOnSuccessEnvelope() async throws {
         let body = Data(#"{"success":true}"#.utf8)
         let stub = StubTransport(status: 200, body: body) { _ in }
@@ -317,41 +279,6 @@ final class AshRpcClientTests: XCTestCase {
         XCTAssertNil(parsed["sort"])
     }
 
-    func testExecuteOffsetOmitsSortKeyWhenNil() async throws {
-        // PagedBody<P>.sort uses the same synthesized encodeIfPresent as
-        // ActionFieldsBody, so a nil sort must leave no `sort` key in the body.
-        let captured = CapturedRequest()
-        let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":0,"count":null}}"#
-        let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
-        let client = AshRpcClient(config: config(), transport: stub)
-
-        struct Item: Decodable & Sendable {}
-        let _: OffsetPage<Item> = try await client.execute(OffsetPageRequest(action: "list_todos_offset"))
-
-        let request = try XCTUnwrap(captured.value)
-        let body = try XCTUnwrap(request.httpBody)
-        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        XCTAssertNil(parsed["sort"])
-    }
-
-    func testExecuteOffsetSendsSortAlongsidePage() async throws {
-        let captured = CapturedRequest()
-        let json = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":0,"count":null}}"#
-        let stub = StubTransport(status: 200, body: Data(json.utf8)) { captured.value = $0 }
-        let client = AshRpcClient(config: config(), transport: stub)
-
-        struct Item: Decodable & Sendable {}
-        let _: OffsetPage<Item> = try await client.execute(
-            OffsetPageRequest(action: "list_todos_offset", page: OffsetPageParams(limit: 5), sort: "-title")
-        )
-
-        let request = try XCTUnwrap(captured.value)
-        let body = try XCTUnwrap(request.httpBody)
-        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        XCTAssertEqual(parsed["sort"] as? String, "-title")
-        let page = try XCTUnwrap(parsed["page"] as? [String: Any])
-        XCTAssertEqual(page["limit"] as? Int, 5)
-    }
 }
 
 /// Reference box so the `@Sendable` capture can record the request the stub saw.

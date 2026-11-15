@@ -55,38 +55,43 @@ final class RpcRequestTests: XCTestCase {
         XCTAssertNil(json["input"], "unused input dict must still be omitted")
     }
 
-    // Both paged types build their body through the shared `PagedRead`; pin the
+    // Both paged types build their body through the shared `PagedBody`; pin the
     // body shape once and that each type sends the same body for the same inputs.
     func testPageRequestsShareBodyShape() throws {
         let input = AnyEncodable(StubInput(title: "x"))
+        let filter = AnyEncodable(StubInput(title: "f"))
         let bare = try encodedBody(OffsetPageRequest<Stub>(action: "a"))
         XCTAssertNil(bare["page"], "nil page must be omitted so the backend uses its default")
         XCTAssertNil(bare["input"])
+        XCTAssertNil(bare["sort"], "nil sort must be omitted")
+        XCTAssertNil(bare["filter"], "nil filter must be omitted")
 
         let offset = try encodedBody(
             OffsetPageRequest<Stub>(
-                action: "a", input: input, page: OffsetPageParams(limit: 5, offset: 10), sort: "-title",
-                fields: ["id"]))
+                action: "a", input: input, page: OffsetPageParams(limit: 5, offset: 10), filter: filter,
+                sort: "-title", fields: ["id"]))
         XCTAssertEqual(offset["action"] as? String, "a")
         XCTAssertEqual(offset["fields"] as? [String], ["id"])
         XCTAssertEqual(offset["sort"] as? String, "-title")
         XCTAssertEqual(offset["input"] as? [String: String], ["title": "x"])
+        XCTAssertEqual(offset["filter"] as? [String: String], ["title": "f"])
         let offsetPage = try XCTUnwrap(offset["page"] as? [String: Any])
         XCTAssertEqual(offsetPage["limit"] as? Int, 5)
         XCTAssertEqual(offsetPage["offset"] as? Int, 10)
 
         let keyset = try encodedBody(
             KeysetPageRequest<Stub>(
-                action: "a", input: input, page: KeysetPageParams(limit: 5, after: "cursor"), sort: "-title",
-                fields: ["id"]))
+                action: "a", input: input, page: KeysetPageParams(limit: 5, after: "cursor"), filter: filter,
+                sort: "-title", fields: ["id"]))
         let keysetPage = try XCTUnwrap(keyset["page"] as? [String: Any])
         XCTAssertEqual(keysetPage["limit"] as? Int, 5)
         XCTAssertEqual(keysetPage["after"] as? String, "cursor")
-        for key in ["action", "fields", "sort", "input"] {
-            XCTAssertEqual(
-                NSDictionary(dictionary: [key: keyset[key] as Any]),
-                NSDictionary(dictionary: [key: offset[key] as Any]), key)
-        }
+        // Everything but `page` must match, so a key added later is covered too.
+        var offsetRest = offset
+        offsetRest["page"] = nil
+        var keysetRest = keyset
+        keysetRest["page"] = nil
+        XCTAssertEqual(NSDictionary(dictionary: offsetRest), NSDictionary(dictionary: keysetRest))
 
         let keysetBare = try encodedBody(KeysetPageRequest<Stub>(action: "a"))
         XCTAssertNil(keysetBare["page"])
@@ -213,18 +218,6 @@ final class RpcRequestTests: XCTestCase {
         let record: Stub = try GetRequest<Stub>(action: "get_todo")
             .decode(from: Data(#"{"data":{"id":"1"}}"#.utf8), using: JSONDecoder())
         XCTAssertEqual(record.id, "1")
-    }
-
-    func testOffsetPageRequestDecodesOffsetPage() throws {
-        let data = Data(#"{"data":{"results":[{"id":"1"}],"hasMore":false,"limit":5,"offset":0}}"#.utf8)
-        let page = try OffsetPageRequest<Stub>(action: "a").decode(from: data, using: JSONDecoder())
-        XCTAssertEqual(page.results.map(\.id), ["1"])
-    }
-
-    func testKeysetPageRequestDecodesKeysetPage() throws {
-        let data = Data(#"{"data":{"results":[{"id":"1"}],"hasMore":false,"limit":5}}"#.utf8)
-        let page = try KeysetPageRequest<Stub>(action: "a").decode(from: data, using: JSONDecoder())
-        XCTAssertEqual(page.results.map(\.id), ["1"])
     }
 
     func testDataEnvelopeRequestUnwrapsDataKey() throws {
