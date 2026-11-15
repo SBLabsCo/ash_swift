@@ -45,3 +45,11 @@ A typed request value describing one RPC call — its request body and how to de
 
 **execute**:
 The runtime's one entry point that runs any `RpcRequest`: encode the body, POST it, validate the `{success, errors}` envelope, decode the result. Replaces the per-shape `run*` family — new request shapes become new `RpcRequest` values, not new methods on the client. _Avoid_: "call", "dispatch".
+
+**Get action**:
+A read action that returns **at most one** record (Ash `get?: true`, or a `get_by` read), so the generated client returns an optional rather than a list. "At most one" is the whole definition — it does not mean "look up by primary key". How (or whether) the caller narrows the result is the **lookup channel**, of which there are three:
+- **Native `get_by`** (`read :get_by_id do get_by :id end`): the lookup fields are ordinary action inputs, so the key travels under `input` (indistinguishable from the read's own arguments in the manifest — the Reader recovers them from the action's `get_by`).
+- **RPC-level `get_by`** (set on the `rpc_action` entry, not the Ash action): the key travels under `getBy`.
+- **Pure `get?`** (`read :fetch do get? true end`, neither of the above): no lookup channel at all; the result is narrowed only by the action's own arguments (and filter), and the request sends no lookup key.
+
+_Avoid_: "get by primary key" as the definition, and `identity` as a read's lookup key — the RPC pipeline ignores `identity` for reads; it is only used by update and destroy actions to pick the record to act on.
