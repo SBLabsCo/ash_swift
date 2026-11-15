@@ -287,35 +287,17 @@ public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     }
 }
 
-/// A get action where `not_found_error?` is true: decodes the single `data`
-/// record into `T`. The backend throws (surfaced as `AshRpcError.server`) when
-/// no record matches, so the result is non-optional.
-public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
-    public typealias Output = T
+/// The get read as sent (action, arguments, fields, native get_by) shared by `GetRequest` and
+/// `GetOptionalRequest`. The two differ only in `Output` (`T` vs `T?`), so a
+/// change to how a get read is sent is made here, once.
+struct GetRead: Sendable {
     let action: String
     let input: [String: String]
     let getBy: [String: String]
     let arguments: AnyEncodable?
     let fields: [FieldSelection]
 
-    /// `input` is the native get_by lookup values; `arguments` is the read's
-    /// type-erased arguments struct (issue #87). Both travel in the body's single
-    /// `input` object.
-    public init(
-        action: String,
-        input: [String: String] = [:],
-        getBy: [String: String] = [:],
-        arguments: AnyEncodable? = nil,
-        fields: [FieldSelection] = []
-    ) {
-        self.action = action
-        self.input = input
-        self.getBy = getBy
-        self.arguments = arguments
-        self.fields = fields
-    }
-
-    public func makeBody() -> GetBody {
+    func makeBody() -> GetBody {
         GetBody(
             action: action,
             fields: fields,
@@ -325,15 +307,12 @@ public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     }
 }
 
-/// A get action where `not_found_error?` is false: decodes the `data` record
-/// into `T?`, returning nil when the backend sends `{"data": null}`.
-public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
-    public typealias Output = T?
-    let action: String
-    let input: [String: String]
-    let getBy: [String: String]
-    let arguments: AnyEncodable?
-    let fields: [FieldSelection]
+/// A get action where `not_found_error?` is true: decodes the single `data`
+/// record into `T`. The backend throws (surfaced as `AshRpcError.server`) when
+/// no record matches, so the result is non-optional.
+public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
+    public typealias Output = T
+    let read: GetRead
 
     /// `input` is the native get_by lookup values; `arguments` is the read's
     /// type-erased arguments struct (issue #87). Both travel in the body's single
@@ -345,21 +324,32 @@ public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         arguments: AnyEncodable? = nil,
         fields: [FieldSelection] = []
     ) {
-        self.action = action
-        self.input = input
-        self.getBy = getBy
-        self.arguments = arguments
-        self.fields = fields
+        self.read = GetRead(
+            action: action, input: input, getBy: getBy, arguments: arguments, fields: fields)
     }
 
-    public func makeBody() -> GetBody {
-        GetBody(
-            action: action,
-            fields: fields,
-            input: GetInput.make(arguments: arguments, lookup: input),
-            getBy: getBy.isEmpty ? nil : getBy
-        )
+    public func makeBody() -> GetBody { read.makeBody() }
+}
+
+/// A get action where `not_found_error?` is false: decodes the `data` record
+/// into `T?`, returning nil when the backend sends `{"data": null}`.
+public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
+    public typealias Output = T?
+    let read: GetRead
+
+    /// Same parameters as `GetRequest.init`.
+    public init(
+        action: String,
+        input: [String: String] = [:],
+        getBy: [String: String] = [:],
+        arguments: AnyEncodable? = nil,
+        fields: [FieldSelection] = []
+    ) {
+        self.read = GetRead(
+            action: action, input: input, getBy: getBy, arguments: arguments, fields: fields)
     }
+
+    public func makeBody() -> GetBody { read.makeBody() }
 }
 
 /// A create action: encodes the typed `input` and decodes the created record
