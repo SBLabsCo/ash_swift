@@ -31,9 +31,45 @@ defmodule AshSwift.Codegen.Reader do
         filter_struct:   %{type_name, fields} | nil    # fields: [%{name, swift_type}]; nil when no filterable surface
       }
 
-  An `action` carries at least `:rpc_name` plus the shape the emitter needs to
-  build its function (`:sortable?`, `:filterable?`, pagination, PK/get-by params,
-  …); the exact keys vary by action kind (CRUD vs generic).
+  ### Action
+
+  Every `action` is a map with these keys. CRUD (`:read | :create | :update |
+  :destroy`) and generic (`:action`) actions share the uniform keys; the
+  `[read only]` and `[generic only]` keys are absent on the other kinds.
+
+      %{
+        rpc_name:        String.t(),           # RPC action name; the Swift method name source
+        action:          atom,                 # the underlying Ash action name
+        action_type:     :read | :create | :update | :destroy | :action,
+        is_get?:         boolean,              # true for a single-record read (native get?, or RPC get?/get_by); false otherwise
+        get_by_params:   [%{name, swift_type}],  # lookup params of a get; [] when not a get or a pure get?
+        get_by_location: :input | :get_by | :none | nil,   # see below
+        not_found_error?: boolean,             # get only: true => returns T and throws on missing, false => T?
+        input_struct_name: String.t() | nil,   # the `{Name}Input` struct, nil when the action takes no input
+        input_required?: boolean,              # [read only] whether `input:` must be supplied (some argument is required)
+        primary_key_params: [%{name, swift_type}],  # update/destroy: the record's PK; [] for other kinds
+        pagination_type: :offset | :keyset | :none,           # required pagination => paginated return
+        optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload
+        sortable?:       boolean,              # list reads only: offers a `sort:` parameter
+        filterable?:     boolean,              # list reads only: offers a `filter:` parameter
+        generic_return:  :void | {:typed, swift_type} | {:typed_record, struct_name}  # [generic only]
+      }
+
+  `get_by_location` says where a get's lookup travels on the wire, and is a
+  closed set of four values:
+
+    * `:input` — a native Ash `get_by` key, sent inside the `input` dict.
+    * `:get_by` — an RPC-level `get_by`, sent under the request's `getBy`.
+    * `:none` — a get with no lookup channel at all (a pure `get?` action,
+      which narrows via its own filter and sends no identity; ADR-0003).
+    * `nil` — not a get (non-read actions, generic actions, list reads).
+
+  `:none` and `nil` stay separate on purpose: `nil` answers "is this a get?"
+  while `:none` answers "this *is* a get, but it has no lookup", and the
+  emitter needs to tell them apart (a pure get still emits a get function, with
+  no lookup parameter). They are *not* related to `:none` in the pagination
+  keys, where it means "no pagination"; the two atoms live in different keys
+  and are never compared across them.
 
   The two query-surface fields differ in shape, so mind which you assert on:
 
