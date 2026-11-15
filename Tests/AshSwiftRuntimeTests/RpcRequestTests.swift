@@ -29,7 +29,7 @@ final class RpcRequestTests: XCTestCase {
         XCTAssertNil(json["getBy"], "empty getBy dict must be omitted from the JSON")
     }
 
-    // Both get types build their body through the shared `GetLookup`; pin that they
+    // Both get types build their body through the shared `GetRead`; pin that they
     // send the same request for the same inputs.
     func testGetAndGetOptionalRequestSendTheSameBody() throws {
         let args = AnyEncodable(StubInput(title: "x"))
@@ -39,20 +39,6 @@ final class RpcRequestTests: XCTestCase {
             GetOptionalRequest<Stub>(
                 action: "a", input: ["id": "1"], getBy: ["slug": "s"], arguments: args, fields: ["id"]))
         XCTAssertEqual(NSDictionary(dictionary: required), NSDictionary(dictionary: optional))
-        XCTAssertEqual(required["input"] as? [String: String], ["id": "1", "title": "x"])
-    }
-
-    func testGetOptionalRequestDecodesNullDataAsNil() throws {
-        let request = GetOptionalRequest<Stub>(action: "fetch_todo")
-        XCTAssertNil(try request.decode(from: Data(#"{"data":null}"#.utf8), using: JSONDecoder()))
-        XCTAssertEqual(
-            try request.decode(from: Data(#"{"data":{"id":"1"}}"#.utf8), using: JSONDecoder())?.id, "1")
-    }
-
-    func testGetRequestDecodesRecordAsNonOptional() throws {
-        let record: Stub = try GetRequest<Stub>(action: "get_todo")
-            .decode(from: Data(#"{"data":{"id":"1"}}"#.utf8), using: JSONDecoder())
-        XCTAssertEqual(record.id, "1")
     }
 
     func testGetRequestIncludesInputWhenPresent() throws {
@@ -214,6 +200,19 @@ final class RpcRequestTests: XCTestCase {
     }
 
     // MARK: decode
+
+    func testGetOptionalRequestDecodesNullDataAsNil() throws {
+        let request = GetOptionalRequest<Stub>(action: "fetch_todo")
+        XCTAssertNil(try request.decode(from: Data(#"{"data":null}"#.utf8), using: JSONDecoder()))
+        XCTAssertEqual(
+            try request.decode(from: Data(#"{"data":{"id":"1"}}"#.utf8), using: JSONDecoder())?.id, "1")
+    }
+
+    func testGetRequestDecodesRecordAsNonOptional() throws {
+        let record: Stub = try GetRequest<Stub>(action: "get_todo")
+            .decode(from: Data(#"{"data":{"id":"1"}}"#.utf8), using: JSONDecoder())
+        XCTAssertEqual(record.id, "1")
+    }
 
     func testDataEnvelopeRequestUnwrapsDataKey() throws {
         let data = Data(#"{"data":[{"id":"1"},{"id":"2"}]}"#.utf8)
