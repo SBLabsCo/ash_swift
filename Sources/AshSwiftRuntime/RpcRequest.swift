@@ -44,23 +44,26 @@ private struct DataEnvelope<D: Decodable>: Decodable {
 // MARK: - Request bodies
 
 /// Body for list, raw, and any void action: the action name, field selection,
-/// and optional sort/filter. `sort` is the assembled Ash sort string (see
-/// AshSort.swift); `filter` is a type-erased `{Resource}Filter`. Each is omitted
-/// from the JSON when nil — so a raw/void action, or a list with no sort/filter,
-/// stays wire-identical to the M1 `RequestBody`.
+/// and optional input/sort/filter. `input` is the type-erased `{Rpc}Input` struct
+/// of a read that declares arguments (issue #87); `sort` is the assembled Ash
+/// sort string (see AshSort.swift); `filter` is a type-erased `{Resource}Filter`.
+/// Each is omitted from the JSON when nil — so a raw/void action, or a list with
+/// no input/sort/filter, stays wire-identical to the M1 `RequestBody`.
 public struct ActionFieldsBody: Encodable, Sendable {
     let action: String
     let fields: [FieldSelection]
+    let input: AnyEncodable?
     let sort: String?
     let filter: AnyEncodable?
 }
 
-/// Body for paginated list actions. `page`, `sort`, and `filter` are each
-/// omitted from the JSON when nil (the backend then returns its default page /
-/// order / unfiltered result).
+/// Body for paginated list actions. `input`, `page`, `sort`, and `filter` are
+/// each omitted from the JSON when nil (the backend then uses the read's
+/// argument defaults / its default page / order / unfiltered result).
 public struct PagedBody<P: Encodable & Sendable>: Encodable, Sendable {
     let action: String
     let fields: [FieldSelection]
+    let input: AnyEncodable?
     let page: P?
     let sort: String?
     let filter: AnyEncodable?
@@ -68,14 +71,48 @@ public struct PagedBody<P: Encodable & Sendable>: Encodable, Sendable {
 
 /// Body for get actions. `identity` carries a pure `get?` primary-key lookup (a
 /// top-level string, like update/destroy — see ADR-0003); `input` carries native
-/// get_by field values; `getBy` carries RPC-level get_by field values. nil values
-/// are omitted from the JSON so exactly one lookup channel appears per request.
+/// get_by field values merged with the read's own arguments (issue #87); `getBy`
+/// carries RPC-level get_by field values. nil values are omitted from the JSON so
+/// exactly one lookup channel appears per request.
 public struct GetBody: Encodable, Sendable {
     let action: String
     let fields: [FieldSelection]
     let identity: String?
-    let input: [String: String]?
+    let input: GetInput?
     let getBy: [String: String]?
+}
+
+/// A get request's `input` object: the read's typed arguments (if any) and its
+/// native get_by lookup values (if any), encoded into ONE JSON object — the RPC
+/// pipeline reads both from the same `input` dict. The arguments encode first;
+/// the lookup values are then added to the same keyed container.
+public struct GetInput: Encodable, Sendable {
+    let arguments: AnyEncodable?
+    let lookup: [String: String]
+
+    /// nil when there is nothing to send, so `input` is omitted from the body.
+    static func make(arguments: AnyEncodable?, lookup: [String: String]) -> GetInput? {
+        if arguments == nil && lookup.isEmpty { return nil }
+        return GetInput(arguments: arguments, lookup: lookup)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        if let arguments {
+            try arguments.encode(to: encoder)
+        }
+        var container = encoder.container(keyedBy: StringKey.self)
+        for (key, value) in lookup {
+            try container.encode(value, forKey: StringKey(key))
+        }
+    }
+
+    private struct StringKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(_ string: String) { self.stringValue = string }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
 }
 
 /// Body for create actions. The typed `input` encodes directly into the JSON.
@@ -136,7 +173,7 @@ public struct RawRequest: RpcRequest {
     }
 
     public func makeBody() -> ActionFieldsBody {
-        ActionFieldsBody(action: action, fields: fields, sort: nil, filter: nil)
+        ActionFieldsBody(action: action, fields: fields, input: nil, sort: nil, filter: nil)
     }
 
     public func decode(from data: Data, using decoder: JSONDecoder) throws -> Data {
@@ -145,30 +182,34 @@ public struct RawRequest: RpcRequest {
 }
 
 /// A list (non-get read) action with no required pagination: decodes the
-/// `data` array into `[T]`. `sort` is the assembled Ash sort string (build it
-/// from a typed sort with `ashSortString` — see AshSort.swift); nil leaves the
-/// pre-sort wire shape unchanged.
+/// `data` array into `[T]`. `input` is the read's type-erased arguments struct
+/// (issue #87); `sort` is the assembled Ash sort string (build it from a typed
+/// sort with `ashSortString` — see AshSort.swift); nil leaves the pre-sort wire
+/// shape unchanged.
 public struct ListRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = [T]
     let action: String
+    let input: AnyEncodable?
     let filter: AnyEncodable?
     let sort: String?
     let fields: [FieldSelection]
 
     public init(
         action: String,
+        input: AnyEncodable? = nil,
         filter: AnyEncodable? = nil,
         sort: String? = nil,
         fields: [FieldSelection] = []
     ) {
         self.action = action
+        self.input = input
         self.filter = filter
         self.sort = sort
         self.fields = fields
     }
 
     public func makeBody() -> ActionFieldsBody {
-        ActionFieldsBody(action: action, fields: fields, sort: sort, filter: filter)
+        ActionFieldsBody(action: action, fields: fields, input: input, sort: sort, filter: filter)
     }
 }
 
@@ -177,6 +218,7 @@ public struct ListRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 public struct OffsetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = OffsetPage<T>
     let action: String
+    let input: AnyEncodable?
     let page: OffsetPageParams?
     let filter: AnyEncodable?
     let sort: String?
@@ -184,12 +226,14 @@ public struct OffsetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 
     public init(
         action: String,
+        input: AnyEncodable? = nil,
         page: OffsetPageParams? = nil,
         filter: AnyEncodable? = nil,
         sort: String? = nil,
         fields: [FieldSelection] = []
     ) {
         self.action = action
+        self.input = input
         self.page = page
         self.filter = filter
         self.sort = sort
@@ -197,7 +241,7 @@ public struct OffsetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     }
 
     public func makeBody() -> PagedBody<OffsetPageParams> {
-        PagedBody(action: action, fields: fields, page: page, sort: sort, filter: filter)
+        PagedBody(action: action, fields: fields, input: input, page: page, sort: sort, filter: filter)
     }
 }
 
@@ -206,6 +250,7 @@ public struct OffsetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = KeysetPage<T>
     let action: String
+    let input: AnyEncodable?
     let page: KeysetPageParams?
     let filter: AnyEncodable?
     let sort: String?
@@ -213,12 +258,14 @@ public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 
     public init(
         action: String,
+        input: AnyEncodable? = nil,
         page: KeysetPageParams? = nil,
         filter: AnyEncodable? = nil,
         sort: String? = nil,
         fields: [FieldSelection] = []
     ) {
         self.action = action
+        self.input = input
         self.page = page
         self.filter = filter
         self.sort = sort
@@ -226,7 +273,7 @@ public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     }
 
     public func makeBody() -> PagedBody<KeysetPageParams> {
-        PagedBody(action: action, fields: fields, page: page, sort: sort, filter: filter)
+        PagedBody(action: action, fields: fields, input: input, page: page, sort: sort, filter: filter)
     }
 }
 
@@ -239,19 +286,25 @@ public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     let identity: String?
     let input: [String: String]
     let getBy: [String: String]
+    let arguments: AnyEncodable?
     let fields: [FieldSelection]
 
+    /// `input` is the native get_by lookup values; `arguments` is the read's
+    /// type-erased arguments struct (issue #87). Both travel in the body's single
+    /// `input` object.
     public init(
         action: String,
         identity: String? = nil,
         input: [String: String] = [:],
         getBy: [String: String] = [:],
+        arguments: AnyEncodable? = nil,
         fields: [FieldSelection] = []
     ) {
         self.action = action
         self.identity = identity
         self.input = input
         self.getBy = getBy
+        self.arguments = arguments
         self.fields = fields
     }
 
@@ -260,7 +313,7 @@ public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
             action: action,
             fields: fields,
             identity: identity,
-            input: input.isEmpty ? nil : input,
+            input: GetInput.make(arguments: arguments, lookup: input),
             getBy: getBy.isEmpty ? nil : getBy
         )
     }
@@ -274,19 +327,25 @@ public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     let identity: String?
     let input: [String: String]
     let getBy: [String: String]
+    let arguments: AnyEncodable?
     let fields: [FieldSelection]
 
+    /// `input` is the native get_by lookup values; `arguments` is the read's
+    /// type-erased arguments struct (issue #87). Both travel in the body's single
+    /// `input` object.
     public init(
         action: String,
         identity: String? = nil,
         input: [String: String] = [:],
         getBy: [String: String] = [:],
+        arguments: AnyEncodable? = nil,
         fields: [FieldSelection] = []
     ) {
         self.action = action
         self.identity = identity
         self.input = input
         self.getBy = getBy
+        self.arguments = arguments
         self.fields = fields
     }
 
@@ -295,7 +354,7 @@ public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
             action: action,
             fields: fields,
             identity: identity,
-            input: input.isEmpty ? nil : input,
+            input: GetInput.make(arguments: arguments, lookup: input),
             getBy: getBy.isEmpty ? nil : getBy
         )
     }

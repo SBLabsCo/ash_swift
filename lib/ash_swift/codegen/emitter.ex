@@ -342,17 +342,22 @@ defmodule AshSwift.Codegen.Emitter do
     {filter_params, filter_args} = filter_entries(action.filterable?, type_name)
     {sort_params, sort_args} = sort_entries(action.sortable?, type_name)
 
+    {input_params, input_args} = read_input_entries(action, "input")
+
     %{
       rpc_name: rpc_name,
       func_name: lower_camel(rpc_name),
       doc: "#{label}-paginated list of `#{type_name}` records",
       params:
-        [%{name: "page", type: page_type, default: nil}] ++
+        input_params ++
+          [%{name: "page", type: page_type, default: nil}] ++
           filter_params ++ sort_params ++ [fields_param()],
       return_type: "#{wrapper}<#{type_name}>",
       request_type: request_type,
       request_args:
-        [{"action", swift_string(rpc_name)}, {"page", "page"}] ++
+        [{"action", swift_string(rpc_name)}] ++
+          input_args ++
+          [{"page", "page"}] ++
           filter_args ++ sort_args ++ [{"fields", "fields"}]
     }
   end
@@ -373,9 +378,10 @@ defmodule AshSwift.Codegen.Emitter do
            pagination_type: :offset,
            sortable?: sortable?,
            filterable?: filterable?
-         },
+         } = action,
          type_name
        ) do
+    {input_params, input_args} = read_input_entries(action, "input")
     {filter_params, filter_args} = filter_entries(filterable?, type_name)
     {sort_params, sort_args} = sort_entries(sortable?, type_name)
 
@@ -384,12 +390,15 @@ defmodule AshSwift.Codegen.Emitter do
       func_name: lower_camel(rpc_name),
       doc: "offset-paginated list of `#{type_name}` records",
       params:
-        [%{name: "page", type: "OffsetPageParams?", default: "nil"}] ++
+        input_params ++
+          [%{name: "page", type: "OffsetPageParams?", default: "nil"}] ++
           filter_params ++ sort_params ++ [fields_param()],
       return_type: "OffsetPage<#{type_name}>",
       request_type: "OffsetPageRequest",
       request_args:
-        [{"action", swift_string(rpc_name)}, {"page", "page"}] ++
+        [{"action", swift_string(rpc_name)}] ++
+          input_args ++
+          [{"page", "page"}] ++
           filter_args ++ sort_args ++ [{"fields", "fields"}]
     }
   end
@@ -402,9 +411,10 @@ defmodule AshSwift.Codegen.Emitter do
            pagination_type: :keyset,
            sortable?: sortable?,
            filterable?: filterable?
-         },
+         } = action,
          type_name
        ) do
+    {input_params, input_args} = read_input_entries(action, "input")
     {filter_params, filter_args} = filter_entries(filterable?, type_name)
     {sort_params, sort_args} = sort_entries(sortable?, type_name)
 
@@ -413,12 +423,15 @@ defmodule AshSwift.Codegen.Emitter do
       func_name: lower_camel(rpc_name),
       doc: "keyset-paginated list of `#{type_name}` records",
       params:
-        [%{name: "page", type: "KeysetPageParams?", default: "nil"}] ++
+        input_params ++
+          [%{name: "page", type: "KeysetPageParams?", default: "nil"}] ++
           filter_params ++ sort_params ++ [fields_param()],
       return_type: "KeysetPage<#{type_name}>",
       request_type: "KeysetPageRequest",
       request_args:
-        [{"action", swift_string(rpc_name)}, {"page", "page"}] ++
+        [{"action", swift_string(rpc_name)}] ++
+          input_args ++
+          [{"page", "page"}] ++
           filter_args ++ sort_args ++ [{"fields", "fields"}]
     }
   end
@@ -430,9 +443,10 @@ defmodule AshSwift.Codegen.Emitter do
            is_get?: false,
            sortable?: sortable?,
            filterable?: filterable?
-         },
+         } = action,
          type_name
        ) do
+    {input_params, input_args} = read_input_entries(action, "input")
     {filter_params, filter_args} = filter_entries(filterable?, type_name)
     {sort_params, sort_args} = sort_entries(sortable?, type_name)
 
@@ -440,11 +454,12 @@ defmodule AshSwift.Codegen.Emitter do
       rpc_name: rpc_name,
       func_name: lower_camel(rpc_name),
       doc: "list `#{type_name}` records",
-      params: filter_params ++ sort_params ++ [fields_param()],
+      params: input_params ++ filter_params ++ sort_params ++ [fields_param()],
       return_type: "[#{type_name}]",
       request_type: "ListRequest",
       request_args:
-        [{"action", swift_string(rpc_name)}] ++ filter_args ++ sort_args ++ [{"fields", "fields"}]
+        [{"action", swift_string(rpc_name)}] ++
+          input_args ++ filter_args ++ sort_args ++ [{"fields", "fields"}]
     }
   end
 
@@ -459,7 +474,7 @@ defmodule AshSwift.Codegen.Emitter do
            get_by_params: get_by_params,
            get_by_location: location,
            not_found_error?: not_found_error?
-         },
+         } = action,
          type_name
        ) do
     {request_type, return_type} =
@@ -483,18 +498,19 @@ defmodule AshSwift.Codegen.Emitter do
           {label, "[#{dict_entries}]"}
       end
 
+    # A get's read arguments go to the request's `arguments:` — the runtime merges
+    # them into the `input` dict alongside any native get_by lookup fields.
+    {input_params, input_args} = read_input_entries(action, "arguments")
+
     %{
       rpc_name: rpc_name,
       func_name: lower_camel(rpc_name),
       doc: "get `#{type_name}` record",
-      params: Enum.map(get_by_params, &field_param/1) ++ [fields_param()],
+      params: Enum.map(get_by_params, &field_param/1) ++ input_params ++ [fields_param()],
       return_type: return_type,
       request_type: request_type,
-      request_args: [
-        {"action", swift_string(rpc_name)},
-        lookup_arg,
-        {"fields", "fields"}
-      ]
+      request_args:
+        [{"action", swift_string(rpc_name)}, lookup_arg] ++ input_args ++ [{"fields", "fields"}]
     }
   end
 
@@ -676,6 +692,22 @@ defmodule AshSwift.Codegen.Emitter do
   end
 
   defp filter_entries(false, _type_name), do: {[], []}
+
+  # The typed `input:` parameter for a read action that declares arguments (issue
+  # #87), and its request argument under `label` (`input` for list/paginated
+  # requests, `arguments` for get requests). Required when any argument must be
+  # supplied; otherwise an optional `= nil` so `input`-less calls still compile.
+  # A read with no arguments gets neither, leaving its signature byte-identical.
+  # The value is type-erased to AnyEncodable, like `filter`.
+  defp read_input_entries(%{input_struct_name: nil}, _label), do: {[], []}
+
+  defp read_input_entries(%{input_struct_name: struct_name, input_required?: true}, label),
+    do: {[%{name: "input", type: struct_name, default: nil}], [{label, "AnyEncodable(input)"}]}
+
+  defp read_input_entries(%{input_struct_name: struct_name}, label) do
+    {[%{name: "input", type: "#{struct_name}?", default: "nil"}],
+     [{label, "input.map { AnyEncodable($0) }"}]}
+  end
 
   # A lookup/primary-key field as a required Swift parameter.
   defp field_param(%{name: n, swift_type: t}), do: %{name: n, type: t, default: nil}

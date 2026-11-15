@@ -1158,6 +1158,104 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
+  describe "read action arguments (issue #87)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    defp input_struct(types, name) do
+      [_, rest] = String.split(types, "public struct #{name}: Encodable, Sendable {", parts: 2)
+      rest |> String.split("\n}\n", parts: 2) |> hd()
+    end
+
+    test "a list read's optional uuid and boolean arguments generate an all-optional input struct",
+         %{files: files} do
+      body = input_struct(files["AshRpcTypes.swift"], "SearchTodosInput")
+
+      assert body =~ "    public var userId: String?\n"
+      assert body =~ "    public var completedOnly: Bool?\n"
+      assert body =~ "public init(completedOnly: Bool? = nil, userId: String? = nil)"
+    end
+
+    test "a list read takes an optional input: and sends it under `input`", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func searchTodos(input: SearchTodosInput? = nil, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
+
+      assert functions =~
+               ~s|ListRequest(action: "search_todos", input: input.map { AnyEncodable($0) }, filter:|
+    end
+
+    test "a required argument makes input: required", %{files: files} do
+      assert input_struct(files["AshRpcTypes.swift"], "SearchTodosPagedInput") =~
+               "    public var titleContains: String\n"
+
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func searchTodosPaged(input: SearchTodosPagedInput, page: OffsetPageParams? = nil,"
+
+      assert functions =~
+               ~s|OffsetPageRequest(action: "search_todos_paged", input: AnyEncodable(input), page: page,|
+    end
+
+    test "both optional-pagination overloads carry input:", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func searchTodosKeysetOptional(input: SearchTodosKeysetOptionalInput? = nil, filter: TodoFilter? = nil,"
+
+      assert functions =~
+               "public func searchTodosKeysetOptional(input: SearchTodosKeysetOptionalInput? = nil, page: KeysetPageParams, filter:"
+
+      assert functions =~
+               ~s|KeysetPageRequest(action: "search_todos_keyset_optional", input: input.map { AnyEncodable($0) }, page: page,|
+    end
+
+    test "a native get_by read keeps its lookup param and excludes it from the input struct", %{
+      files: files
+    } do
+      body = input_struct(files["AshRpcTypes.swift"], "GetTodoScopedInput")
+      assert body =~ "    public var completedOnly: Bool?\n"
+      refute body =~ "public var id"
+
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func getTodoScoped(id: String, input: GetTodoScopedInput? = nil, fields: [FieldSelection]) async throws -> Todo {"
+
+      assert functions =~
+               ~s|GetRequest(action: "get_todo_scoped", input: ["id": id], arguments: input.map { AnyEncodable($0) }, fields: fields)|
+    end
+
+    test "an RPC-level get_by read sends getBy plus arguments", %{files: files} do
+      assert files["AshRpcFunctions.swift"] =~
+               ~s|GetRequest(action: "find_todo_scoped", getBy: ["title": title], arguments: input.map { AnyEncodable($0) }, fields: fields)|
+    end
+
+    test "reads without arguments keep their exact signatures", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      types = files["AshRpcTypes.swift"]
+
+      assert functions =~
+               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
+
+      assert functions =~
+               ~s|ListRequest(action: "list_todos", filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields)|
+
+      assert functions =~
+               ~s|GetRequest(action: "get_todo", input: ["id": id], fields: fields)|
+
+      assert functions =~
+               "public func getTodo(id: String, fields: [FieldSelection]) async throws -> Todo {"
+
+      # A native get_by's lookup field is not an "argument" — no input struct.
+      refute types =~ "GetTodoInput"
+      refute types =~ "ListTodosInput"
+    end
+  end
+
   describe "generic-action constrained-map return (issue #70)" do
     setup do
       %{files: Codegen.build_files(@domains)}

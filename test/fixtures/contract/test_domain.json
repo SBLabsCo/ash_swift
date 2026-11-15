@@ -359,6 +359,35 @@
       "sortable": false
     },
     {
+      "action": "search",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "completedOnly",
+          "required": false,
+          "type": "Bool"
+        },
+        {
+          "name": "title",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "userId",
+          "required": false,
+          "type": "String"
+        }
+      ],
+      "name": "find_todo_scoped",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
       "action": "get_by_id",
       "action_type": "read",
       "domain": "AshSwift.Test.Domain",
@@ -390,6 +419,30 @@
         }
       ],
       "name": "get_todo_by_score",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
+      "action": "get_scoped",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "completedOnly",
+          "required": false,
+          "type": "Bool"
+        },
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "get_todo_scoped",
       "optional_pagination": null,
       "resource": "Todo",
       "resource_module": "AshSwift.Test.Todo",
@@ -570,6 +623,71 @@
       "resource_module": "AshSwift.Test.Todo",
       "result_type": "Todo",
       "sortable": false
+    },
+    {
+      "action": "search",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [
+        {
+          "name": "completedOnly",
+          "required": false,
+          "type": "Bool"
+        },
+        {
+          "name": "userId",
+          "required": false,
+          "type": "String"
+        }
+      ],
+      "name": "search_todos",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[Todo]",
+      "sortable": true
+    },
+    {
+      "action": "search_keyset_optional",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [
+        {
+          "name": "completedOnly",
+          "required": false,
+          "type": "Bool"
+        }
+      ],
+      "name": "search_todos_keyset_optional",
+      "optional_pagination": {
+        "result_type": "KeysetPage<Todo>",
+        "type": "keyset"
+      },
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "[Todo]",
+      "sortable": true
+    },
+    {
+      "action": "search_paged",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": true,
+      "inputs": [
+        {
+          "name": "titleContains",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "search_todos_paged",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "OffsetPage<Todo>",
+      "sortable": true
     },
     {
       "action": "set_due_date",
@@ -1118,6 +1236,33 @@
     {
       "fields": [
         {
+          "name": "completedOnly",
+          "optional": true,
+          "type": "Bool"
+        },
+        {
+          "name": "userId",
+          "optional": true,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "FindTodoScopedInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "completedOnly",
+          "optional": true,
+          "type": "Bool"
+        }
+      ],
+      "kind": "input",
+      "name": "GetTodoScopedInput"
+    },
+    {
+      "fields": [
+        {
           "name": "email",
           "optional": false,
           "type": "String"
@@ -1136,6 +1281,44 @@
       ],
       "kind": "input",
       "name": "RetitleTodoInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "completedOnly",
+          "optional": true,
+          "type": "Bool"
+        },
+        {
+          "name": "userId",
+          "optional": true,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "SearchTodosInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "completedOnly",
+          "optional": true,
+          "type": "Bool"
+        }
+      ],
+      "kind": "input",
+      "name": "SearchTodosKeysetOptionalInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "titleContains",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "SearchTodosPagedInput"
     },
     {
       "fields": [
