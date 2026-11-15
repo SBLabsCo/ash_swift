@@ -223,16 +223,28 @@ public struct ListRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     }
 }
 
+/// The paginated read as sent (action, arguments, page, filter, sort, fields)
+/// shared by `OffsetPageRequest` and `KeysetPageRequest`. The two differ only in
+/// the page-params type and `Output`, so a change to how a paged read is sent is
+/// made here, once.
+struct PagedRead<Page: Encodable & Sendable>: Sendable {
+    let action: String
+    let input: AnyEncodable?
+    let page: Page?
+    let filter: AnyEncodable?
+    let sort: String?
+    let fields: [FieldSelection]
+
+    func makeBody() -> PagedBody<Page> {
+        PagedBody(action: action, fields: fields, input: input, page: page, sort: sort, filter: filter)
+    }
+}
+
 /// An offset-paginated read action: decodes the `data` object into
 /// `OffsetPage<T>`. Pass `page` to control which page the backend returns.
 public struct OffsetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = OffsetPage<T>
-    let action: String
-    let input: AnyEncodable?
-    let page: OffsetPageParams?
-    let filter: AnyEncodable?
-    let sort: String?
-    let fields: [FieldSelection]
+    let read: PagedRead<OffsetPageParams>
 
     public init(
         action: String,
@@ -242,29 +254,18 @@ public struct OffsetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         sort: String? = nil,
         fields: [FieldSelection] = []
     ) {
-        self.action = action
-        self.input = input
-        self.page = page
-        self.filter = filter
-        self.sort = sort
-        self.fields = fields
+        self.read = PagedRead(
+            action: action, input: input, page: page, filter: filter, sort: sort, fields: fields)
     }
 
-    public func makeBody() -> PagedBody<OffsetPageParams> {
-        PagedBody(action: action, fields: fields, input: input, page: page, sort: sort, filter: filter)
-    }
+    public func makeBody() -> PagedBody<OffsetPageParams> { read.makeBody() }
 }
 
 /// A keyset-paginated read action: decodes the `data` object into
 /// `KeysetPage<T>`. Pass `page` to control which page the backend returns.
 public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = KeysetPage<T>
-    let action: String
-    let input: AnyEncodable?
-    let page: KeysetPageParams?
-    let filter: AnyEncodable?
-    let sort: String?
-    let fields: [FieldSelection]
+    let read: PagedRead<KeysetPageParams>
 
     public init(
         action: String,
@@ -274,17 +275,11 @@ public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         sort: String? = nil,
         fields: [FieldSelection] = []
     ) {
-        self.action = action
-        self.input = input
-        self.page = page
-        self.filter = filter
-        self.sort = sort
-        self.fields = fields
+        self.read = PagedRead(
+            action: action, input: input, page: page, filter: filter, sort: sort, fields: fields)
     }
 
-    public func makeBody() -> PagedBody<KeysetPageParams> {
-        PagedBody(action: action, fields: fields, input: input, page: page, sort: sort, filter: filter)
-    }
+    public func makeBody() -> PagedBody<KeysetPageParams> { read.makeBody() }
 }
 
 /// The get read as sent (action, arguments, fields, native get_by) shared by `GetRequest` and
