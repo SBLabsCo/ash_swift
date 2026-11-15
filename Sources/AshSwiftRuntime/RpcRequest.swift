@@ -145,10 +145,13 @@ public struct UpdateBody<I: Encodable & Sendable>: Encodable, Sendable {
     let fields: [FieldSelection]
 }
 
-/// Body for destroy actions. `identity` is the primary-key string value.
+/// Body for destroy actions. `identity` is the primary-key string value; `input`
+/// carries the destroy action's declared arguments and is omitted from the JSON
+/// when nil (issue #102).
 public struct DestroyBody: Encodable, Sendable {
     let action: String
     let identity: String
+    let input: AnyEncodable?
 }
 
 /// Body for generic (`:action`-type) actions: the action name, the typed `input`
@@ -374,19 +377,22 @@ public struct UpdateRequest<T: Decodable & Sendable, I: Encodable & Sendable>: D
     }
 }
 
-/// A destroy action: sends `identity` and returns nothing on success.
+/// A destroy action: sends `identity` (plus `input` when the action declares
+/// arguments) and returns nothing on success.
 public struct DestroyRequest: RpcRequest {
     public typealias Output = Void
     let action: String
     let identity: String
+    let input: AnyEncodable?
 
-    public init(action: String, identity: String) {
+    public init(action: String, identity: String, input: AnyEncodable? = nil) {
         self.action = action
         self.identity = identity
+        self.input = input
     }
 
     public func makeBody() -> DestroyBody {
-        DestroyBody(action: action, identity: identity)
+        DestroyBody(action: action, identity: identity, input: input)
     }
 
     public func decode(from data: Data, using decoder: JSONDecoder) throws {

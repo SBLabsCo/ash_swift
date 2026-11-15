@@ -1,6 +1,30 @@
 {
   "actions": [
     {
+      "action": "archive",
+      "action_type": "destroy",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "reason",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "archive_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": null,
+      "sortable": false
+    },
+    {
       "action": "broadcast",
       "action_type": "action",
       "domain": "AshSwift.Test.Domain",
@@ -237,6 +261,35 @@
         }
       ],
       "name": "destroy_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": null,
+      "sortable": false
+    },
+    {
+      "action": "discard",
+      "action_type": "destroy",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "default",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "name": "hard",
+          "required": false,
+          "type": "Bool"
+        },
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "discard_todo",
       "optional_pagination": null,
       "resource": "Todo",
       "resource_module": "AshSwift.Test.Todo",
@@ -978,6 +1031,17 @@
     {
       "fields": [
         {
+          "name": "reason",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "ArchiveTodoInput"
+    },
+    {
+      "fields": [
+        {
           "name": "tags",
           "optional": true,
           "type": "[String]"
@@ -1198,6 +1262,22 @@
       ],
       "kind": "input",
       "name": "CreateUserInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "default",
+          "optional": true,
+          "type": "String"
+        },
+        {
+          "name": "hard",
+          "optional": true,
+          "type": "Bool"
+        }
+      ],
+      "kind": "input",
+      "name": "DiscardTodoInput"
     },
     {
       "fields": [

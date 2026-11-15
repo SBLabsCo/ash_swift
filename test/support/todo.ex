@@ -153,6 +153,33 @@ defmodule AshSwift.Test.Todo do
       prepare AshSwift.Test.Todo.SearchPreparation
     end
 
+    # Destroy actions with arguments (issue #102). The arguments travel under the
+    # request's `input` key beside the `identity` that names the record.
+    #
+    # `archive`: a REQUIRED argument, so the generated `input:` is non-optional.
+    # A "veto" reason is refused, which lets the e2e test prove the argument
+    # actually reached the action (a missing or ignored argument would not fail).
+    destroy :archive do
+      require_atomic? false
+      argument :reason, :string, allow_nil?: false
+
+      change fn changeset, _context ->
+        if Ash.Changeset.get_argument(changeset, :reason) == "veto" do
+          Ash.Changeset.add_error(changeset, field: :reason, message: "vetoed")
+        else
+          changeset
+        end
+      end
+    end
+
+    # `discard`: only OPTIONAL arguments (one named like a Swift keyword), so the
+    # generated `input:` defaults to nil and an input-less call still compiles.
+    destroy :discard do
+      require_atomic? false
+      argument :default, :string, allow_nil?: true
+      argument :hard, :boolean, allow_nil?: true, default: false
+    end
+
     # Create/update actions with action *arguments* (issue #83). The manifest folds
     # arguments and accepted attributes into one `inputs` list; codegen must emit a
     # field for each argument, typed the way a generic-action argument would be:

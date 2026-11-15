@@ -36,7 +36,7 @@ defmodule AshSwift.Codegen.Reader do
   Every `action` is a map with these keys. CRUD (`:read | :create | :update |
   :destroy`) and generic (`:action`) actions share the uniform keys.
   `input_required?` is present on CRUD actions only (always `false` outside a
-  read with a required argument) and `generic_return` on generic actions only;
+  read or destroy with a required argument) and `generic_return` on generic actions only;
   every other key is present on every kind. A `[read only]` tag below means the
   value is *meaningful* only on reads, not that the key is absent elsewhere.
 
@@ -50,11 +50,11 @@ defmodule AshSwift.Codegen.Reader do
         not_found_error?: boolean,             # meaningful only when is_get?: true => returns T and throws on missing, false => T?;
                                                # on CRUD non-gets it carries the configured default; on generic actions it is always false.
                                                # ignored in both cases
-        input_struct_name: String.t() | nil,   # the `{Name}Input` struct. create/update: always set; destroy: always nil
-                                               # (even with arguments); read: set only when it has non-lookup arguments;
+        input_struct_name: String.t() | nil,   # the `{Name}Input` struct. create/update: always set; read: set only when it has
+                                               # non-lookup arguments; destroy: set only when it declares arguments (#102);
                                                # generic: set only when it has inputs
-        input_required?: boolean,              # [CRUD only; absent on generic] meaningful only for reads: whether `input:`
-                                               # must be supplied (some argument is required); false otherwise
+        input_required?: boolean,              # [CRUD only; absent on generic] meaningful only for reads and destroys: whether
+                                               # `input:` must be supplied (some argument is required); false otherwise
         primary_key_params: [%{name, swift_type}],  # update/destroy: the resource's PK params; [] for create/read/generic.
                                                # The identity that addresses the record; the emitter sends it as `identity`
         pagination_type: :offset | :keyset | :none,           # required pagination => paginated return
@@ -468,21 +468,31 @@ defmodule AshSwift.Codegen.Reader do
     # native get_by fields — those are already the get's lookup params, sent in
     # the same `input` dict. A read with no (other) arguments gets no struct, so
     # its generated signature is unchanged.
+    #
+    # A destroy's declared arguments (issue #102) take the same path: the RPC
+    # pipeline hands `input` to `Ash.bulk_destroy`, so they travel under `input`
+    # beside the `identity` that names the record. A destroy with no arguments
+    # keeps its identity-only signature.
     {read_inputs, read_nested_structs} =
-      if maction.type == :read do
-        lookup_fields = native_get_by_fields(resource, maction)
-        arg_inputs = Enum.reject(maction.inputs, &(&1.name in lookup_fields))
+      case maction.type do
+        :read ->
+          lookup_fields = native_get_by_fields(resource, maction)
+          arg_inputs = Enum.reject(maction.inputs, &(&1.name in lookup_fields))
 
-        collect_action_inputs(
-          %{maction | inputs: arg_inputs},
-          rpc_action,
-          mres,
-          type_name,
-          formatter,
-          types
-        )
-      else
-        {[], []}
+          collect_action_inputs(
+            %{maction | inputs: arg_inputs},
+            rpc_action,
+            mres,
+            type_name,
+            formatter,
+            types
+          )
+
+        :destroy ->
+          collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types)
+
+        _ ->
+          {[], []}
       end
 
     {input_struct_name, input_required?} =
@@ -501,8 +511,8 @@ defmodule AshSwift.Codegen.Reader do
       get_by_location: get_by_location,
       not_found_error?: not_found_error?,
       input_struct_name: input_struct_name,
-      # Read actions only: whether the `input:` parameter is required (some
-      # argument must be supplied) or an optional `= nil` (issue #87).
+      # Read and destroy actions: whether the `input:` parameter is required (some
+      # argument must be supplied) or an optional `= nil` (issues #87, #102).
       input_required?: input_required?,
       primary_key_params: primary_key_params,
       pagination_type: pagination_type,
