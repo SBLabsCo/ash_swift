@@ -61,7 +61,8 @@ and a TypeScript client stay wire-identical by construction.
   `input:` — required when any argument is, optional otherwise — so the backend
   can narrow the result set inside the action: e.g.
   `rpc.library(input: LibraryInput(studentId: id), fields: ["id"])`. A
-  **destroy** with arguments (or, for a soft destroy, accepted attributes) takes the same typed `input:` after its primary key:
+  **destroy** with arguments (or, for a soft destroy, accepted attributes) takes
+  the same typed `input:` after its primary key:
   `rpc.archiveTodo(id: id, input: ArchiveTodoInput(reason: "done"))`. Reads and
   destroys without inputs keep their exact signatures.
 - **Array attributes** — an `{:array, T}` attribute becomes a Swift array of `T`'s

@@ -50,7 +50,8 @@ defmodule AshSwift.Codegen.ReaderTest do
             :create_todo,
             :update_todo,
             :destroy_todo,
-            :archive_todo
+            :archive_todo,
+            :discard_todo
           ] do
         action = Enum.find(todo.actions, &(&1.rpc_name == name))
         assert MapSet.new(Map.keys(action)) == @crud_keys, "CRUD keys drifted for #{name}"

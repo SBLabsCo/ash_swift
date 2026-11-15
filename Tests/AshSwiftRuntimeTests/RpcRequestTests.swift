@@ -127,6 +127,7 @@ final class RpcRequestTests: XCTestCase {
                 action: "archive_todo", identity: "uuid-9",
                 input: AnyEncodable(StubInput(title: "why")))
         )
+        XCTAssertEqual(json["action"] as? String, "archive_todo")
         XCTAssertEqual(json["identity"] as? String, "uuid-9")
         let input = try XCTUnwrap(json["input"] as? [String: Any])
         XCTAssertEqual(input["title"] as? String, "why")
