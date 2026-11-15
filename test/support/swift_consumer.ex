@@ -106,11 +106,7 @@ defmodule AshSwift.Test.SwiftConsumer do
 
   def sources_dir(tmp), do: Path.join([tmp, "Sources", "GeneratedClient"])
 
-  def tests_dir(tmp) do
-    dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(dir)
-    dir
-  end
+  def tests_dir(tmp), do: Path.join([tmp, "Tests", "E2ETests"])
 
   @doc "Removes the shared package (no-op if none was created)."
   def cleanup do

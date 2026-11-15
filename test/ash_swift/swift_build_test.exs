@@ -22,7 +22,9 @@ defmodule AshSwift.SwiftBuildTest do
     tmp = SwiftConsumer.shared_package()
     sources = SwiftConsumer.sources_dir(tmp)
 
-    assert File.exists?(Path.join(sources, "ConsumerCheck.swift"))
+    for file <- ~w(AshRpcTypes.swift AshRpcFunctions.swift ConsumerCheck.swift) do
+      assert File.exists?(Path.join(sources, file)), "missing #{file}"
+    end
 
     {output, status} = SwiftConsumer.build_client(tmp)
     assert status == 0, "swift build failed:\n#{output}"
