@@ -97,6 +97,14 @@ enum ConsumerCheck {
         let found: Todo? = try await rpc.findTodo(id: "some-uuid", fields: ["id", "title"])
         let _ = found
 
+        // Pure get? reads (#91) take no lookup param: the action's own filter/args decide the record.
+        let fetched: Todo = try await rpc.fetchTodo(fields: ["id", "title"])
+        let _ = fetched
+        let byTitle: Todo = try await rpc.fetchTodoByTitle(
+            input: FetchTodoByTitleInput(title: "x"), fields: ["id"]
+        )
+        let _ = byTitle
+
         // create/update also select the fields to return on the created/updated record.
         let newTodo: Todo = try await rpc.createTodo(
             input: CreateTodoInput(title: "New Todo"), fields: ["id", "title"]

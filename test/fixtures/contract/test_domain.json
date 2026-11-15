@@ -306,14 +306,27 @@
       "action_type": "read",
       "domain": "AshSwift.Test.Domain",
       "filterable": false,
+      "inputs": [],
+      "name": "fetch_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
+      "action": "fetch_by_title",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
       "inputs": [
         {
-          "name": "id",
+          "name": "title",
           "required": true,
           "type": "String"
         }
       ],
-      "name": "fetch_todo",
+      "name": "fetch_todo_by_title",
       "optional_pagination": null,
       "resource": "Todo",
       "resource_module": "AshSwift.Test.Todo",
@@ -1232,6 +1245,17 @@
       ],
       "kind": "input",
       "name": "EchoInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "title",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "FetchTodoByTitleInput"
     },
     {
       "fields": [

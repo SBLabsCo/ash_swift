@@ -85,8 +85,8 @@ defmodule AshSwift.Codegen.Contract do
   a structural diff over the old shape would not safely interpret.
 
   What the contract does **not** see: a change that is wire-only rather than
-  binary-shaped — e.g. `get_by_location` flipping which of `:identity`,
-  `:input`, or `:get_by` the client should use to send a lookup key — has no
+  binary-shaped — e.g. `get_by_location` flipping between
+  `:input` and `:get_by` (how the client sends a lookup key) — has no
   representation here (or in the emitted Swift's compiled shape) because the
   generated function signature is unchanged either way. A gate built on this
   document, like a gate built on the emitted Swift, cannot see that class of
@@ -190,7 +190,7 @@ defmodule AshSwift.Codegen.Contract do
   end
 
   # An action's input arguments, from whichever of its three possible sources
-  # apply: lookup fields (get/get_by/identity), the primary-key identity params
+  # apply: lookup fields (get_by), the primary-key identity params
   # (update/destroy), and its generated input struct's fields (create/update/
   # generic action). A plain list read has none of these — sort/filter/page/
   # fields are client query capabilities, not RPC-contract inputs, and are

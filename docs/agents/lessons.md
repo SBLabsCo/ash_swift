@@ -51,21 +51,20 @@ The AshTypescript RPC wire protocol sends the primary-key value for update and
 destroy actions under a top-level `identity` key (a plain string), **not** in
 the `input` dict. Sending `{"action": "update_todo", "input": {"id": "...", "title": "..."}}` returns `missing_identity`; the correct shape is `{"action": "update_todo", "identity": "<uuid>", "input": {"title": "..."}}`. The same applies to destroy: `{"action": "destroy_todo", "identity": "<uuid>"}`. Probe with `AshTypescript.Rpc.run_action` and inspect the response before wiring up the Swift runtime or generating call sites. See PR #28.
 
-### A *pure* `get?` also uses `identity` — but a `get_by` uses `input`/`getBy`
+### A *pure* `get?` read takes no lookup param — it is narrowed by its own arguments
 
-The "by primary key" lookup splits two ways, and the split is not obvious from
-the action looking the same. A **native `get_by`** (`read :get_by_id do get_by :id end`)
-surfaces the lookup field as an action *input*, so its value travels in the
-`input` dict — `{"input": {"id": "..."}}` — and the pipeline accepts it. A
-**pure `get?`** (`read :fetch do get? true end`, no `get_by`) has *no* inputs;
-the pipeline routes it through `Ash.get(resource, identity)` and reads the pk
-from the top-level `identity` param. Sending a pure-`get?` pk under `input`
-compiles fine but fails at runtime with `NoSuchInput "No such input \`id\`"`.
-So `build_get_info/5` has three lookup locations, not two: `:input` (native
-get_by), `:get_by` (RPC-level get_by), and `:identity` (pure get? by pk —
-mirrors update/destroy). The fixture `AshSwift.Test.Todo.fetch` (rpc `fetch_todo`)
-is the regression guard; the e2e test asserts `identity` round-trips and `input`
-is rejected. See issue #66.
+A **native `get_by`** (`read :get_by_id do get_by :id end`) surfaces the lookup
+field as an action *input*, so its value travels in the `input` dict. An
+**RPC-level `get_by`** travels under `getBy`. A **pure `get?`** (`read :fetch do
+get? true end`, no `get_by`) has *no* lookup channel: the RPC pipeline's
+`execute_read_action/2` never consumes a top-level `identity` for a read (only
+update/destroy do), so a pk sent as `identity` is silently dropped and the read
+returns `internal_error` once the table has two rows. The action narrows itself
+through its own arguments, which the client sends as `input:`. So
+`build_get_info/5` has three outcomes: `:input`, `:get_by`, and `:none` (pure
+`get?`). The first attempt (#66) emitted `identity` and its e2e test passed only
+because the table happened to hold one row — assert row-specific results with
+>= 2 rows. See issues #66 and #91.
 
 ### A get's native `get_by` fields are manifest *inputs* — indistinguishable from its arguments
 

@@ -78,11 +78,21 @@ defmodule AshSwift.Test.Todo do
       get_by :id
     end
 
-    # A *pure* get? read: no get_by, so the manifest surfaces no lookup inputs
-    # and the record is fetched by primary key. ash_typescript routes a pure
-    # get? through the top-level `identity` param, not `input` (issue #66).
+    # A *pure* get? read: no get_by, so the manifest surfaces no lookup inputs and
+    # the client sends no lookup param. The RPC pipeline never reads `identity`
+    # for a read (issues #66, #91); the action narrows itself — here to one row
+    # via `limit`.
     read :fetch do
       get? true
+      prepare build(limit: 1)
+    end
+
+    # A pure get? read narrowed by its own argument (issue #91): the generated
+    # function takes `input:` and no lookup param.
+    read :fetch_by_title do
+      get? true
+      argument :title, :string, allow_nil?: false
+      filter expr(title == ^arg(:title))
     end
 
     read :get_by_score do

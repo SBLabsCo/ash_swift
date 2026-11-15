@@ -1206,13 +1206,14 @@ defmodule AshSwift.Codegen.Reader do
   # Returns {is_get?, get_by_params, location} where:
   #   - get_by_params: list of %{name, swift_type} for the lookup fields
   #   - location: :input (native get_by on the action) | :get_by (RPC-level
-  #     get_by) | :identity (pure get? by primary key — top-level identity param)
+  #     get_by) | :none (pure get? — no lookup params; the action narrows
+  #     itself through its own arguments)
   defp build_get_info(maction, rpc_action, resource, formatter, mres) do
     # The native get_by fields come from the Ash action itself. The manifest
     # surfaces them as ordinary inputs (`get_by :id` → an `id` input) mixed in with
     # any real arguments the read declares (issue #87), and carries no `get_by`
     # field of its own — so the inputs can't tell a lookup field from an argument.
-    # A pure `get?` action has no get_by and falls through to the primary key.
+    # A pure `get?` action has no get_by and takes no lookup params.
     native_get_by = native_get_by_fields(mres.module, maction)
     rpc_get_by = Map.get(rpc_action, :get_by) || []
     rpc_get? = Map.get(rpc_action, :get?, false)
@@ -1227,13 +1228,12 @@ defmodule AshSwift.Codegen.Reader do
         {true, build_get_by_params(rpc_get_by, resource, formatter), :get_by}
 
       rpc_get? || maction.get? ->
-        # Pure get? (no explicit field list): look up by primary key. The
-        # ash_typescript RPC pipeline routes a get? pk lookup through the
-        # top-level `identity` param (Map.pop(other_params, "identity") →
-        # Ash.get(resource, identity)), NOT `input` — sending the pk under
-        # `input` fails at runtime with NoSuchInput. Mirror update/destroy and
-        # carry the pk as `identity`. See issue #66.
-        {true, build_get_by_params(mres.primary_key, resource, formatter), :identity}
+        # Pure get? (no get_by anywhere): the RPC pipeline never reads a
+        # top-level `identity` for a read (only update/destroy consume it), so
+        # sending a pk would be silently dropped. The action narrows itself
+        # through its own arguments (declared as `input:`), so there is no
+        # lookup parameter. See issue #91.
+        {true, [], :none}
 
       true ->
         {false, [], nil}
