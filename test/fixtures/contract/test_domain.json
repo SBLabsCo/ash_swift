@@ -58,6 +58,25 @@
       "sortable": false
     },
     {
+      "action": "check_due_date",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "dueDate",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "check_todo_due_date",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Bool",
+      "sortable": false
+    },
+    {
       "action": "create",
       "action_type": "create",
       "domain": "AshSwift.Test.Domain",
@@ -553,6 +572,30 @@
       "sortable": false
     },
     {
+      "action": "set_due_date",
+      "action_type": "update",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "dueDate",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "set_todo_due_date",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
       "action": "stats",
       "action_type": "action",
       "domain": "AshSwift.Test.Domain",
@@ -868,6 +911,17 @@
     {
       "fields": [
         {
+          "name": "dueDate",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "CheckTodoDueDateInput"
+    },
+    {
+      "fields": [
+        {
           "name": "amount",
           "optional": true,
           "type": "String"
@@ -1082,6 +1136,17 @@
       ],
       "kind": "input",
       "name": "RetitleTodoInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "dueDate",
+          "optional": false,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "SetTodoDueDateInput"
     },
     {
       "fields": [

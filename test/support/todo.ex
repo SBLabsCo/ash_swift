@@ -57,6 +57,11 @@ defmodule AshSwift.Test.Todo do
     # manifest is built without include_private_*, so these must NOT appear in the
     # generated Swift. The golden snapshot (unchanged by their presence) proves it.
     attribute :internal_note, :string, public?: false
+    # Issue #84: a private attribute written only through an argument-only update
+    # (`set_due_date`) and a generic action (`check_due_date`), each taking a
+    # same-named `due_date` argument. The argument must reach the generated input
+    # struct regardless of the attribute being private.
+    attribute :due_date, :date, public?: false
     timestamps()
   end
 
@@ -136,6 +141,20 @@ defmodule AshSwift.Test.Todo do
       accept []
       argument :new_title, :string, allow_nil?: false
       change set_attribute(:title, arg(:new_title))
+    end
+
+    # Issue #84: argument-only update whose argument shares a name with a PRIVATE
+    # attribute — the SwingClips `set_date_of_birth` shape.
+    update :set_due_date do
+      accept []
+      argument :due_date, :date, allow_nil?: false
+      change set_attribute(:due_date, arg(:due_date))
+    end
+
+    # Issue #84: the generic-action counterpart of `set_due_date`.
+    action :check_due_date, :boolean do
+      argument :due_date, :date, allow_nil?: false
+      run fn _input, _ctx -> {:ok, true} end
     end
 
     # Generic actions (issue #54): command-style `:action`-type actions whose

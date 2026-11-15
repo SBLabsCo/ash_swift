@@ -27,6 +27,9 @@ defmodule AshSwift.Test.Domain do
       # Create/update actions with arguments (issue #83).
       rpc_action(:create_todo_with_args, :create_with_args)
       rpc_action(:retitle_todo, :retitle)
+      # Arguments named like a private attribute (issue #84).
+      rpc_action(:set_todo_due_date, :set_due_date)
+      rpc_action(:check_todo_due_date, :check_due_date)
       # Generic actions (issue #54).
       rpc_action(:request_magic_link, :request_magic_link)
       rpc_action(:echo, :echo)
