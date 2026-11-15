@@ -654,7 +654,7 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
-  test "read-action arguments: the generated functions' request bodies narrow the result set (issue #87)" do
+  test "read/destroy action arguments: the generated functions' request bodies carry them (issues #87, #102)" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)
     sources = Path.join([tmp, "Sources", "GeneratedClient"])
@@ -688,6 +688,15 @@ defmodule AshSwift.E2ETest do
         %{title: "#{token}-open", completed: false, user_id: owner.id},
         domain: AshSwift.Test.Domain
       )
+
+    # Destroy-action arguments (#102): one todo per destroy call below.
+    mk = fn suffix ->
+      Ash.create!(AshSwift.Test.Todo, %{title: "#{token}-#{suffix}"},
+        domain: AshSwift.Test.Domain
+      )
+    end
+
+    [archived, vetoed, discarded, plain] = Enum.map(~w(a v d p), mk)
 
     # Step 1 (Swift): call each generated read function through a stub transport
     # that captures the outgoing body and writes it to disk. The canned responses
@@ -753,6 +762,17 @@ defmodule AshSwift.E2ETest do
                 title: "#{token}-done", input: FindTodoScopedInput(userId: ownerId), fields: ["id"])
             let _ = try await rpc("find_open_done_only", record).findTodoScoped(
                 title: "#{token}-open", input: FindTodoScopedInput(completedOnly: true), fields: ["id"])
+        }
+
+        func testCaptureDestroyBodies() async throws {
+            let ok = #"{"success":true,"data":{}}"#
+            try await rpc("archive", ok).archiveTodo(
+                id: "#{archived.id}", input: ArchiveTodoInput(reason: "done"))
+            try await rpc("veto", ok).archiveTodo(
+                id: "#{vetoed.id}", input: ArchiveTodoInput(reason: "veto"))
+            try await rpc("discard", ok).discardTodo(
+                id: "#{discarded.id}", input: DiscardTodoInput(default: "x", hard: true))
+            try await rpc("discard_bare", ok).discardTodo(id: "#{plain.id}")
         }
     }
     """
@@ -825,81 +845,8 @@ defmodule AshSwift.E2ETest do
 
     {_body, result} = run.("find_open_done_only")
     assert result["success"] == false
-  end
 
-  test "destroy-action arguments: the generated functions send them under `input` beside `identity` (issue #102)" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    bodies_dir = Path.join(tmp, "captured_bodies")
-    File.mkdir_p!(tests_dir)
-    File.mkdir_p!(bodies_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
-
-    token = "e102#{System.unique_integer([:positive])}"
-
-    mk = fn suffix ->
-      Ash.create!(AshSwift.Test.Todo, %{title: "#{token}-#{suffix}"},
-        domain: AshSwift.Test.Domain
-      )
-    end
-
-    [archived, vetoed, discarded, plain] = Enum.map(~w(a v d p), mk)
-
-    e2e_swift = """
-    import XCTest
-    import Foundation
-    import AshSwiftRuntime
-    import GeneratedClient
-
-    final class E2EDestroyArgumentsTest: XCTestCase {
-        private struct CapturingTransport: Transport {
-            let name: String
-
-            func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-                let path = "#{bodies_dir}/\\(name).json"
-                try request.httpBody!.write(to: URL(fileURLWithPath: path))
-                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-                return (Data(#"{"success":true,"data":{}}"#.utf8), http)
-            }
-        }
-
-        private func rpc(_ name: String) -> AshRpc {
-            let config = AshRpcConfig(baseURL: URL(string: "https://example.com")!)
-            return AshRpc(client: AshRpcClient(config: config, transport: CapturingTransport(name: name)))
-        }
-
-        func testCaptureDestroyBodies() async throws {
-            try await rpc("archive").archiveTodo(
-                id: "#{archived.id}", input: ArchiveTodoInput(reason: "done"))
-            try await rpc("veto").archiveTodo(
-                id: "#{vetoed.id}", input: ArchiveTodoInput(reason: "veto"))
-            try await rpc("discard").discardTodo(
-                id: "#{discarded.id}", input: DiscardTodoInput(default: "x", hard: true))
-            try await rpc("discard_bare").discardTodo(id: "#{plain.id}")
-        }
-    }
-    """
-
-    File.write!(Path.join(tests_dir, "E2EDestroyArgumentsTest.swift"), e2e_swift)
-
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EDestroyArgumentsTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
-
-    conn = %Plug.Conn{private: %{}, assigns: %{}}
-
-    run = fn name ->
-      body = bodies_dir |> Path.join("#{name}.json") |> File.read!() |> Jason.decode!()
-      {body, AshTypescript.Rpc.run_action(:ash_swift, conn, body)}
-    end
-
+    # Destroy arguments (#102): they ride under `input`, the record under `identity`.
     exists? = fn todo ->
       match?({:ok, _}, Ash.get(AshSwift.Test.Todo, todo.id, domain: AshSwift.Test.Domain))
     end

@@ -36,7 +36,8 @@ defmodule AshSwift.Codegen.Reader do
   Every `action` is a map with these keys. CRUD (`:read | :create | :update |
   :destroy`) and generic (`:action`) actions share the uniform keys.
   `input_required?` is present on CRUD actions only (always `false` outside a
-  read or destroy with a required argument) and `generic_return` on generic actions only;
+  read or destroy with a required argument) and `generic_return` on
+  generic actions only;
   every other key is present on every kind. A `[read only]` tag below means the
   value is *meaningful* only on reads, not that the key is absent elsewhere.
 
@@ -51,7 +52,8 @@ defmodule AshSwift.Codegen.Reader do
                                                # on CRUD non-gets it carries the configured default; on generic actions it is always false.
                                                # ignored in both cases
         input_struct_name: String.t() | nil,   # the `{Name}Input` struct. create/update: always set; read: set only when it has
-                                               # non-lookup arguments; destroy: set only when it declares arguments (#102);
+                                               # non-lookup arguments; destroy: set only when it declares arguments or (soft
+                                               # destroy) accepts attributes (#102);
                                                # generic: set only when it has inputs
         input_required?: boolean,              # [CRUD only; absent on generic] meaningful only for reads and destroys: whether
                                                # `input:` must be supplied (some argument is required); false otherwise
@@ -453,9 +455,6 @@ defmodule AshSwift.Codegen.Reader do
     # filter is a compile error, not a silently-ignored argument.
     filterable? = maction.type == :read and not is_get? and filter_enabled?(rpc_action)
 
-    input_struct_name =
-      if maction.type in [:create, :update], do: pascal_case(rpc_action.name) <> "Input"
-
     # A create addresses no existing record, so it has no identity params. A
     # primary key the caller supplies arrives through the accepted input fields
     # like any other attribute.
@@ -464,43 +463,44 @@ defmodule AshSwift.Codegen.Reader do
         do: build_get_by_params(mres.primary_key, resource, formatter),
         else: []
 
-    # A read's declared arguments (issue #87) become an input struct, minus any
-    # native get_by fields — those are already the get's lookup params, sent in
-    # the same `input` dict. A read with no (other) arguments gets no struct, so
-    # its generated signature is unchanged.
-    #
-    # A destroy's declared arguments (issue #102) take the same path: the RPC
-    # pipeline hands `input` to `Ash.bulk_destroy`, so they travel under `input`
-    # beside the `identity` that names the record. A destroy with no arguments
-    # keeps its identity-only signature.
-    {read_inputs, read_nested_structs} =
+    # The one source of an action's input struct. A read's declared arguments
+    # (issue #87) exclude any native get_by fields — those are already the
+    # get's lookup params, sent in the same `input` dict. A destroy's inputs
+    # (issue #102) travel under `input` beside the `identity` naming the
+    # record; they are its arguments, plus accepted attributes for a soft
+    # destroy. Create and update always get a struct. Anything else has none.
+    action_inputs =
       case maction.type do
         :read ->
           lookup_fields = native_get_by_fields(resource, maction)
-          arg_inputs = Enum.reject(maction.inputs, &(&1.name in lookup_fields))
+          Enum.reject(maction.inputs, &(&1.name in lookup_fields))
 
-          collect_action_inputs(
-            %{maction | inputs: arg_inputs},
-            rpc_action,
-            mres,
-            type_name,
-            formatter,
-            types
-          )
-
-        :destroy ->
-          collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types)
+        type when type in [:create, :update, :destroy] ->
+          maction.inputs
 
         _ ->
-          {[], []}
+          []
       end
 
-    {input_struct_name, input_required?} =
-      if read_inputs == [] do
-        {input_struct_name, false}
+    {arg_inputs, arg_nested_structs} =
+      if action_inputs == [] and maction.type not in [:create, :update] do
+        {[], []}
       else
-        {pascal_case(rpc_action.name) <> "Input", Enum.any?(read_inputs, & &1.required?)}
+        collect_action_inputs(
+          %{maction | inputs: action_inputs},
+          rpc_action,
+          mres,
+          type_name,
+          formatter,
+          types
+        )
       end
+
+    has_input_struct? = maction.type in [:create, :update] or arg_inputs != []
+    input_struct_name = if has_input_struct?, do: pascal_case(rpc_action.name) <> "Input"
+
+    input_required? =
+      maction.type in [:read, :destroy] and Enum.any?(arg_inputs, & &1.required?)
 
     action = %{
       rpc_name: rpc_action.name,
@@ -522,18 +522,10 @@ defmodule AshSwift.Codegen.Reader do
     }
 
     new_struct =
-      cond do
-        read_inputs != [] ->
-          [%{struct_name: input_struct_name, fields: read_inputs} | read_nested_structs]
-
-        input_struct_name ->
-          {inputs, nested_structs} =
-            collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types)
-
-          [%{struct_name: input_struct_name, fields: inputs} | nested_structs]
-
-        true ->
-          []
+      if has_input_struct? do
+        [%{struct_name: input_struct_name, fields: arg_inputs} | arg_nested_structs]
+      else
+        []
       end
 
     {[action | actions_acc], new_struct ++ structs_acc}
