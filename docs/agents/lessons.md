@@ -63,7 +63,8 @@ returns `internal_error` once the table has two rows. The action narrows itself
 through its own arguments, which the client sends as `input:`. So
 `build_get_info/5` returns the action's `get` value: `{:input, params}`,
 `{:get_by, params}`, or `:pure` (a pure `get?`, with no lookup channel), or
-`nil` when the action is not a get. The first attempt (#66) emitted `identity` and its e2e test passed only
+`nil` when the action is not a get.
+The first attempt (#66) emitted `identity` and its e2e test passed only
 because the table happened to hold one row — assert row-specific results with
 >= 2 rows. See issues #66 and #91.
 

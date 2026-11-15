@@ -194,7 +194,7 @@ defmodule AshSwift.Codegen.Contract do
   end
 
   defp get_lookup_params({_location, params}), do: params
-  defp get_lookup_params(_pure_or_not_get), do: []
+  defp get_lookup_params(get) when get in [nil, :pure], do: []
 
   # An action's input arguments, from whichever of its three possible sources
   # apply: lookup fields (get_by), the primary-key identity params
