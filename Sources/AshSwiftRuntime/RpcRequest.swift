@@ -60,6 +60,10 @@ public struct ActionFieldsBody: Encodable, Sendable {
 /// Body for paginated list actions. `input`, `page`, `sort`, and `filter` are
 /// each omitted from the JSON when nil (the backend then uses the read's
 /// argument defaults / its default page / order / unfiltered result).
+///
+/// Shared by `OffsetPageRequest` and `KeysetPageRequest`, which differ only in
+/// the page-params type and `Output`, so a change to how a paged read is sent is
+/// made here, once.
 public struct PagedBody<P: Encodable & Sendable>: Encodable, Sendable {
     let action: String
     let fields: [FieldSelection]
@@ -227,12 +231,7 @@ public struct ListRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 /// `OffsetPage<T>`. Pass `page` to control which page the backend returns.
 public struct OffsetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = OffsetPage<T>
-    let action: String
-    let input: AnyEncodable?
-    let page: OffsetPageParams?
-    let filter: AnyEncodable?
-    let sort: String?
-    let fields: [FieldSelection]
+    let body: PagedBody<OffsetPageParams>
 
     public init(
         action: String,
@@ -242,29 +241,18 @@ public struct OffsetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         sort: String? = nil,
         fields: [FieldSelection] = []
     ) {
-        self.action = action
-        self.input = input
-        self.page = page
-        self.filter = filter
-        self.sort = sort
-        self.fields = fields
+        self.body = PagedBody(
+            action: action, fields: fields, input: input, page: page, sort: sort, filter: filter)
     }
 
-    public func makeBody() -> PagedBody<OffsetPageParams> {
-        PagedBody(action: action, fields: fields, input: input, page: page, sort: sort, filter: filter)
-    }
+    public func makeBody() -> PagedBody<OffsetPageParams> { body }
 }
 
 /// A keyset-paginated read action: decodes the `data` object into
 /// `KeysetPage<T>`. Pass `page` to control which page the backend returns.
 public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = KeysetPage<T>
-    let action: String
-    let input: AnyEncodable?
-    let page: KeysetPageParams?
-    let filter: AnyEncodable?
-    let sort: String?
-    let fields: [FieldSelection]
+    let body: PagedBody<KeysetPageParams>
 
     public init(
         action: String,
@@ -274,17 +262,11 @@ public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         sort: String? = nil,
         fields: [FieldSelection] = []
     ) {
-        self.action = action
-        self.input = input
-        self.page = page
-        self.filter = filter
-        self.sort = sort
-        self.fields = fields
+        self.body = PagedBody(
+            action: action, fields: fields, input: input, page: page, sort: sort, filter: filter)
     }
 
-    public func makeBody() -> PagedBody<KeysetPageParams> {
-        PagedBody(action: action, fields: fields, input: input, page: page, sort: sort, filter: filter)
-    }
+    public func makeBody() -> PagedBody<KeysetPageParams> { body }
 }
 
 /// The get read as sent (action, arguments, fields, native get_by) shared by `GetRequest` and
