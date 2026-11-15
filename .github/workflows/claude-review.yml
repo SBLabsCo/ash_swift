@@ -26,6 +26,7 @@ jobs:
           fetch-depth: 0
 
       - uses: anthropics/claude-code-action@v1
+        id: review
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # PRs opened by the implement workflow are authored by the claude bot;
@@ -47,13 +48,54 @@ jobs:
 
             Post findings as precise, actionable inline review comments. Do not
             approve, merge, or push commits.
+
+            Structured verdict (read by bin/pr-wait; contract in
+            docs/agents/ship-ticket.md). Open each inline comment with its
+            severity word (must-fix, should-fix or nit) so the counts are
+            auditable. Return the verdict as your structured output, and make
+            that StructuredOutput call your very LAST action, only after your
+            final mcp__github_comment__update_claude_comment — calling it ends
+            the run, so nothing after it happens. must_fix, should_fix and nit
+            are integer counts of the findings you posted at each severity (0
+            when none). A review with no findings returns zeros. Do NOT write
+            any verdict or footer into your comment text: the workflow's next
+            step posts it (your tracking comment passes through a sanitizer
+            that strips HTML comments).
           # Pin the model (the action's default resolves to an invalid
           # `claude-opus-4-8[1m]` id). See claude.yml for rationale.
           # Allow the tools a reviewer needs: the inline-comment MCP tool, gh for
           # the diff/PR + top-level comments, and file reads for the repo docs the
           # prompt references. Without these the reviewer is denied every tool and
           # burns its turns (error_max_turns).
+          # --json-schema makes the verdict counts structured output, which the
+          # next step turns into the footer bin/pr-wait reads.
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 30
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+            --max-turns 40
+            --json-schema '{"type":"object","properties":{"must_fix":{"type":"integer"},"should_fix":{"type":"integer"},"nit":{"type":"integer"}},"required":["must_fix","should_fix","nit"],"additionalProperties":false}'
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,mcp__github_comment__update_claude_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+
+      # Post the verdict footer from the workflow, not the model (ported from
+      # SBLabsCo/SwingClips#548): the action's comment tools run every body
+      # through a sanitizer that strips HTML comments, so a footer written by the
+      # model never survives. Only on a successful run that returned structured
+      # output; a skipped run, turn exhaustion or timeout posts nothing, which
+      # bin/pr-wait reads as not_run. Values are passed via env, never
+      # interpolated into the script.
+      - name: Post review verdict footer
+        if: steps.review.outcome == 'success' && steps.review.outputs.structured_output != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERDICT: ${{ steps.review.outputs.structured_output }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          footer=$(jq -cn --arg sha "$HEAD_SHA" --argjson v "$VERDICT" '
+            def count: if type == "number" and . >= 0 and . == floor then . else error("verdict count missing, negative or not an integer") end;
+            ($v.must_fix | count) as $m | ($v.should_fix | count) as $s | ($v.nit | count) as $n
+            | {v: 1, sha: $sha, must_fix: $m, should_fix: $s, nit: $n,
+               clean: ($m == 0 and $s == 0 and $n == 0)}')
+          body="<!-- ash-swift-review-verdict: ${footer} -->"
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" -f body="$body"

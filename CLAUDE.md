@@ -20,6 +20,10 @@ Single-context: one CONTEXT.md + docs/adr/ at the repo root. See `docs/agents/do
 
 GitHub Actions run CI (Elixir + Swift) and Claude-driven review, triage, and issue implementation. See `docs/agents/ai-automation.md`.
 
+### Local delivery loop (ship-ticket)
+
+The saved `ship-ticket` workflow (`.claude/workflows/ship-ticket.js`; run by name with `{issues: [...]}`) drives `ready-for-agent` issues to merge-ready PRs locally: implementer → pre-PR review lenses (`.claude/agents/`) → `bin/pr-open` → `bin/pr-wait` loop. It never merges. See `docs/agents/ship-ticket.md`.
+
 ### Lessons from earlier runs
 
 Non-obvious patterns earlier implement / address-review runs got wrong are captured in `docs/agents/lessons.md`. Implement and `/address-review` prompts read it as context. Append to it only when you've hit a non-obvious, recurring pattern that isn't already there.

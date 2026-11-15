@@ -14,6 +14,9 @@ and implementation. Workflows live in `.github/workflows/`.
 | Claude implement issue | `claude-implement.yml` | manual dispatch w/ issue number | implements the issue on a branch, runs the suite green, opens a PR | yes |
 | Claude address review | `claude-address-review.yml` | `/address-review` comment on a PR | addresses the review feedback on the PR's own branch, runs the suite green, pushes | yes |
 
+The **Claude PR review** run also posts a hidden verdict footer comment that the local
+`ship-ticket` workflow reads to decide when a PR is clean — see [ship-ticket.md](ship-ticket.md).
+
 CI is independent and active immediately. The Claude workflows are **gated off**
 until you complete setup, so they show up as skipped (not failed) and incur no
 cost until you opt in.

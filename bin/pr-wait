@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+#
+# bin/pr-wait — where does this PR stand? (ported from SBLabsCo/SwingClips#541). One
+# command that replaces an agent's sleep/poll loop: it blocks until every check on the
+# PR's CURRENT head SHA has finished, then prints one JSON object.
+#
+#     bin/pr-wait <pr> [--timeout <seconds>]
+#
+# Run it in the repository checkout the PR belongs to: that checkout names the repository
+# (`gh repo view`), and its .github/workflows say which workflows a diff should trigger.
+#
+# Everything is keyed to the head SHA. `gh pr view` returns the head and the check
+# rollup in one call, so they cannot disagree; the review verdict is the latest
+# `<!-- ash-swift-review-verdict: {...} -->` footer (docs/agents/ship-ticket.md) by github-actions[bot] whose `sha` equals that head — a footer
+# for an older commit never counts. The footer is parsed in one place only
+# (`pr_wait_footer`, bin/pr-wait-lib.sh); read it as `bin/pr-wait <pr> | jq .review_verdict`.
+#
+# What "finished" means. Late-starting workflows are real (a path-filtered workflow can
+# register after the other checks have completed), so "everything listed is done" is not enough.
+# The EXPECTED set is derived from the diff: the PR's changed files matched against every
+# workflow's `pull_request` `paths:` filter (a workflow with no filter is always
+# expected). The filter is read from the checkout you run in — the PR head when run from
+# the PR's own worktree, which is what GitHub evaluates. The result is not `done` until
+# each expected workflow has a check on the head, OR the settle window has passed:
+# PR_WAIT_SETTLE seconds (default 90) after the newest check COMPLETED (a long run does
+# not count down while it is open), or after this command started if the PR has no checks
+# at all. A workflow still missing after that is listed in `missing_workflows` and is a
+# reason merge_ready is false, never a reason to wait forever. A DIRTY merge state
+# suppresses all Actions runs, so it is reported at once as `needs_rebase`. GitHub
+# computes the merge state lazily (UNKNOWN on first look), so an UNKNOWN is re-read a few
+# times, 2s apart, before it is treated as pending.
+#
+# Output (stdout, always JSON):
+#   {pr, head, state, merge_state, merge_ready, reasons[], waiting_on[],
+#    checks:[{workflow,name,status,conclusion}], expected_workflows[], missing_workflows[],
+#    review, review_verdict, unresolved_threads}
+#   state   done | pending | needs_rebase | merged | closed
+#   review  clean | findings | pending | not_run     (not_run: the review check finished
+#           for this head but left no footer for it — a workflow-edit PR the Action skips,
+#           a timeout, an exhausted turn budget. Never clean.)
+#   merge_ready  true only when state is done, every check succeeded, no expected
+#           workflow is missing, review is clean, unresolved_threads is 0 (the count is
+#           `bin/pr-threads <pr> | jq length` — the one definition of an unresolved
+#           thread), and the merge state is none of BEHIND, DRAFT or BLOCKED. BLOCKED is
+#           treated conservatively as "not ready": main has no branch protection today,
+#           so it should never appear; if protection that needs a human approval is ever
+#           added, revisit this. `reasons` says why not.
+#   unresolved_threads is null until everything else is final (it is fetched last).
+#
+# Exit codes (bin/cli-lib.sh): 0 an answer (done, merged or closed — read merge_ready),
+# 1 needs_rebase, 2 usage, 3 a tool failed (gh, jq, pr-threads), 4 pending — the
+# --timeout elapsed first (default 1200; 0 = look once), so a caller can just loop.
+# Tunables for tests and tuning: PR_WAIT_INTERVAL (poll seconds, default 15),
+# PR_WAIT_SETTLE (default 90), PR_WAIT_UNKNOWN_SLEEP (default 2), PR_WAIT_THREADS_BIN
+# (default bin/pr-threads), PR_WAIT_WORKFLOWS_DIR (default this checkout's .github/workflows).
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=./cli-lib.sh
+. "$REPO_ROOT/bin/cli-lib.sh"
+# shellcheck source=./pr-wait-lib.sh
+. "$REPO_ROOT/bin/pr-wait-lib.sh"
+cli_init pr-wait
+
+usage() {
+  sed -n '3,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//;s/^#$//'
+}
+
+die_usage() {
+  cli_usage_error "$1" "usage: bin/pr-wait <pr> [--timeout <seconds>]"
+}
+
+[[ $# -gt 0 ]] || die_usage "missing <pr>"
+case "$1" in -h | --help) usage; exit 0 ;; esac
+pr="$1"; shift
+cli_valid_number "$pr" || die_usage "'$pr' is not a pull request number"
+
+timeout=1200
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --timeout)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || die_usage "--timeout needs a number of seconds"
+      timeout="$2"; shift 2 ;;
+    -h | --help) usage; exit 0 ;;
+    *) die_usage "unknown argument '$1'" ;;
+  esac
+done
+
+interval="${PR_WAIT_INTERVAL:-15}"
+settle="${PR_WAIT_SETTLE:-90}"
+unknown_sleep="${PR_WAIT_UNKNOWN_SLEEP:-2}"
+threads_bin="${PR_WAIT_THREADS_BIN:-$REPO_ROOT/bin/pr-threads}"
+
+CLI_CONTEXT="$(jq -cn --argjson pr "$pr" '{pr:$pr}')"
+CLI_TAG="#$pr"
+cli_require_tools gh jq
+cli_repo "" "$REPO_ROOT"
+
+triggers="$(pr_wait_workflow_triggers "${PR_WAIT_WORKFLOWS_DIR:-$REPO_ROOT/.github/workflows}")"
+
+# gather — one snapshot of the PR as the JSON pr_wait_evaluate wants, in $snapshot.
+# The unresolved-thread count is passed in ($1: a number, or null).
+gather() {
+  local threads="$1" view files bodies head footer expected settled=false rollup
+  cli_gh_json_or_fail view --shape 'type == "object" and (.headRefOid | type == "string")' \
+    pr view "$pr" --repo "$CLI_REPO" --json state,headRefOid,mergeStateStatus,statusCheckRollup
+  head="$(jq -r .headRefOid <<<"$view")"
+  rollup="$(jq -c '.statusCheckRollup // []' <<<"$view")"
+  cli_gh_or_fail files api "repos/$CLI_REPO/pulls/$pr/files" --paginate --jq '.[].filename'
+  cli_gh_or_fail bodies api "repos/$CLI_REPO/issues/$pr/comments" --paginate \
+    --jq '.[] | select(.user.login == "github-actions[bot]") | .body'
+  footer="$(pr_wait_footer "$bodies" "$head")"
+  expected="$(pr_wait_expected_workflows "$triggers" "$files" | jq -R . | jq -sc .)"
+  if pr_wait_settled "$rollup" "$settle" "$SECONDS"; then settled=true; fi
+  snapshot="$(jq -cn --argjson pr "$pr" --argjson v "$view" --argjson exp "$expected" \
+      --argjson threads "$threads" --argjson settled "$settled" \
+      --argjson footer "${footer:-null}" '
+      { pr: $pr, pr_state: $v.state, head: $v.headRefOid, merge_state: $v.mergeStateStatus,
+        rollup: $v.statusCheckRollup, expected: $exp, footer: $footer,
+        threads: $threads, settled: $settled }')" \
+    || cli_fail "$CLI_TOOL" bad_response "could not assemble the PR snapshot"
+}
+
+evaluate() {
+  result="$(pr_wait_evaluate <<<"$snapshot")" \
+    || cli_fail "$CLI_TOOL" bad_response "could not evaluate the PR snapshot"
+}
+
+while :; do
+  gather null
+  # An open PR's merge state is computed lazily: re-read UNKNOWN a few times first.
+  for _ in 1 2 3; do
+    [[ "$(jq -r '.pr_state + "/" + .merge_state' <<<"$snapshot")" == "OPEN/UNKNOWN" ]] || break
+    sleep "$unknown_sleep"
+    gather null
+  done
+  evaluate
+  state="$(jq -r .state <<<"$result")"
+  if [[ "$state" == "done" ]]; then
+    # Final on everything but the threads: count them now, once, and re-evaluate.
+    count=""
+    if threads_json="$("$threads_bin" "$pr" 2>/dev/null)"; then
+      count="$(jq 'if type == "array" then length else empty end' <<<"$threads_json" 2>/dev/null)"
+    fi
+    [[ -n "$count" ]] || cli_fail "$CLI_TOOL" gh_failed "bin/pr-threads $pr failed"
+    snapshot="$(jq -c --argjson t "$count" '.threads = $t' <<<"$snapshot")"
+    evaluate
+  fi
+  case "$state" in
+    done | merged | closed) printf '%s\n' "$result"; exit "$CLI_OK" ;;
+    needs_rebase) printf '%s\n' "$result"; exit "$CLI_NO" ;;
+  esac
+  if [[ "$SECONDS" -ge "$timeout" ]]; then
+    printf '%s\n' "$result"
+    cli_say "still pending after ${timeout}s: $(jq -r '.waiting_on | join(", ")' <<<"$result")"
+    exit "$CLI_PENDING"
+  fi
+  sleep "$interval"
+done

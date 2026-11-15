@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+#
+# bin/ticket-preflight — the deterministic start of a ticket
+# (ported from SBLabsCo/SwingClips#538). Given an issue number it either refuses or gets the ticket a branch:
+#
+#     bin/ticket-preflight <issue>                  # create the ticket's worktree (humans)
+#     bin/ticket-preflight <issue> --check-only     # readiness checks only, touch nothing
+#     bin/ticket-preflight <issue> --in-place --expect-worktree <path>
+#                                                   # branch + deps in THIS linked worktree
+#     bin/ticket-preflight <issue> --repo SBLabsCo/ash_swift --remote origin
+#                                                   # --repo defaults to the cwd's `gh repo view`
+#
+# Refuses (exit 1, `{"ok":false,"reason":...}` on stdout) when the issue:
+#   not_ready  does not carry the `ready-for-agent` label
+#   closed     is already closed
+#   open_pr    already has an open PR closing it
+#   blocked    is blocked by an issue that is still open (GitHub native issue
+#              dependencies — `blocked_by` counts open blockers only)
+# Exit codes are the shared bin/ table (bin/cli-lib.sh): 0 ok, 1 refused, 2 usage (nothing
+# on stdout), 3 a tool failed (gh unauthenticated, git fetch/worktree add/checkout failed,
+# mix deps.get failed): readiness is unknown, not refused. Failures print
+# `{"ok":false,"issue":n,"reason":"gh_failed|git_failed|deps_failed|...","message":...}`.
+#
+# **Default mode** creates a linked worktree at `<main checkout>/.claude/worktrees/ticket-<n>`
+# on a fresh branch `ticket-<n>-<slug>` cut from `<remote>/main`, runs `mix deps.get` at
+# its root (when it has no `deps/` yet), and prints
+#
+#     {"ok":true,"issue":538,"mode":"worktree","worktree":"/abs/path","branch":"ticket-538-...","existing":false}
+#
+# **Idempotent:** if that worktree already exists, nothing is created or fetched and the
+# same JSON is printed with `"existing":true` — checked first, so a continuation after
+# the PR opened is not refused by its own PR. **Never touches the main checkout's
+# branch:** the worktree is added with `git -C <main> worktree add -b ... <remote>/main`;
+# HEAD, index and working tree of the main checkout are not changed (a human's working
+# checkout lives there).
+#
+# **`--check-only`** runs the four readiness checks and nothing else — no git, no
+# worktree, no deps — and prints
+#
+#     {"ok":true,"issue":538,"mode":"check-only","branch":"ticket-538-..."}
+#
+# where `branch` is the name an in-place or worktree run would use. The ship-ticket
+# workflow runs it before launching an implementer, so an unready ticket spends no agent.
+#
+# **`--in-place`** is for a worktree-isolated agent, which may only run git in its OWN
+# harness worktree and so cannot have this script create another one. Run from inside
+# that linked worktree, it creates `ticket-<n>-<slug>` from `<remote>/main` *there*
+# (`git checkout --no-track -b`), runs `mix deps.get` at its root (when `deps/` is
+# missing), and prints the
+# same JSON with `"mode":"in-place"` and that worktree's path. It refuses (exit 1) when it
+# is not in a linked worktree (`not_linked_worktree`: never the main checkout, nor
+# outside any checkout), when `--expect-worktree <path>` — REQUIRED with `--in-place`,
+# the worktree the caller believes it is in — names a different one (`wrong_worktree`),
+# when the worktree is on another ticket's `ticket-<m>-...` branch
+# (`foreign_ticket_branch`), has uncommitted changes (`dirty_worktree`), or when HEAD
+# carries commits not on `<remote>/main` (`unpushed_commits`). Idempotent: a
+# worktree already on `ticket-<n>[-...]` is reported `"existing":true` (deps finished if
+# missing) without any readiness check.
+#
+# After argument parsing, stdout is exactly one JSON object; every human message goes
+# to stderr — one line per step, with noisy subprocesses (git fetch, mix deps.get)
+# captured and their tail shown only on failure. Requires `gh` (authenticated) and
+# `jq`; the other modes also `git` and `mix`.
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=./cli-lib.sh
+. "$REPO_ROOT/bin/cli-lib.sh"
+# shellcheck source=./worktree-lib.sh
+. "$REPO_ROOT/bin/worktree-lib.sh"
+# shellcheck source=./ticket-preflight-lib.sh
+. "$REPO_ROOT/bin/ticket-preflight-lib.sh"
+# shellcheck source=./ticket-lib.sh
+. "$REPO_ROOT/bin/ticket-lib.sh"
+cli_init ticket-preflight
+
+usage() { sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
+
+ISSUE="" REPO="" REMOTE="origin" MODE="worktree" EXPECT=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo) [[ $# -ge 2 ]] || cli_usage_error "--repo needs a value"; REPO="$2"; shift 2 ;;
+    --remote) [[ $# -ge 2 ]] || cli_usage_error "--remote needs a value"; REMOTE="$2"; shift 2 ;;
+    --expect-worktree) [[ $# -ge 2 ]] || cli_usage_error "--expect-worktree needs a path"; EXPECT="$2"; shift 2 ;;
+    --check-only)
+      [[ "$MODE" != in-place ]] || cli_usage_error "--check-only and --in-place are exclusive"
+      MODE="check-only"; shift ;;
+    --in-place)
+      [[ "$MODE" != check-only ]] || cli_usage_error "--check-only and --in-place are exclusive"
+      MODE="in-place"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    -*) cli_usage_error "unknown option '$1'" ;;
+    *)
+      [[ -z "$ISSUE" ]] || cli_usage_error "only one issue number may be given"
+      ISSUE="$1"; shift
+      ;;
+  esac
+done
+cli_valid_number "$ISSUE" || cli_usage_error "need an issue number, got '$ISSUE'"
+[[ -z "$EXPECT" || "$MODE" == in-place ]] || cli_usage_error "--expect-worktree only makes sense with --in-place"
+[[ "$MODE" != in-place || -n "$EXPECT" ]] || cli_usage_error "--in-place needs --expect-worktree <path> (the worktree you believe you are in)"
+
+CLI_TAG="#$ISSUE"
+CLI_CONTEXT="$(jq -cn --argjson i "$ISSUE" '{issue: $i}' 2>/dev/null || echo '{}')"
+cli_require_tools gh jq
+[[ "$MODE" == check-only ]] || cli_require_tools git mix
+
+# reply_ok <worktree|""> <branch> <existing: true|false> — the success object, exit 0.
+reply_ok() {
+  jq -cn --argjson i "$ISSUE" --arg mode "$MODE" --arg w "$1" --arg b "$2" --argjson e "$3" \
+    '{ok:true, issue:$i, mode:$mode} + (if $w == "" then {} else {worktree:$w, existing:$e} end) + {branch:$b}'
+  exit 0
+}
+
+# ensure_deps <worktree>: `mix deps.get` at its root, output captured — only when it has
+# no deps/ yet (a fresh worktree never does; a re-run after a finished one skips it).
+ensure_deps() {
+  [[ ! -d "$1/deps" ]] || return 0
+  (cd "$1" && cli_quiet "mix deps.get" mix deps.get) \
+    || cli_fail "$CLI_TOOL" deps_failed "mix deps.get failed in $1${DEPS_NOTE:-}"
+}
+
+# check_ready — the readiness gate: exits with a refusal (1) or a tool failure (3),
+# otherwise returns with BRANCH set to the branch name the ticket gets.
+check_ready() {
+  local issue_json prs_json open_prs blocked_by deps_json blockers
+  # From this script's own checkout, never the caller's cwd (like the main-checkout lookup).
+  cli_repo "$REPO" "$REPO_ROOT"
+  cli_gh_json_or_fail issue_json --shape 'type == "object"' \
+    issue view "$ISSUE" --repo "$CLI_REPO" --json state,title,labels
+
+  [[ "$(printf '%s' "$issue_json" | jq -r .state)" == "OPEN" ]] \
+    || cli_fail "$CLI_NO" closed "the issue is not open"
+  ticket_preflight_has_label "$issue_json" ready-for-agent \
+    || cli_fail "$CLI_NO" not_ready "the issue is not labelled ready-for-agent"
+
+  # --limit 200 is far above this repo's open-PR count; beyond it the check would fail open.
+  cli_gh_json_or_fail prs_json --shape 'type == "array"' \
+    pr list --repo "$CLI_REPO" --state open --limit 200 --json number,body,closingIssuesReferences
+  open_prs="$(ticket_preflight_open_prs "$prs_json" "$ISSUE" | sed 's/^/#/' | paste -sd, - | sed 's/,/, /g')"
+  [[ -z "$open_prs" ]] || cli_fail "$CLI_NO" open_pr "an open PR already closes it: $open_prs"
+
+  cli_gh_json_or_fail blocked_by api "repos/$CLI_REPO/issues/$ISSUE" --jq '.issue_dependencies_summary.blocked_by // 0'
+  [[ "$blocked_by" =~ ^[0-9]+$ ]] \
+    || cli_fail "$CLI_TOOL" bad_response "gh api issue returned an unparseable blocker count"
+  if [[ "$blocked_by" -gt 0 ]]; then
+    # Soft: only the blockers' names are lost if this fails; the refusal stands.
+    cli_gh_json deps_json api "repos/$CLI_REPO/issues/$ISSUE/dependencies/blocked_by" || deps_json="[]"
+    printf '%s' "$deps_json" | jq -e 'type == "array"' >/dev/null 2>&1 || deps_json="[]"
+    blockers="$(ticket_preflight_open_blockers "$deps_json" | paste -sd, - | sed 's/,/, /g')"
+    cli_fail "$CLI_NO" blocked "blocked by ${blockers:-$blocked_by open issue(s)}, still open"
+  fi
+
+  BRANCH="$(ticket_branch "$ISSUE" "$(printf '%s' "$issue_json" | jq -r .title)")"
+}
+
+fetch_main() {
+  cli_quiet "git fetch $REMOTE main" git -C "$1" fetch "$REMOTE" main \
+    || cli_fail "$CLI_TOOL" git_failed "git fetch $REMOTE main failed"
+}
+
+# --- --check-only --------------------------------------------------------------------
+if [[ "$MODE" == check-only ]]; then
+  check_ready
+  cli_say "ready"
+  reply_ok "" "$BRANCH" false
+fi
+
+# --- --in-place: the worktree this process is already in -------------------------------
+if [[ "$MODE" == in-place ]]; then
+  # Verify we are in the worktree we think we are before any write.
+  TOP="$(git rev-parse --show-toplevel 2>/dev/null)" \
+    || cli_fail "$CLI_NO" not_linked_worktree "not inside a git checkout; --in-place must run inside a linked worktree"
+  TOP="$(cd "$TOP" && pwd -P)"
+  worktree_is_linked "$TOP" \
+    || cli_fail "$CLI_NO" not_linked_worktree "$TOP is not a linked worktree; --in-place never writes to the main checkout"
+  EXPECT_REAL="$(cd "$EXPECT" 2>/dev/null && pwd -P)" || EXPECT_REAL="$EXPECT"
+  [[ "$EXPECT_REAL" == "$TOP" ]] \
+    || cli_fail "$CLI_NO" wrong_worktree "running in $TOP, but --expect-worktree names $EXPECT_REAL"
+
+  current="$(git -C "$TOP" symbolic-ref --short -q HEAD 2>/dev/null)" || current=""
+  if ticket_branch_is_for "$current" "$ISSUE"; then
+    cli_say "already on $current in $TOP"
+    ensure_deps "$TOP"
+    reply_ok "$TOP" "$current" true
+  fi
+
+  # A sibling ticket's branch is not ours to move off: refuse rather than branch over it.
+  if ticket_branch_is_any "$current"; then
+    cli_fail "$CLI_NO" foreign_ticket_branch "$TOP is on $current, another ticket's branch; refusing to branch over it"
+  fi
+
+  clean=0; worktree_is_clean "$TOP" || clean=$?
+  [[ "$clean" -ne 2 ]] || cli_fail "$CLI_TOOL" git_failed "git status failed in $TOP"
+  [[ "$clean" -eq 0 ]] \
+    || cli_fail "$CLI_NO" dirty_worktree "$TOP has uncommitted changes; --in-place needs a clean worktree"
+
+  check_ready
+  fetch_main "$TOP"
+  git -C "$TOP" merge-base --is-ancestor HEAD "$REMOTE/main" 2>/dev/null \
+    || cli_fail "$CLI_NO" unpushed_commits "HEAD in $TOP has commits that are not on $REMOTE/main; refusing to move off them"
+  cli_quiet "git checkout" git -C "$TOP" checkout --no-track -b "$BRANCH" "$REMOTE/main" \
+    || cli_fail "$CLI_TOOL" git_failed "git checkout -b $BRANCH failed (the branch may already exist)"
+  DEPS_NOTE=" (the branch was created)"
+  ensure_deps "$TOP"
+  cli_say "ready, branch $BRANCH in $TOP"
+  reply_ok "$TOP" "$BRANCH" false
+fi
+
+# --- default: create a linked worktree off the main checkout ---------------------------
+# The main checkout comes from this script's own repo, never the caller's cwd, so running
+# it from some other repo cannot fetch or add a worktree there.
+MAIN_ROOT="$(worktree_main_root "$REPO_ROOT")" \
+  || cli_fail "$CLI_TOOL" git_failed "not inside a git checkout"
+WT_PATH="$MAIN_ROOT/.claude/worktrees/$(ticket_worktree_name "$ISSUE")"
+
+# Idempotence first: a worktree already registered at that path is reported, not rebuilt.
+listing="$(git -C "$MAIN_ROOT" worktree list --porcelain 2>/dev/null)" \
+  || cli_fail "$CLI_TOOL" git_failed "git worktree list failed"
+if worktree_registered_at "$listing" "$WT_PATH" && [[ -d "$WT_PATH" ]]; then
+  # A detached HEAD has no branch line: reported as "" rather than refused.
+  existing_branch="$(worktree_branch_at_path "$listing" "$WT_PATH")" || existing_branch=""
+  cli_say "worktree already exists at $WT_PATH"
+  # An earlier run may have died in deps.get; finish that rather than report a half-built worktree.
+  ensure_deps "$WT_PATH"
+  reply_ok "$WT_PATH" "$existing_branch" true
+fi
+
+check_ready
+
+fetch_main "$MAIN_ROOT"
+cli_quiet "git worktree add" git -C "$MAIN_ROOT" worktree add --no-track -b "$BRANCH" "$WT_PATH" "$REMOTE/main" \
+  || cli_fail "$CLI_TOOL" git_failed "git worktree add failed (branch $BRANCH may already exist)"
+
+DEPS_NOTE=" (the worktree was created)"
+ensure_deps "$WT_PATH"
+
+cli_say "ready, worktree $WT_PATH on $BRANCH"
+reply_ok "$WT_PATH" "$BRANCH" false

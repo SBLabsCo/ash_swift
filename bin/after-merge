@@ -1,0 +1,281 @@
+#!/usr/bin/env bash
+#
+# bin/after-merge — routine post-merge cleanup as one command
+# (ported from SBLabsCo/SwingClips#540). Given a merged PR it
+#
+#   1. confirms the PR is merged and reports whether the issue(s) it closes are closed,
+#   2. tears down the ticket's worktree (git only: `git worktree remove --force`, the
+#      branch, the harness's `worktree-<dir>` placeholder branch when merged; prune),
+#   3. files the pre-PR refactor review's follow-up issues from a structured list,
+#   4. fast-forwards the main checkout to origin/main when that is safe.
+#
+#     bin/after-merge <pr>                              # steps 1 and 2
+#     bin/after-merge <pr> --followups <file.json>      # ...and step 3
+#     bin/after-merge <pr> --repo SBLabsCo/ash_swift    # --repo defaults to this repo's
+#
+# **Idempotent.** A re-run is safe: a worktree that is already gone is reported
+# `"action":"none"`, and a follow-up already filed for this PR is reported
+# `"action":"duplicate"` and not filed again.
+#
+# **Refuses** (exit 1, `{"ok":false,"reason":...}` on stdout; nothing has been changed):
+#   not_merged          the PR is open or was closed without merging
+#   bad_followups       the --followups file is not a valid follow-ups document
+#   main_checkout       the PR's branch is checked out in the main checkout itself
+#   self_checkout       ...or in the checkout this script is running from (run it from
+#                       the main checkout or another worktree)
+#   dirty_worktree      the ticket's worktree has uncommitted changes (someone's work,
+#                       never ours to delete: deal with it by hand, then re-run)
+#   unmerged_commits    the worktree's HEAD is not the PR's merged head or an ancestor of
+#                       it: it carries commits that were never merged (or the merged head
+#                       is not fetched locally to prove otherwise)
+#   locked_worktree     the worktree is locked by a LIVE session (a dead pid's lock is
+#                       stale and does not stop it)
+# With `--repo` naming a repository other than this checkout's, the worktree step is
+# skipped (`"action":"skipped_other_repo"`): the branch name means nothing locally.
+# Closing issues in other repositories are skipped with a note on stderr.
+#
+# **The worktree is found by the PR's head branch** in `git worktree list --porcelain`,
+# never by directory name — harness `agent-*` dirs and `ticket-<n>` dirs both occur.
+#
+# **The follow-ups file** is what the ship-ticket workflow (docs/agents/ship-ticket.md) writes from the
+# review lenses' reports: a JSON array of objects with a one-line `title` and a `body`
+# (extra keys are ignored; `[]` is valid and files nothing):
+#
+#     [{"title": "Collapse the two pr-wait retry loops", "body": "Both loops in ..."}]
+#
+# Each is filed as a `needs-triage` issue whose body is the given body followed by
+# "Raised by the pre-PR refactor review of #<pr>". A follow-up is a duplicate — skipped —
+# when an issue, open OR closed, has exactly that title and a body carrying that line.
+#
+# **The main checkout is kept fresh**: the ship-ticket workflow loads its script, agent
+# definitions and skills from the main checkout's working tree, so a merge that is not pulled
+# there changes nothing until someone does. After the merge, `git merge --ff-only origin/main`
+# runs in the main checkout, and ONLY when it is on `main`, has no staged, unstaged or
+# untracked changes (gitignored files aside), and the move is a pure fast-forward. Otherwise
+# nothing is touched and the reason is reported ("main checkout is on branch X", "has local
+# changes"): in-progress work there is never disturbed. A skip is a report, not an
+# error. No merge commit is ever made and no linked worktree's checkout is touched.
+#
+# **Output** is one JSON object on stdout; human messages go to stderr:
+#
+#     {"ok":true,"pr":551,"merged":true,"branch":"ticket-545-...",
+#      "issues":[{"number":545,"state":"closed"}],       # state "open" is reported, not an error
+#      "worktree":{"action":"torn_down|none|skipped_other_repo|failed","path":"/abs/path"},
+#      "followups":[{"title":"...","action":"filed|duplicate|failed","number":552}],
+#      "main_checkout":{"action":"fast_forwarded","from":"<sha>","to":"<sha>"}
+#                     | {"action":"already_current"}
+#                     | {"action":"skipped","reason":"main checkout is on branch X"}}
+#
+# Exit codes are the shared bin/ table (bin/cli-lib.sh): 0 ok, 1 refused, 2 usage (nothing
+# on stdout), 3 a tool failed. The checks, including every read of GitHub, run before
+# anything is changed; only the mutations (teardown, filing) can fail mid-run. When one
+# does, the other still ran: the object above is printed with `"ok":false`, a `reason`
+# (`teardown_failed` or `followups_failed`; when both failed, the first, plus a `reasons`
+# array naming both) and exit 3, so a re-run finishes only what is left.
+#
+# Requires `gh` (authenticated), `git` and `jq`.
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=./cli-lib.sh
+. "$REPO_ROOT/bin/cli-lib.sh"
+# shellcheck source=./worktree-lib.sh
+. "$REPO_ROOT/bin/worktree-lib.sh"
+# shellcheck source=./after-merge-lib.sh
+. "$REPO_ROOT/bin/after-merge-lib.sh"
+cli_init after-merge
+
+usage() { sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
+die_usage() { cli_usage_error "$1" "usage: bin/after-merge <pr> [--followups <file.json>] [--repo <owner/name>]"; }
+
+PR="" REPO="" FOLLOWUPS=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage; exit 0 ;;
+    --followups) [[ $# -ge 2 ]] || die_usage "--followups needs a file"; FOLLOWUPS="$2"; shift 2 ;;
+    --repo) [[ $# -ge 2 ]] || die_usage "--repo needs owner/name"; REPO="$2"; shift 2 ;;
+    -*) die_usage "unknown argument '$1'" ;;
+    *) [[ -z "$PR" ]] || die_usage "only one <pr> may be given"; PR="$1"; shift ;;
+  esac
+done
+[[ -n "$PR" ]] || die_usage "missing <pr>"
+cli_valid_number "$PR" || die_usage "'$PR' is not a pull request number"
+[[ -z "$FOLLOWUPS" || -r "$FOLLOWUPS" ]] || die_usage "cannot read --followups file '$FOLLOWUPS'"
+
+cli_require_tools gh git jq
+CLI_TAG="PR #$PR"
+CLI_CONTEXT="$(jq -cn --argjson pr "$PR" '{pr: $pr}')"
+
+# --- Checks: everything that can refuse or fail to read runs before anything changes. -----
+
+followups_json="[]"
+if [[ -n "$FOLLOWUPS" ]]; then
+  jq -e . "$FOLLOWUPS" >/dev/null 2>&1 \
+    || cli_fail "$CLI_NO" bad_followups "$FOLLOWUPS is not valid JSON"
+  problem="$(jq -r "$AFTER_MERGE_FOLLOWUPS_PROBLEM_JQ" "$FOLLOWUPS")"
+  [[ -z "$problem" ]] || cli_fail "$CLI_NO" bad_followups "$FOLLOWUPS: $problem"
+  followups_json="$(jq -c '[.[] | {title: (.title | gsub("^\\s+|\\s+$"; "")), body}]' "$FOLLOWUPS")"
+fi
+
+cli_repo "$REPO" "$REPO_ROOT"
+target_repo="$CLI_REPO"
+local_repo="$target_repo"
+if [[ -n "$REPO" ]]; then
+  cli_repo "" "$REPO_ROOT"
+  local_repo="$CLI_REPO"
+fi
+same_repo=1
+[[ "$(tr '[:upper:]' '[:lower:]' <<<"$target_repo")" == "$(tr '[:upper:]' '[:lower:]' <<<"$local_repo")" ]] || same_repo=0
+
+cli_gh_json_or_fail pr_json --shape 'type == "object"' pr view "$PR" --repo "$target_repo" \
+  --json state,mergedAt,headRefName,headRefOid,closingIssuesReferences
+state="$(jq -r '.state' <<<"$pr_json")"
+branch="$(jq -r '.headRefName // ""' <<<"$pr_json")"
+head_oid="$(jq -r '.headRefOid // ""' <<<"$pr_json")"
+if [[ "$state" != MERGED ]]; then
+  cli_fail "$CLI_NO" not_merged "PR #$PR is $state, not merged; nothing was changed"
+fi
+
+# Locate the ticket's worktree by branch, and refuse anything that is not safe to remove.
+wt_path="" wt_action=none
+if [[ "$same_repo" -eq 0 ]]; then
+  wt_action=skipped_other_repo
+  cli_say "PR is in $target_repo, not this checkout's $local_repo; skipping the worktree step"
+else
+  main_root="$(worktree_main_root "$REPO_ROOT")" \
+    || cli_fail "$CLI_TOOL" git_failed "cannot find the main checkout from $REPO_ROOT"
+  porcelain="$(git -C "$main_root" worktree list --porcelain 2>/dev/null)" \
+    || cli_fail "$CLI_TOOL" git_failed "git worktree list failed"
+  if [[ -n "$branch" ]] && wt_path="$(worktree_path_for_branch "$porcelain" "$branch")"; then
+    if worktree_is_protected_path "$wt_path" "$main_root" "$REPO_ROOT"; then
+      if [[ "$wt_path" == "$main_root" ]]; then
+        cli_fail "$CLI_NO" main_checkout \
+          "branch $branch is checked out in the main checkout ($wt_path); that is not a worktree to tear down. Nothing was changed"
+      fi
+      cli_fail "$CLI_NO" self_checkout \
+        "branch $branch is checked out in $wt_path, the checkout this script is running from; run it from the main checkout or another worktree. Nothing was changed"
+    fi
+    if pid="$(worktree_live_lock_pid "$porcelain" "$wt_path")"; then
+      cli_fail "$CLI_NO" locked_worktree \
+        "the worktree at $wt_path is locked by a live session (pid $pid); not tearing it down. Nothing was changed"
+    fi
+    if [[ -d "$wt_path" ]]; then
+      clean=0; worktree_is_clean "$wt_path" || clean=$?
+      [[ "$clean" -ne 2 ]] || cli_fail "$CLI_TOOL" git_failed "git status failed in $wt_path"
+      [[ "$clean" -eq 0 ]] || cli_fail "$CLI_NO" dirty_worktree \
+        "the worktree at $wt_path has uncommitted changes; refusing to tear it down. Nothing was changed"
+      # Merged work only: HEAD must be the PR's merged head or behind it. A commit made
+      # after the push lives nowhere else.
+      head_here="$(git -C "$wt_path" rev-parse HEAD 2>/dev/null)" \
+        || cli_fail "$CLI_TOOL" git_failed "git rev-parse HEAD failed in $wt_path"
+      if [[ -z "$head_oid" ]] || { [[ "$head_here" != "$head_oid" ]] \
+          && ! git -C "$wt_path" merge-base --is-ancestor "$head_here" "$head_oid" 2>/dev/null; }; then
+        cli_fail "$CLI_NO" unmerged_commits \
+          "the worktree at $wt_path is at ${head_here:0:12}, which is not the merged head ${head_oid:0:12} or an ancestor of it; it may hold commits that were never merged. Nothing was changed"
+      fi
+    fi
+    wt_action=torn_down
+  else
+    wt_path=""
+  fi
+fi
+
+# What this PR already raised, read now so a failed read refuses before any mutation. GitHub's
+# search index lags a fresh filing by seconds, so it is unioned with a plain listing of
+# the newest issues, which does not.
+existing="[]"
+marker="$(after_merge_marker "$PR")"
+if [[ "$followups_json" != "[]" ]]; then
+  cli_gh_json_or_fail found --shape 'type == "array"' issue list --repo "$target_repo" \
+    --state all --limit 200 --search "\"$marker\" in:body" --json number,title,body
+  cli_gh_json_or_fail recent --shape 'type == "array"' issue list --repo "$target_repo" \
+    --state all --limit 100 --json number,title,body
+  existing="$(jq -cs 'add | unique_by(.number)' <<<"$found $recent")"
+fi
+
+# --- 1. The closing issues: reported, never an error. ---------------------------------------
+
+issues="[]"
+refs="$(jq -c --arg repo "$target_repo" \
+  '[.closingIssuesReferences[]? | {number, repo: (if .repository then "\(.repository.owner.login)/\(.repository.name)" else $repo end)}]' <<<"$pr_json")"
+while IFS= read -r ref; do
+  [[ -n "$ref" ]] || continue
+  n="$(jq -r '.number' <<<"$ref")"
+  if [[ "$(jq -r '.repo | ascii_downcase' <<<"$ref")" != "$(tr '[:upper:]' '[:lower:]' <<<"$target_repo")" ]]; then
+    cli_say "skipping closing issue #$n of $(jq -r '.repo' <<<"$ref"); only $target_repo is checked"
+    continue
+  fi
+  cli_gh_json_or_fail issue_json --shape 'type == "object"' issue view "$n" --repo "$target_repo" --json state
+  istate="$(jq -r '.state | ascii_downcase' <<<"$issue_json")"
+  [[ "$istate" == closed ]] || cli_say "issue #$n is still $istate although PR #$PR is merged"
+  issues="$(jq -c --argjson n "$n" --arg s "$istate" '. + [{number: $n, state: $s}]' <<<"$issues")"
+done < <(jq -c '.[]' <<<"$refs")
+[[ "$issues" != "[]" ]] || cli_say "PR #$PR closes no issue"
+
+# --- 2. The worktree. -----------------------------------------------------------------------
+
+teardown_failed=0
+if [[ -n "$wt_path" ]]; then
+  cli_say "tearing down $wt_path ($branch)"
+  if ! after_merge_teardown "$main_root" "$wt_path" "$branch"; then
+    teardown_failed=1
+    wt_action=failed
+  fi
+elif [[ "$wt_action" == none ]]; then
+  cli_say "no worktree has $branch checked out; nothing to tear down"
+fi
+
+# --- 3. The follow-ups. ---------------------------------------------------------------------
+
+results="[]"
+followups_failed=0
+while IFS= read -r item; do
+  [[ -n "$item" ]] || continue
+  title="$(jq -r '.title' <<<"$item")"
+  if num="$(after_merge_followup_number "$existing" "$title" "$marker")"; then
+    cli_say "follow-up already filed as #$num: $title"
+    res="$(jq -cn --arg t "$title" --argjson n "$num" '{title: $t, action: "duplicate", number: $n}')"
+  else
+    body="$(jq -r '.body' <<<"$item")"
+    if cli_gh url issue create --repo "$target_repo" --label needs-triage --title "$title" \
+        --body "${body}"$'\n\n'"${marker}."; then
+      num="${url##*/}"
+      cli_say "filed follow-up #$num: $title"
+      res="$(jq -cn --arg t "$title" --arg n "$num" '{title: $t, action: "filed", number: ($n | tonumber? // null)}')"
+      # A title repeated in the same file is then a duplicate of this one.
+      existing="$(jq -c --arg t "$title" --arg b "$marker" --argjson n "$(jq '.number' <<<"$res")" \
+        '. + [{number: $n, title: $t, body: $b}]' <<<"$existing")"
+    else
+      cli_say "could not file follow-up '$title' ($CLI_ERR)"
+      followups_failed=1
+      res="$(jq -cn --arg t "$title" '{title: $t, action: "failed"}')"
+    fi
+  fi
+  results="$(jq -c --argjson r "$res" '. + [$r]' <<<"$results")"
+done < <(jq -c '.[]' <<<"$followups_json")
+
+# --- 4. The main checkout. ------------------------------------------------------------------
+
+if [[ "$same_repo" -eq 1 ]]; then
+  main_checkout="$(after_merge_sync_main "$main_root" origin)"
+else
+  main_checkout='{"action":"skipped","reason":"the PR is in another repository"}'
+fi
+
+# --- Result. --------------------------------------------------------------------------------
+
+result="$(jq -n --argjson pr "$PR" --arg branch "$branch" --argjson issues "$issues" \
+  --arg wa "$wt_action" --arg wp "$wt_path" --argjson fu "$results" --argjson mc "$main_checkout" \
+  '{ok: true, pr: $pr, merged: true, branch: $branch, issues: $issues,
+    worktree: ({action: $wa} + (if $wp == "" then {} else {path: $wp} end)), followups: $fu,
+    main_checkout: $mc}')"
+
+reasons="[]"
+[[ "$teardown_failed" -eq 0 ]] || reasons='["teardown_failed"]'
+[[ "$followups_failed" -eq 0 ]] || reasons="$(jq -c '. + ["followups_failed"]' <<<"$reasons")"
+if [[ "$reasons" != "[]" ]]; then
+  cli_partial_fail "$(jq -r '.[0]' <<<"$reasons")" "finished with failures ($(jq -r 'join(", ")' <<<"$reasons")); re-run to finish what is left" \
+    "$(jq -c --argjson rs "$reasons" '. + {reasons: $rs}' <<<"$result")"
+fi
+jq -c . <<<"$result"

@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+#
+# bin/pr-open — push a ticket's branch and open (or update) its PR from a template body
+# (ported from SBLabsCo/SwingClips#539), so PR bodies stop being hand-assembled.
+#
+#     bin/pr-open <issue> --summary <text> | --summary-file <path>
+#                [--rationale-file <path>] [--title <text>] [--force-with-lease]
+#                [--repo owner/name] [--remote origin]
+#
+# Run it from the ticket's worktree, on its `ticket-<issue>[-...]` branch, with
+# everything committed. Never merges anything.
+#
+# **The body** (fixed order; empty parts are omitted):
+#
+#     <summary>
+#
+#     Closes #<issue>
+#
+#     ## Declined review findings              (only if the rationale file has text)
+#     <the rationale file, verbatim>
+#
+#     🤖 Generated with [Claude Code](https://claude.com/claude-code)
+#
+# **Declined-finding rationales** are read from the rationale file — by default
+# `<worktree root>/.pr-declined-<issue>.md` (gitignored; named per issue so a stale one
+# cannot cross tickets), which the address step of the ship-ticket workflow
+# (docs/agents/ship-ticket.md) writes: markdown, typically one bullet per declined
+# finding with its rationale. It lands verbatim under `## Declined review findings`.
+# **Absent is not empty:** with the file absent an update keeps the existing body's
+# section verbatim; an existing but empty (blank) file removes it. `--rationale-file`
+# overrides the path.
+#
+# **Idempotent.** If an open PR already exists for the branch, the body is rebuilt and
+# that PR is edited (only when it changed, so no needless `edited` event) instead of
+# opening a second. On an update `--summary` may be omitted: the existing PR's is reused.
+# Anything else in the old body that the template has no slot for (extra sections, notes
+# after `Closes #<n>`) is DROPPED by the rebuild, with a warning on stderr naming the
+# first such line — put durable content in the summary or the rationale file.
+#
+# **Pushing.** The branch is pushed on every run (a no-op when nothing is new). After a
+# rebase the plain push is rejected: the run then exits 1 `push_rejected`; re-run with
+# `--force-with-lease`, which leases against `<remote>/<branch>` as fetched at the start
+# of this run (never a bare --force).
+#
+# Stdout on success is exactly one JSON object:
+#
+#     {"ok":true,"issue":539,"pr":123,"url":"https://github.com/…/pull/123",
+#      "head_sha":"<full sha>","branch":"ticket-539-…","action":"created|updated"}
+#
+# Refusals (exit 1, `{"ok":false,"issue":n,"reason":…,"message":…}`): wrong_branch (not
+# on this ticket's branch), dirty_worktree, no_commits (nothing ahead of `<remote>/main`),
+# push_rejected. Exit codes are the shared bin/ table (bin/cli-lib.sh): 2 usage (nothing on
+# stdout; also a missing summary), 3 a tool failed (gh, git fetch/push, an unreadable file).
+# Requires `gh`, `git`, `jq`; bash >= 5.
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=./cli-lib.sh
+. "$REPO_ROOT/bin/cli-lib.sh"
+# shellcheck source=./worktree-lib.sh
+. "$REPO_ROOT/bin/worktree-lib.sh"
+# shellcheck source=./ticket-lib.sh
+. "$REPO_ROOT/bin/ticket-lib.sh"
+# shellcheck source=./pr-open-lib.sh
+. "$REPO_ROOT/bin/pr-open-lib.sh"
+cli_init pr-open
+
+usage() { sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
+
+ISSUE="" REPO="" REMOTE="origin" SUMMARY="" SUMMARY_FILE="" RATIONALE_FILE="" TITLE="" LEASE=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --summary) [[ $# -ge 2 ]] || cli_usage_error "--summary needs a value"; SUMMARY="$2"; shift 2 ;;
+    --summary-file) [[ $# -ge 2 ]] || cli_usage_error "--summary-file needs a path"; SUMMARY_FILE="$2"; shift 2 ;;
+    --rationale-file) [[ $# -ge 2 ]] || cli_usage_error "--rationale-file needs a path"; RATIONALE_FILE="$2"; shift 2 ;;
+    --title) [[ $# -ge 2 ]] || cli_usage_error "--title needs a value"; TITLE="$2"; shift 2 ;;
+    --force-with-lease) LEASE=1; shift ;;
+    --repo) [[ $# -ge 2 ]] || cli_usage_error "--repo needs a value"; REPO="$2"; shift 2 ;;
+    --remote) [[ $# -ge 2 ]] || cli_usage_error "--remote needs a value"; REMOTE="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    -*) cli_usage_error "unknown option '$1'" ;;
+    *)
+      [[ -z "$ISSUE" ]] || cli_usage_error "only one issue number may be given"
+      ISSUE="$1"; shift
+      ;;
+  esac
+done
+cli_valid_number "$ISSUE" || cli_usage_error "need an issue number, got '$ISSUE'"
+[[ -z "$SUMMARY" || -z "$SUMMARY_FILE" ]] || cli_usage_error "--summary and --summary-file are exclusive"
+
+CLI_TAG="#$ISSUE"
+CLI_CONTEXT="$(jq -cn --argjson i "$ISSUE" '{issue: $i}' 2>/dev/null || echo '{}')"
+cli_require_tools gh jq git
+
+if [[ -n "$SUMMARY_FILE" ]]; then
+  [[ -r "$SUMMARY_FILE" ]] || cli_fail "$CLI_TOOL" file_unreadable "cannot read --summary-file $SUMMARY_FILE"
+  SUMMARY="$(cat "$SUMMARY_FILE")"
+fi
+
+TOP="$(git rev-parse --show-toplevel 2>/dev/null)" \
+  || cli_fail "$CLI_TOOL" git_failed "not inside a git checkout"
+git_() { git -C "$TOP" "$@"; }
+
+# --- The branch is this ticket's, committed, and ahead of main ---------------------------
+BRANCH="$(git_ symbolic-ref --short -q HEAD 2>/dev/null)" || BRANCH=""
+ticket_branch_is_for "$BRANCH" "$ISSUE" \
+  || cli_fail "$CLI_NO" wrong_branch "on '${BRANCH:-a detached HEAD}', not a ticket-$ISSUE branch"
+clean=0; worktree_is_clean "$TOP" || clean=$?
+[[ "$clean" -ne 2 ]] || cli_fail "$CLI_TOOL" git_failed "git status failed in $TOP"
+[[ "$clean" -eq 0 ]] \
+  || cli_fail "$CLI_NO" dirty_worktree "$TOP has uncommitted changes; commit them first"
+
+cli_quiet "git fetch $REMOTE main" git_ fetch "$REMOTE" main \
+  || cli_fail "$CLI_TOOL" git_failed "git fetch $REMOTE main failed"
+# The lease needs to know where the remote branch was when we looked. Absent on a first
+# push, which is fine: there is nothing to lease against and nothing to overwrite.
+git_ fetch "$REMOTE" "$BRANCH" >/dev/null 2>&1 || true
+AHEAD="$(git_ rev-list --count "$REMOTE/main..HEAD" 2>/dev/null)" \
+  || cli_fail "$CLI_TOOL" git_failed "cannot compare HEAD with $REMOTE/main"
+[[ "$AHEAD" -gt 0 ]] || cli_fail "$CLI_NO" no_commits "$BRANCH has no commits ahead of $REMOTE/main"
+
+# --- Is there already a PR? ---------------------------------------------------------------
+cli_repo "$REPO" "$TOP"
+cli_gh_json_or_fail PRS --shape 'type == "array"' \
+  pr list --repo "$CLI_REPO" --head "$BRANCH" --state open --json number,url,body
+PR_NUMBER="$(printf '%s' "$PRS" | jq -r '.[0].number // empty')"
+PR_URL="$(printf '%s' "$PRS" | jq -r '.[0].url // empty')"
+OLD_BODY="$(printf '%s' "$PRS" | jq -r '.[0].body // ""')"
+
+# --- Gather the parts ----------------------------------------------------------------------
+[[ -n "$SUMMARY" ]] || SUMMARY="$(pr_open_existing_summary "$OLD_BODY" "$ISSUE")"
+[[ -n "$SUMMARY" ]] || cli_usage_error "need --summary or --summary-file (an existing PR's summary is only reused if its body has a 'Closes #$ISSUE' line)"
+
+# Absent keeps the old section; present-but-blank removes it.
+[[ -n "$RATIONALE_FILE" ]] || RATIONALE_FILE="$TOP/.pr-declined-$ISSUE.md"
+if [[ -e "$RATIONALE_FILE" ]]; then
+  [[ -r "$RATIONALE_FILE" ]] || cli_fail "$CLI_TOOL" file_unreadable "cannot read the rationale file $RATIONALE_FILE"
+  DECLINED="$(cat "$RATIONALE_FILE")"
+  [[ -n "${DECLINED//[[:space:]]/}" ]] || DECLINED=""
+else
+  DECLINED="$(pr_open_declined_section "$OLD_BODY")"
+fi
+
+if [[ -n "$PR_NUMBER" ]]; then
+  DROPPED="$(pr_open_unrecognized "$OLD_BODY" "$ISSUE" | head -n1)"
+  [[ -z "$DROPPED" ]] || cli_say "warning: the rebuilt body drops content the template has no slot for, starting with: $DROPPED"
+fi
+
+NEW_BODY="$(pr_open_compose_body "$SUMMARY" "$ISSUE" "$DECLINED")"
+
+# --- Push, then create or update -----------------------------------------------------------
+PUSH_ARGS=(push -u)
+if [[ "$LEASE" -eq 1 ]]; then
+  LEASED="$(git_ rev-parse -q --verify "refs/remotes/$REMOTE/$BRANCH" 2>/dev/null)" || LEASED=""
+  [[ -z "$LEASED" ]] || PUSH_ARGS+=("--force-with-lease=$BRANCH:$LEASED")
+fi
+PUSH_OUT="$(git_ "${PUSH_ARGS[@]}" "$REMOTE" "$BRANCH" 2>&1)" || {
+  # Only the client-side ref-update rejections (`! [rejected]`, whose reason covers
+  # non-fast-forward and `(stale info)`), never a server-side `! [remote rejected]` (a hook,
+  # protected branch, denyNonFastForwards), which --force-with-lease cannot fix.
+  if [[ "$PUSH_OUT" == *"! [rejected]"* ]]; then
+    cli_fail "$CLI_NO" push_rejected \
+      "the push of $BRANCH was rejected: the remote branch has commits this one lacks (or, with --force-with-lease, moved since this run began); after a rebase re-run with --force-with-lease"
+  fi
+  cli_say "git push output:"
+  printf '%s\n' "$PUSH_OUT" | tail -n 20 | sed 's/^/    /' >&2
+  cli_fail "$CLI_TOOL" git_failed "git push $REMOTE $BRANCH failed"
+}
+HEAD_SHA="$(git_ rev-parse HEAD 2>/dev/null)" \
+  || cli_fail "$CLI_TOOL" git_failed "git rev-parse HEAD failed"
+
+BODY_FILE="$(mktemp)"
+trap 'rm -f "$BODY_FILE"' EXIT
+printf '%s\n' "$NEW_BODY" >"$BODY_FILE"
+
+if [[ -n "$PR_NUMBER" ]]; then
+  ACTION="updated"
+  if [[ "$(printf '%s\n' "$OLD_BODY")" != "$(printf '%s\n' "$NEW_BODY")" ]]; then
+    cli_gh_or_fail EDIT_OUT pr edit "$PR_NUMBER" --repo "$CLI_REPO" --body-file "$BODY_FILE"
+    cli_say "updated PR #$PR_NUMBER"
+  else
+    cli_say "PR #$PR_NUMBER body already current"
+  fi
+else
+  ACTION="created"
+  if [[ -z "$TITLE" ]]; then
+    cli_gh_or_fail TITLE issue view "$ISSUE" --repo "$CLI_REPO" --json title --jq .title
+  fi
+  cli_gh_or_fail PR_URL pr create --repo "$CLI_REPO" --base main --head "$BRANCH" \
+    --title "$TITLE" --body-file "$BODY_FILE"
+  PR_URL="$(printf '%s\n' "$PR_URL" | tail -n1)"
+  PR_NUMBER="${PR_URL##*/}"
+  cli_valid_number "$PR_NUMBER" \
+    || cli_fail "$CLI_TOOL" bad_response "gh pr create printed no PR url (got '$PR_URL')"
+  cli_say "opened PR #$PR_NUMBER"
+fi
+
+jq -cn --argjson i "$ISSUE" --argjson n "$PR_NUMBER" --arg u "$PR_URL" --arg s "$HEAD_SHA" \
+  --arg b "$BRANCH" --arg a "$ACTION" \
+  '{ok:true, issue:$i, pr:$n, url:$u, head_sha:$s, branch:$b, action:$a}'
