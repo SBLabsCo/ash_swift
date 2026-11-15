@@ -85,12 +85,16 @@ defmodule AshSwift.Codegen.Contract do
   a structural diff over the old shape would not safely interpret.
 
   What the contract does **not** see: a change that is wire-only rather than
-  binary-shaped — e.g. `get_by_location` flipping between
-  `:input` and `:get_by` (how the client sends a lookup key) — has no
-  representation here (or in the emitted Swift's compiled shape) because the
-  generated function signature is unchanged either way. A gate built on this
-  document, like a gate built on the emitted Swift, cannot see that class of
-  change; it needs its own coverage (e.g. `AshSwift.Codegen.ReaderTest`).
+  binary-shaped — e.g. `get_by_location` flipping between `:input` and
+  `:get_by` (how the client sends a lookup key) — has no representation here
+  (or in the emitted Swift's compiled shape) because the generated function
+  signature is unchanged either way. `get_by_location` takes one of
+  `:input | :get_by | :none | nil` (see the Reader moduledoc); only the
+  `:input` <-> `:get_by` move is wire-only. A move to or from `:none` (a pure
+  `get?` read) is *not*: the generated signature gains or loses its lookup
+  params, so the contract does show it. A gate built on this document, like a
+  gate built on the emitted Swift, cannot see the wire-only class of change;
+  it needs its own coverage (e.g. `AshSwift.Codegen.ReaderTest`).
 
   Every list is sorted by name and the JSON encoding uses alphabetically sorted
   object keys throughout (`to_ordered/1`), so two runs over the same domains
