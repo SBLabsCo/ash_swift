@@ -153,6 +153,67 @@ final class RpcRequestTests: XCTestCase {
         XCTAssertNil(json["input"], "a no-arg void action sends no input key")
     }
 
+    // Read-action arguments (issue #87).
+
+    func testListRequestCarriesReadArgumentsUnderInput() throws {
+        let json = try encodedBody(
+            ListRequest<Stub>(action: "search", input: AnyEncodable(StubInput(title: "x")), fields: ["id"])
+        )
+        XCTAssertEqual(json["input"] as? [String: String], ["title": "x"])
+    }
+
+    func testListRequestOmitsInputWhenNil() throws {
+        let json = try encodedBody(ListRequest<Stub>(action: "list_todos", fields: ["id"]))
+        XCTAssertNil(json["input"], "a read without arguments sends no input key")
+    }
+
+    func testPageRequestsCarryReadArgumentsUnderInput() throws {
+        let input = AnyEncodable(StubInput(title: "x"))
+        let offset = try encodedBody(OffsetPageRequest<Stub>(action: "a", input: input, fields: ["id"]))
+        let keyset = try encodedBody(KeysetPageRequest<Stub>(action: "a", input: input, fields: ["id"]))
+        XCTAssertEqual(offset["input"] as? [String: String], ["title": "x"])
+        XCTAssertEqual(keyset["input"] as? [String: String], ["title": "x"])
+    }
+
+    func testGetRequestMergesGetByLookupAndArgumentsIntoOneInputObject() throws {
+        let json = try encodedBody(
+            GetRequest<Stub>(
+                action: "get_scoped",
+                input: ["id": "1"],
+                arguments: AnyEncodable(StubInput(title: "x")),
+                fields: ["id"]
+            )
+        )
+        XCTAssertEqual(json["input"] as? [String: String], ["id": "1", "title": "x"])
+    }
+
+    // Codegen keeps the key sets disjoint, but pin the documented tie-break: on an
+    // overlap the lookup value (encoded last) wins and the key appears once.
+    func testGetRequestLookupWinsOnOverlappingKey() throws {
+        let json = try encodedBody(
+            GetRequest<Stub>(
+                action: "get_scoped",
+                input: ["title": "lookup"],
+                arguments: AnyEncodable(StubInput(title: "argument")),
+                fields: ["id"]
+            )
+        )
+        XCTAssertEqual(json["input"] as? [String: String], ["title": "lookup"])
+    }
+
+    func testGetRequestArgumentsAloneBecomeTheInputObject() throws {
+        let json = try encodedBody(
+            GetOptionalRequest<Stub>(
+                action: "find_scoped",
+                getBy: ["title": "t"],
+                arguments: AnyEncodable(StubInput(title: "x")),
+                fields: ["id"]
+            )
+        )
+        XCTAssertEqual(json["getBy"] as? [String: String], ["title": "t"])
+        XCTAssertEqual(json["input"] as? [String: String], ["title": "x"])
+    }
+
     // MARK: decode
 
     func testDataEnvelopeRequestUnwrapsDataKey() throws {

@@ -419,6 +419,34 @@ defmodule AshSwift.Codegen.Reader do
           {nil, []}
       end
 
+    # A read's declared arguments (issue #87) become an input struct, minus any
+    # native get_by fields — those are already the get's lookup params, sent in
+    # the same `input` dict. A read with no (other) arguments gets no struct, so
+    # its generated signature is unchanged.
+    {read_inputs, read_nested_structs} =
+      if maction.type == :read do
+        lookup_fields = native_get_by_fields(resource, maction)
+        arg_inputs = Enum.reject(maction.inputs, &(&1.name in lookup_fields))
+
+        collect_action_inputs(
+          %{maction | inputs: arg_inputs},
+          rpc_action,
+          mres,
+          type_name,
+          formatter,
+          types
+        )
+      else
+        {[], []}
+      end
+
+    {input_struct_name, input_required?} =
+      if read_inputs == [] do
+        {input_struct_name, false}
+      else
+        {pascal_case(rpc_action.name) <> "Input", Enum.any?(read_inputs, & &1.required?)}
+      end
+
     action = %{
       rpc_name: rpc_action.name,
       action: rpc_action.action,
@@ -428,6 +456,9 @@ defmodule AshSwift.Codegen.Reader do
       get_by_location: get_by_location,
       not_found_error?: not_found_error?,
       input_struct_name: input_struct_name,
+      # Read actions only: whether the `input:` parameter is required (some
+      # argument must be supplied) or an optional `= nil` (issue #87).
+      input_required?: input_required?,
       primary_key_params: primary_key_params,
       pagination_type: pagination_type,
       optional_pagination_type: optional_pagination_type,
@@ -436,13 +467,18 @@ defmodule AshSwift.Codegen.Reader do
     }
 
     new_struct =
-      if input_struct_name do
-        {inputs, nested_structs} =
-          collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types)
+      cond do
+        read_inputs != [] ->
+          [%{struct_name: input_struct_name, fields: read_inputs} | read_nested_structs]
 
-        [%{struct_name: input_struct_name, fields: inputs} | nested_structs]
-      else
-        []
+        input_struct_name ->
+          {inputs, nested_structs} =
+            collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types)
+
+          [%{struct_name: input_struct_name, fields: inputs} | nested_structs]
+
+        true ->
+          []
       end
 
     {[action | actions_acc], new_struct ++ structs_acc}
@@ -1172,13 +1208,12 @@ defmodule AshSwift.Codegen.Reader do
   #   - location: :input (native get_by on the action) | :get_by (RPC-level
   #     get_by) | :identity (pure get? by primary key — top-level identity param)
   defp build_get_info(maction, rpc_action, resource, formatter, mres) do
-    # Load-bearing invariant: for a `get?` action the manifest surfaces *exactly*
-    # the lookup fields as inputs (e.g. `get_by :id` → inputs `[:id]`), with no
-    # other arguments mixed in. If a future get action gains an extra argument,
-    # `native_get_by` would over-include it and emit a spurious Swift parameter —
-    # the golden snapshot would catch the regression. A pure `get?` action with no
-    # explicit lookup fields has empty inputs and falls through to the primary key.
-    native_get_by = if maction.get?, do: Enum.map(maction.inputs, & &1.name), else: []
+    # The native get_by fields come from the Ash action itself. The manifest
+    # surfaces them as ordinary inputs (`get_by :id` → an `id` input) mixed in with
+    # any real arguments the read declares (issue #87), and carries no `get_by`
+    # field of its own — so the inputs can't tell a lookup field from an argument.
+    # A pure `get?` action has no get_by and falls through to the primary key.
+    native_get_by = native_get_by_fields(mres.module, maction)
     rpc_get_by = Map.get(rpc_action, :get_by) || []
     rpc_get? = Map.get(rpc_action, :get?, false)
 
@@ -1204,6 +1239,19 @@ defmodule AshSwift.Codegen.Reader do
         {false, [], nil}
     end
   end
+
+  # A read action's native `get_by` field names (empty for a non-get read or a
+  # pure `get?`). Read from `Ash.Resource.Info` — the same deliberate ADR-0009
+  # deviation as action_argument_names/2, for the same reason: the manifest folds
+  # these into `inputs` with nothing marking them as lookup fields.
+  defp native_get_by_fields(resource, %{get?: true, name: name}) do
+    case Ash.Resource.Info.action(resource, name) do
+      %{get_by: get_by} -> List.wrap(get_by)
+      _ -> []
+    end
+  end
+
+  defp native_get_by_fields(_resource, _maction), do: []
 
   # Maps a list of field atoms to the %{name, swift_type} shapes method_spec uses.
   defp build_get_by_params(fields, resource, formatter) do

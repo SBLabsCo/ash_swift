@@ -30,6 +30,14 @@ defmodule AshSwift.Test.Domain do
       # Arguments named like a private attribute (issue #84).
       rpc_action(:set_todo_due_date, :set_due_date)
       rpc_action(:check_todo_due_date, :check_due_date)
+      # Read actions with arguments (issue #87).
+      rpc_action(:search_todos, :search)
+      rpc_action(:search_todos_paged, :search_paged)
+      rpc_action(:search_todos_keyset_optional, :search_keyset_optional)
+      rpc_action(:get_todo_scoped, :get_scoped)
+      # RPC-level get_by over an argument-bearing read: the lookup travels under
+      # `getBy`, the read's arguments under `input`.
+      rpc_action(:find_todo_scoped, :search, get_by: [:title])
       # Generic actions (issue #54).
       rpc_action(:request_magic_link, :request_magic_link)
       rpc_action(:echo, :echo)

@@ -107,6 +107,42 @@ defmodule AshSwift.Test.Todo do
       pagination keyset?: true, offset?: false, required?: false
     end
 
+    # Read actions with arguments (issue #87). The arguments travel under the
+    # request's `input` key and narrow the result set server-side.
+    #
+    # `search`: a plain list read with an optional uuid and an optional boolean
+    # argument — the SwingClips `library` shape (filter to one owner / flag).
+    read :search do
+      argument :user_id, :uuid, allow_nil?: true
+      argument :completed_only, :boolean, allow_nil?: true, default: false
+      prepare AshSwift.Test.Todo.SearchPreparation
+    end
+
+    # `search_paged`: required offset pagination + a REQUIRED argument, so the
+    # generated `input:` parameter is non-optional.
+    read :search_paged do
+      argument :title_contains, :string, allow_nil?: false
+      pagination offset?: true, required?: true, default_limit: 5
+      filter expr(contains(title, ^arg(:title_contains)))
+    end
+
+    # `search_keyset_optional`: optional keyset pagination + an optional argument,
+    # so both the bare `[Todo]` and the `KeysetPage` overloads carry `input:`.
+    read :search_keyset_optional do
+      argument :completed_only, :boolean, allow_nil?: true, default: false
+      pagination keyset?: true, offset?: false, required?: false
+      prepare AshSwift.Test.Todo.SearchPreparation
+    end
+
+    # `get_scoped`: a native get_by (the `id` lookup is itself an action argument
+    # in the manifest and must stay a lookup param) plus a real argument that
+    # shares the same `input` dict on the wire.
+    read :get_scoped do
+      get_by :id
+      argument :completed_only, :boolean, allow_nil?: true, default: false
+      prepare AshSwift.Test.Todo.SearchPreparation
+    end
+
     # Create/update actions with action *arguments* (issue #83). The manifest folds
     # arguments and accepted attributes into one `inputs` list; codegen must emit a
     # field for each argument, typed the way a generic-action argument would be:

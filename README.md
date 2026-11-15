@@ -53,6 +53,15 @@ and a TypeScript client stay wire-identical by construction.
   fully typed (`async throws -> [T]` with field selection); get actions reflect
   `get?` / `get_by` / `not_found_error?` and return `T` or `T?` accordingly;
   create/update/destroy take compiler-enforced typed input structs.
+- **Action arguments** — an action's declared `argument`s generate typed input
+  fields alongside (or instead of) its accepted attributes, mapped the same way
+  as generic-action arguments, and independent of any same-named attribute's
+  visibility. A create/update with `accept []` and only arguments gets a usable
+  input struct. A **read** with arguments (list, paginated, or get) takes a typed
+  `input:` — required when any argument is, optional otherwise — so the backend
+  can narrow the result set inside the action: e.g.
+  `rpc.library(input: LibraryInput(studentId: id), fields: ["id"])`. Reads
+  without arguments keep their exact signatures.
 - **Array attributes** — an `{:array, T}` attribute becomes a Swift array of `T`'s
   mapped type: `{:array, :string}` → `[String]`, `{:array, :integer}` → `[Int]`,
   and an array of a constrained atom → an array of the generated Swift enum. An
