@@ -62,7 +62,8 @@ jobs:
             step posts it (your tracking comment passes through a sanitizer
             that strips HTML comments).
           # Pin the model (the action's default resolves to an invalid
-          # `claude-opus-4-8[1m]` id). See claude.yml for rationale.
+          # `claude-opus-4-8[1m]` id; see claude.yml) and the effort: reviews run
+          # on Opus 5.5 at medium effort.
           # Allow the tools a reviewer needs: the inline-comment MCP tool, gh for
           # the diff/PR + top-level comments, and file reads for the repo docs the
           # prompt references. Without these the reviewer is denied every tool and
@@ -70,7 +71,8 @@ jobs:
           # --json-schema makes the verdict counts structured output, which the
           # next step turns into the footer bin/pr-wait reads.
           claude_args: |
-            --model claude-sonnet-4-6
+            --model claude-opus-5-5
+            --effort medium
             --max-turns 40
             --json-schema '{"type":"object","properties":{"must_fix":{"type":"integer"},"should_fix":{"type":"integer"},"nit":{"type":"integer"}},"required":["must_fix","should_fix","nit"],"additionalProperties":false}'
             --allowedTools "mcp__github_inline_comment__create_inline_comment,mcp__github_comment__update_claude_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
