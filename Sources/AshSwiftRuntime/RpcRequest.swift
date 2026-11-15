@@ -86,6 +86,18 @@ public struct GetBody: Encodable, Sendable {
 /// native get_by lookup values (if any), encoded into ONE JSON object — the RPC
 /// pipeline reads both from the same `input` dict. The arguments encode first;
 /// the lookup values are then added to the same keyed container.
+///
+/// Two invariants this relies on:
+/// - `JSONEncoder` hands back the SAME underlying object for repeated
+///   `container(keyedBy:)` calls on one encoder, so the second call adds to the
+///   object the arguments' synthesized `encode(to:)` already started rather than
+///   replacing it (pinned by `RpcRequestTests`).
+/// - The two key sets are disjoint. Codegen guarantees it: a get's native get_by
+///   fields are excluded from its generated arguments struct (`native_get_by_fields/2`
+///   in `reader.ex`), so an argument can never carry a lookup key. If they ever did
+///   overlap, the lookup value would win (it is encoded last) — the right tie-break,
+///   since it identifies the record. A runtime check isn't practical: the arguments
+///   are type-erased, so their keys aren't known without encoding them twice.
 public struct GetInput: Encodable, Sendable {
     let arguments: AnyEncodable?
     let lookup: [String: String]

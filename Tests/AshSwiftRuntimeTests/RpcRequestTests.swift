@@ -187,6 +187,20 @@ final class RpcRequestTests: XCTestCase {
         XCTAssertEqual(json["input"] as? [String: String], ["id": "1", "title": "x"])
     }
 
+    // Codegen keeps the key sets disjoint, but pin the documented tie-break: on an
+    // overlap the lookup value (encoded last) wins and the key appears once.
+    func testGetRequestLookupWinsOnOverlappingKey() throws {
+        let json = try encodedBody(
+            GetRequest<Stub>(
+                action: "get_scoped",
+                input: ["title": "lookup"],
+                arguments: AnyEncodable(StubInput(title: "argument")),
+                fields: ["id"]
+            )
+        )
+        XCTAssertEqual(json["input"] as? [String: String], ["title": "lookup"])
+    }
+
     func testGetRequestArgumentsAloneBecomeTheInputObject() throws {
         let json = try encodedBody(
             GetOptionalRequest<Stub>(

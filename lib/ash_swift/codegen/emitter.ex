@@ -698,13 +698,21 @@ defmodule AshSwift.Codegen.Emitter do
   # requests, `arguments` for get requests). Required when any argument must be
   # supplied; otherwise an optional `= nil` so `input`-less calls still compile.
   # A read with no arguments gets neither, leaving its signature byte-identical.
-  # The value is type-erased to AnyEncodable, like `filter`.
-  defp read_input_entries(%{input_struct_name: nil}, _label), do: {[], []}
+  # The value is type-erased to AnyEncodable, like `filter`. Every clause matches
+  # `action_type: :read` so a non-read action map (which carries no
+  # `input_required?`) fails loudly here instead of defaulting to an optional input.
+  defp read_input_entries(%{action_type: :read, input_struct_name: nil}, _label), do: {[], []}
 
-  defp read_input_entries(%{input_struct_name: struct_name, input_required?: true}, label),
-    do: {[%{name: "input", type: struct_name, default: nil}], [{label, "AnyEncodable(input)"}]}
+  defp read_input_entries(
+         %{action_type: :read, input_struct_name: struct_name, input_required?: true},
+         label
+       ),
+       do: {[%{name: "input", type: struct_name, default: nil}], [{label, "AnyEncodable(input)"}]}
 
-  defp read_input_entries(%{input_struct_name: struct_name}, label) do
+  defp read_input_entries(
+         %{action_type: :read, input_struct_name: struct_name, input_required?: false},
+         label
+       ) do
     {[%{name: "input", type: "#{struct_name}?", default: "nil"}],
      [{label, "input.map { AnyEncodable($0) }"}]}
   end
