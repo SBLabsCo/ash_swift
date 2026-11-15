@@ -374,7 +374,7 @@ defmodule AshSwift.Codegen.Emitter do
          %{
            rpc_name: rpc_name,
            action_type: :read,
-           is_get?: false,
+           get: nil,
            pagination_type: :offset,
            sortable?: sortable?,
            filterable?: filterable?
@@ -407,7 +407,7 @@ defmodule AshSwift.Codegen.Emitter do
          %{
            rpc_name: rpc_name,
            action_type: :read,
-           is_get?: false,
+           get: nil,
            pagination_type: :keyset,
            sortable?: sortable?,
            filterable?: filterable?
@@ -440,7 +440,7 @@ defmodule AshSwift.Codegen.Emitter do
          %{
            rpc_name: rpc_name,
            action_type: :read,
-           is_get?: false,
+           get: nil,
            sortable?: sortable?,
            filterable?: filterable?
          } = action,
@@ -470,9 +470,7 @@ defmodule AshSwift.Codegen.Emitter do
          %{
            rpc_name: rpc_name,
            action_type: :read,
-           is_get?: true,
-           get_by_params: get_by_params,
-           get_by_location: location,
+           get: get,
            not_found_error?: not_found_error?
          } = action,
          type_name
@@ -485,17 +483,16 @@ defmodule AshSwift.Codegen.Emitter do
     # Native/RPC get_by fields travel as a dict under `input`/`getBy`. A pure
     # get? has no lookup channel at all: the pipeline never reads `identity` for
     # a read, so the action narrows itself via its own arguments. See issue #91.
-    lookup_args =
-      case location do
-        :none ->
-          []
+    {get_by_params, lookup_args} =
+      case get do
+        :pure ->
+          {[], []}
 
-        location when location in [:input, :get_by] ->
-          dict_entries =
-            Enum.map_join(get_by_params, ", ", fn %{name: n} -> ~s("#{n}": #{n}) end)
+        {location, params} when location in [:input, :get_by] ->
+          dict_entries = Enum.map_join(params, ", ", fn %{name: n} -> ~s("#{n}": #{n}) end)
 
           label = if location == :input, do: "input", else: "getBy"
-          [{label, "[#{dict_entries}]"}]
+          {params, [{label, "[#{dict_entries}]"}]}
       end
 
     # A get's read arguments go to the request's `arguments:` — the runtime merges

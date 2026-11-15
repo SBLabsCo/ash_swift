@@ -85,13 +85,13 @@ defmodule AshSwift.Codegen.Contract do
   a structural diff over the old shape would not safely interpret.
 
   What the contract does **not** see: a change that is wire-only rather than
-  binary-shaped — e.g. `get_by_location` flipping between `:input` and
-  `:get_by` (how the client sends a lookup key) — has no representation here
+  binary-shaped — e.g. `get` flipping between `{:input, params}` and
+  `{:get_by, params}` (how the client sends a lookup key) — has no representation here
   (or in the emitted Swift's compiled shape) because the generated function
-  signature is unchanged either way. `get_by_location` takes one of
-  `:input | :get_by | :none | nil` (see the Reader moduledoc); only the
-  `:input` <-> `:get_by` move is wire-only. A move to or from `:none` (a pure
-  `get?` read) is *not*: the generated signature gains or loses its lookup
+  signature is unchanged either way. `get` takes one of
+  `nil | :pure | {:input, params} | {:get_by, params}` (see the Reader
+  moduledoc); only the `:input` <-> `:get_by` move is wire-only. A move to or
+  from `:pure` (a pure `get?` read) is *not*: the generated signature gains or loses its lookup
   params, so the contract does show it. A gate built on this document, like a
   gate built on the emitted Swift, cannot see the wire-only class of change;
   it needs its own coverage (e.g. `AshSwift.Codegen.ReaderTest`).
@@ -193,6 +193,9 @@ defmodule AshSwift.Codegen.Contract do
     }
   end
 
+  defp get_lookup_params({_location, params}), do: params
+  defp get_lookup_params(_pure_or_not_get), do: []
+
   # An action's input arguments, from whichever of its three possible sources
   # apply: lookup fields (get_by), the primary-key identity params
   # (update/destroy), and its generated input struct's fields (create/update/
@@ -202,7 +205,7 @@ defmodule AshSwift.Codegen.Contract do
   # full method signature).
   defp action_inputs(action, input_structs_by_name) do
     lookup_inputs =
-      (action.get_by_params ++ action.primary_key_params)
+      (get_lookup_params(action.get) ++ action.primary_key_params)
       |> Enum.map(fn %{name: name, swift_type: type} ->
         %{name: to_string(name), type: type, required: true}
       end)
@@ -246,18 +249,20 @@ defmodule AshSwift.Codegen.Contract do
   # as a return type in the generated Swift, so any drift between this and
   # `Emitter.method_spec/2` fails a real test rather than resting on this
   # comment alone.
-  defp result_type(%{action_type: :read, is_get?: false, pagination_type: :offset}, type_name),
+  defp result_type(%{action_type: :read, get: nil, pagination_type: :offset}, type_name),
     do: "OffsetPage<#{type_name}>"
 
-  defp result_type(%{action_type: :read, is_get?: false, pagination_type: :keyset}, type_name),
+  defp result_type(%{action_type: :read, get: nil, pagination_type: :keyset}, type_name),
     do: "KeysetPage<#{type_name}>"
 
-  defp result_type(%{action_type: :read, is_get?: false}, type_name), do: "[#{type_name}]"
+  defp result_type(%{action_type: :read, get: nil}, type_name), do: "[#{type_name}]"
 
-  defp result_type(%{action_type: :read, is_get?: true, not_found_error?: true}, type_name),
-    do: type_name
+  defp result_type(%{action_type: :read, get: get, not_found_error?: true}, type_name)
+       when not is_nil(get),
+       do: type_name
 
-  defp result_type(%{action_type: :read, is_get?: true}, type_name), do: "#{type_name}?"
+  defp result_type(%{action_type: :read, get: get}, type_name) when not is_nil(get),
+    do: "#{type_name}?"
 
   defp result_type(%{action_type: :create}, type_name), do: type_name
   defp result_type(%{action_type: :update}, type_name), do: type_name

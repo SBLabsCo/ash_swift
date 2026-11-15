@@ -45,10 +45,8 @@ defmodule AshSwift.Codegen.Reader do
         rpc_name:        atom,                 # RPC action name; the Swift method name source
         action:          atom,                 # the underlying Ash action name
         action_type:     :read | :create | :update | :destroy | :action,
-        is_get?:         boolean,              # true for a single-record read (native get?, or RPC get?/get_by); false otherwise
-        get_by_params:   [%{name, swift_type}],  # lookup params of a get; [] when not a get or a pure get?
-        get_by_location: :input | :get_by | :none | nil,   # see below
-        not_found_error?: boolean,             # meaningful only when is_get?: true => returns T and throws on missing, false => T?;
+        get:             nil | :pure | {:input, [param]} | {:get_by, [param]},  # see below; param is %{name, swift_type}
+        not_found_error?: boolean,             # meaningful only when `get` is non-nil => returns T and throws on missing, false => T?;
                                                # on CRUD non-gets it carries the configured default; on generic actions it is always false.
                                                # ignored in both cases
         input_struct_name: String.t() | nil,   # the `{Name}Input` struct. create/update: always set; read: set only when it has
@@ -66,24 +64,23 @@ defmodule AshSwift.Codegen.Reader do
         generic_return:  :void | {:typed, swift_type} | {:typed_record, struct_name}  # [generic only]
       }
 
-  `get_by_location` says where a get's lookup travels on the wire, and is a
-  closed set of four values:
+  `get` says whether an action is a single-record read and, if so, where its
+  lookup travels on the wire. It is a closed set of four forms, so an
+  impossible combination (a lookup param without a get, say) cannot be built:
 
-    * `:input` — a native Ash `get_by` key, sent inside the `input` dict.
-    * `:get_by` — an RPC-level `get_by`, sent under the request's `getBy`.
-    * `:none` — a get with no lookup channel at all (a pure `get?` action,
-      which narrows itself through its own arguments, sent as `input:`, and
-      sends no identity; the RPC pipeline never reads `identity` for a read,
-      see #91 and docs/agents/lessons.md).
     * `nil` — not a get (non-read actions, generic actions, list reads).
+    * `{:input, params}` — a native Ash `get_by`, its fields sent inside the
+      `input` dict.
+    * `{:get_by, params}` — an RPC-level `get_by`, its fields sent under the
+      request's `getBy`.
+    * `:pure` — a pure `get?` action with no lookup channel: it narrows itself
+      through its own arguments, sent as `input:`, and sends no identity (the
+      RPC pipeline never reads `identity` for a read, see #91 and
+      docs/agents/lessons.md). It still emits a get function, with no lookup
+      parameter.
 
-  The invariant: `get_by_location == nil` exactly when `is_get?` is false, and
-  within a get `:none` means there is no lookup channel (a pure get still emits
-  a get function, with no lookup parameter). The emitter picks the get clause
-  on `is_get?`; keeping `:none` distinct from `nil` lets that clause's `case`
-  match every value with no `nil` fallthrough. They are *not* related to `:none` in
-  the pagination keys, where it means "no pagination"; the two atoms live in
-  different keys and are never compared across them.
+  Each `param` is a `%{name, swift_type}` map. The emitter picks the get clause
+  on any non-nil `get`.
 
   The two query-surface fields differ in shape, so mind which you assert on:
 
@@ -409,11 +406,9 @@ defmodule AshSwift.Codegen.Reader do
          has_sortable_fields?,
          {actions_acc, structs_acc}
        ) do
-    {is_get?, get_by_params, get_by_location} =
+    get =
       if maction.type == :read do
         build_get_info(maction, rpc_action, resource, formatter, mres)
-      else
-        {false, [], nil}
       end
 
     pagination_type =
@@ -428,7 +423,7 @@ defmodule AshSwift.Codegen.Reader do
     # *overloaded* paginated function (see method_specs/2). Get actions and
     # required-pagination actions are excluded — :none means "no overload".
     optional_pagination_type =
-      if maction.type == :read and not is_get? do
+      if maction.type == :read and is_nil(get) do
         optional_action_pagination_type(maction)
       else
         :none
@@ -446,14 +441,14 @@ defmodule AshSwift.Codegen.Reader do
     # Also requires the resource to actually have sortable fields — a sort
     # over an empty SortField enum is meaningless and won't compile (#41).
     sortable? =
-      maction.type == :read and not is_get? and sort_enabled?(rpc_action) and
+      maction.type == :read and is_nil(get) and sort_enabled?(rpc_action) and
         has_sortable_fields?
 
     # Filtering is offered on the same surface as sorting — list (non-get)
     # read actions whose RPC action leaves `enable_filter?` at its default
     # of true. A false flag drops the filter: parameter so a forbidden
     # filter is a compile error, not a silently-ignored argument.
-    filterable? = maction.type == :read and not is_get? and filter_enabled?(rpc_action)
+    filterable? = maction.type == :read and is_nil(get) and filter_enabled?(rpc_action)
 
     # A create addresses no existing record, so it has no identity params. A
     # primary key the caller supplies arrives through the accepted input fields
@@ -506,9 +501,7 @@ defmodule AshSwift.Codegen.Reader do
       rpc_name: rpc_action.name,
       action: rpc_action.action,
       action_type: maction.type,
-      is_get?: is_get?,
-      get_by_params: get_by_params,
-      get_by_location: get_by_location,
+      get: get,
       not_found_error?: not_found_error?,
       input_struct_name: input_struct_name,
       # Read and destroy actions: whether the `input:` parameter is required (some
@@ -554,9 +547,7 @@ defmodule AshSwift.Codegen.Reader do
         rpc_name: rpc_action.name,
         action: rpc_action.action,
         action_type: :action,
-        is_get?: false,
-        get_by_params: [],
-        get_by_location: nil,
+        get: nil,
         not_found_error?: false,
         input_struct_name: input_struct_name,
         primary_key_params: [],
@@ -1250,11 +1241,13 @@ defmodule AshSwift.Codegen.Reader do
   # Determines whether a read action is a get action and, if so, collects the
   # lookup field params and where to place them in the request body.
   #
-  # Returns {is_get?, get_by_params, location} where:
-  #   - get_by_params: list of %{name, swift_type} for the lookup fields
-  #   - location: :input (native get_by on the action) | :get_by (RPC-level
-  #     get_by) | :none (pure get? — no lookup params; the action narrows
-  #     itself through its own arguments)
+  # Returns the action's `get` IR value:
+  #   - `{:input, params}` — native get_by on the action; params is a list of
+  #     %{name, swift_type} for the lookup fields
+  #   - `{:get_by, params}` — RPC-level get_by
+  #   - `:pure` — pure get? (no lookup channel; the action narrows itself
+  #     through its own arguments)
+  #   - `nil` — not a get
   defp build_get_info(maction, rpc_action, resource, formatter, mres) do
     # The native get_by fields come from the Ash action itself. The manifest
     # surfaces them as ordinary inputs (`get_by :id` → an `id` input) mixed in with
@@ -1268,11 +1261,11 @@ defmodule AshSwift.Codegen.Reader do
     cond do
       native_get_by != [] ->
         # get_by on the Ash action itself: fields travel in the `input` body key.
-        {true, build_get_by_params(native_get_by, resource, formatter), :input}
+        {:input, build_get_by_params(native_get_by, resource, formatter)}
 
       rpc_get_by != [] ->
         # get_by on the RPC action entity: fields travel in the `getBy` body key.
-        {true, build_get_by_params(rpc_get_by, resource, formatter), :get_by}
+        {:get_by, build_get_by_params(rpc_get_by, resource, formatter)}
 
       rpc_get? || maction.get? ->
         # Pure get? (no get_by anywhere): the RPC pipeline never reads a
@@ -1280,10 +1273,10 @@ defmodule AshSwift.Codegen.Reader do
         # sending a pk would be silently dropped. The action narrows itself
         # through its own arguments (declared as `input:`), so there is no
         # lookup parameter. See issue #91.
-        {true, [], :none}
+        :pure
 
       true ->
-        {false, [], nil}
+        nil
     end
   end
 
