@@ -69,16 +69,28 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
-  describe "get? lookup location (#66)" do
-    test "a pure get? action looks the record up by primary key via :identity" do
+  describe "get? lookup location (#66, #91)" do
+    test "a pure get? action has no lookup params (#91)" do
       todo = resource(Reader.read(@domains), "Todo")
       fetch = Enum.find(todo.actions, &(&1.rpc_name == :fetch_todo))
 
-      assert fetch.get_by_location == :identity
-      assert Enum.map(fetch.get_by_params, & &1.name) == ["id"]
+      assert fetch.get_by_location == :none
+      assert fetch.get_by_params == []
     end
 
-    test "a native get_by action still travels via :input, not :identity" do
+    test "a pure get? action with arguments keeps them as read input, no lookup (#91)" do
+      todo = resource(Reader.read(@domains), "Todo")
+      fetch = Enum.find(todo.actions, &(&1.rpc_name == :fetch_todo_by_title))
+
+      assert fetch.get_by_location == :none
+      assert fetch.get_by_params == []
+      assert fetch.input_struct_name == "FetchTodoByTitleInput"
+
+      input = Enum.find(todo.input_structs, &(&1.struct_name == "FetchTodoByTitleInput"))
+      assert Enum.any?(input.fields, &(&1.name == "title"))
+    end
+
+    test "a native get_by action still travels via :input" do
       todo = resource(Reader.read(@domains), "Todo")
       get_todo = Enum.find(todo.actions, &(&1.rpc_name == :get_todo))
 

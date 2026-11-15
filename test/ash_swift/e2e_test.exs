@@ -361,37 +361,35 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
-  test "pure get? action: pipeline reads the primary key from identity, not input (issue #66)" do
-    todo =
-      Ash.create!(AshSwift.Test.Todo, %{title: "Fetch E2E Todo"}, domain: AshSwift.Test.Domain)
+  test "pure get? action: narrows by its own arguments, never by identity (issue #91)" do
+    Ash.create!(AshSwift.Test.Todo, %{title: "Fetch E2E A"}, domain: AshSwift.Test.Domain)
 
-    todo_id = to_string(todo.id)
+    wanted =
+      Ash.create!(AshSwift.Test.Todo, %{title: "Fetch E2E B"}, domain: AshSwift.Test.Domain)
+
     conn = %Plug.Conn{private: %{}, assigns: %{}}
 
-    # The bug: the old codegen sent the pk under `input`. A pure get? action has
-    # no `id` input, so the pipeline rejects it (NoSuchInput) — the failure that
-    # compiled fine and only surfaced at runtime.
-    input_result =
+    # Robust to table contents: >= 2 rows exist, and the read narrows via its own
+    # `title` argument (the `input:` the generated function sends).
+    result =
       AshTypescript.Rpc.run_action(:ash_swift, conn, %{
-        "action" => "fetch_todo",
-        "input" => %{"id" => todo_id},
+        "action" => "fetch_todo_by_title",
+        "input" => %{"title" => "Fetch E2E B"},
         "fields" => ["id", "title"]
       })
 
-    assert input_result["success"] == false
+    assert result["success"] == true
+    assert result["data"]["id"] == to_string(wanted.id)
+    assert result["data"]["title"] == "Fetch E2E B"
 
-    # The fix: the pk crosses the wire as the top-level `identity` param — exactly
-    # what the generated GetRequest now emits (`identity: id`) — and round-trips.
-    identity_result =
+    # The argument-free pure get? no longer errors with several rows in the table.
+    bare =
       AshTypescript.Rpc.run_action(:ash_swift, conn, %{
         "action" => "fetch_todo",
-        "identity" => todo_id,
         "fields" => ["id", "title"]
       })
 
-    assert identity_result["success"] == true
-    assert identity_result["data"]["id"] == todo_id
-    assert identity_result["data"]["title"] == "Fetch E2E Todo"
+    assert bare["success"] == true
   end
 
   test "create, update, and destroy actions encode correctly and return typed records" do

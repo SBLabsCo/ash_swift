@@ -32,7 +32,7 @@ defmodule AshSwift.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md"],
+      extras: ["README.md", "CHANGELOG.md"],
       source_ref: "v#{@version}"
     ]
   end
@@ -43,7 +43,7 @@ defmodule AshSwift.MixProject do
       links: %{"GitHub" => "https://github.com/SBLabsCo/ash_swift"},
       # The Swift runtime (Sources/, Package.swift), tests, and CI configs don't
       # belong in the Hex release — ship only the Elixir codegen and docs.
-      files: ~w(lib mix.exs README.md LICENSE)
+      files: ~w(lib mix.exs README.md LICENSE CHANGELOG.md)
     ]
   end
 

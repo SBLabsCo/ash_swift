@@ -482,20 +482,20 @@ defmodule AshSwift.Codegen.Emitter do
         do: {"GetRequest", type_name},
         else: {"GetOptionalRequest", "#{type_name}?"}
 
-    # A pure get? carries its single primary key as the top-level `identity`
-    # string (like update/destroy); native/RPC get_by fields travel as a dict
-    # under `input`/`getBy`. See issue #66.
-    lookup_arg =
+    # Native/RPC get_by fields travel as a dict under `input`/`getBy`. A pure
+    # get? has no lookup channel at all: the pipeline never reads `identity` for
+    # a read, so the action narrows itself via its own arguments. See issue #91.
+    lookup_args =
       case location do
-        :identity ->
-          {"identity", pk_identity!(get_by_params, type_name, "get")}
+        :none ->
+          []
 
         location when location in [:input, :get_by] ->
           dict_entries =
             Enum.map_join(get_by_params, ", ", fn %{name: n} -> ~s("#{n}": #{n}) end)
 
           label = if location == :input, do: "input", else: "getBy"
-          {label, "[#{dict_entries}]"}
+          [{label, "[#{dict_entries}]"}]
       end
 
     # A get's read arguments go to the request's `arguments:` — the runtime merges
@@ -510,7 +510,8 @@ defmodule AshSwift.Codegen.Emitter do
       return_type: return_type,
       request_type: request_type,
       request_args:
-        [{"action", swift_string(rpc_name)}, lookup_arg] ++ input_args ++ [{"fields", "fields"}]
+        [{"action", swift_string(rpc_name)}] ++
+          lookup_args ++ input_args ++ [{"fields", "fields"}]
     }
   end
 

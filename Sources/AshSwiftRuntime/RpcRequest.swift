@@ -69,15 +69,13 @@ public struct PagedBody<P: Encodable & Sendable>: Encodable, Sendable {
     let filter: AnyEncodable?
 }
 
-/// Body for get actions. `identity` carries a pure `get?` primary-key lookup (a
-/// top-level string, like update/destroy — see ADR-0003); `input` carries native
-/// get_by field values merged with the read's own arguments (issue #87); `getBy`
-/// carries RPC-level get_by field values. nil values are omitted from the JSON so
-/// exactly one lookup channel appears per request.
+/// Body for get actions. `input` carries native get_by field values merged with
+/// the read's own arguments (issue #87); `getBy` carries RPC-level get_by field
+/// values. A pure `get?` read has no lookup channel — it is narrowed by its own
+/// arguments (issue #91). nil values are omitted from the JSON.
 public struct GetBody: Encodable, Sendable {
     let action: String
     let fields: [FieldSelection]
-    let identity: String?
     let input: GetInput?
     let getBy: [String: String]?
 }
@@ -295,7 +293,6 @@ public struct KeysetPageRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = T
     let action: String
-    let identity: String?
     let input: [String: String]
     let getBy: [String: String]
     let arguments: AnyEncodable?
@@ -306,14 +303,12 @@ public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     /// `input` object.
     public init(
         action: String,
-        identity: String? = nil,
         input: [String: String] = [:],
         getBy: [String: String] = [:],
         arguments: AnyEncodable? = nil,
         fields: [FieldSelection] = []
     ) {
         self.action = action
-        self.identity = identity
         self.input = input
         self.getBy = getBy
         self.arguments = arguments
@@ -324,7 +319,6 @@ public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         GetBody(
             action: action,
             fields: fields,
-            identity: identity,
             input: GetInput.make(arguments: arguments, lookup: input),
             getBy: getBy.isEmpty ? nil : getBy
         )
@@ -336,7 +330,6 @@ public struct GetRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = T?
     let action: String
-    let identity: String?
     let input: [String: String]
     let getBy: [String: String]
     let arguments: AnyEncodable?
@@ -347,14 +340,12 @@ public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     /// `input` object.
     public init(
         action: String,
-        identity: String? = nil,
         input: [String: String] = [:],
         getBy: [String: String] = [:],
         arguments: AnyEncodable? = nil,
         fields: [FieldSelection] = []
     ) {
         self.action = action
-        self.identity = identity
         self.input = input
         self.getBy = getBy
         self.arguments = arguments
@@ -365,7 +356,6 @@ public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         GetBody(
             action: action,
             fields: fields,
-            identity: identity,
             input: GetInput.make(arguments: arguments, lookup: input),
             getBy: getBy.isEmpty ? nil : getBy
         )
