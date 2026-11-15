@@ -108,11 +108,6 @@
           "type": "Date"
         },
         {
-          "name": "id",
-          "required": true,
-          "type": "String"
-        },
-        {
           "name": "labels",
           "required": false,
           "type": "[TodoLabels]"
@@ -205,11 +200,6 @@
           "name": "extras",
           "required": false,
           "type": "[String: AshJSON]"
-        },
-        {
-          "name": "id",
-          "required": true,
-          "type": "String"
         },
         {
           "name": "note",
@@ -880,11 +870,6 @@
       "inputs": [
         {
           "name": "email",
-          "required": true,
-          "type": "String"
-        },
-        {
-          "name": "id",
           "required": true,
           "type": "String"
         },

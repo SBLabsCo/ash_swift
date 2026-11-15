@@ -55,7 +55,7 @@ defmodule AshSwift.Codegen.Reader do
                                                # generic: set only when it has inputs
         input_required?: boolean,              # [CRUD only; absent on generic] meaningful only for reads: whether `input:`
                                                # must be supplied (some argument is required); false otherwise
-        primary_key_params: [%{name, swift_type}],  # create/update/destroy: the resource's PK params; [] for read/generic.
+        primary_key_params: [%{name, swift_type}],  # update/destroy: the resource's PK params; [] for create/read/generic.
                                                # The emitter uses it only for update/destroy (create ignores it)
         pagination_type: :offset | :keyset | :none,           # required pagination => paginated return
         optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload
@@ -455,7 +455,12 @@ defmodule AshSwift.Codegen.Reader do
 
     {input_struct_name, primary_key_params} =
       case maction.type do
-        type when type in [:create, :update] ->
+        # A create has no PK input: the server generates it (e.g. uuid_primary_key),
+        # so it is not part of the create surface (#101).
+        :create ->
+          {pascal_case(rpc_action.name) <> "Input", []}
+
+        :update ->
           struct_name = pascal_case(rpc_action.name) <> "Input"
 
           {struct_name, build_get_by_params(mres.primary_key, resource, formatter)}
