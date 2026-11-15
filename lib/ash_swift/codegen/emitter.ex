@@ -342,7 +342,7 @@ defmodule AshSwift.Codegen.Emitter do
     {filter_params, filter_args} = filter_entries(action.filterable?, type_name)
     {sort_params, sort_args} = sort_entries(action.sortable?, type_name)
 
-    {input_params, input_args} = read_input_entries(action, "input")
+    {input_params, input_args} = input_entries(action, "input")
 
     %{
       rpc_name: rpc_name,
@@ -381,7 +381,7 @@ defmodule AshSwift.Codegen.Emitter do
          } = action,
          type_name
        ) do
-    {input_params, input_args} = read_input_entries(action, "input")
+    {input_params, input_args} = input_entries(action, "input")
     {filter_params, filter_args} = filter_entries(filterable?, type_name)
     {sort_params, sort_args} = sort_entries(sortable?, type_name)
 
@@ -414,7 +414,7 @@ defmodule AshSwift.Codegen.Emitter do
          } = action,
          type_name
        ) do
-    {input_params, input_args} = read_input_entries(action, "input")
+    {input_params, input_args} = input_entries(action, "input")
     {filter_params, filter_args} = filter_entries(filterable?, type_name)
     {sort_params, sort_args} = sort_entries(sortable?, type_name)
 
@@ -446,7 +446,7 @@ defmodule AshSwift.Codegen.Emitter do
          } = action,
          type_name
        ) do
-    {input_params, input_args} = read_input_entries(action, "input")
+    {input_params, input_args} = input_entries(action, "input")
     {filter_params, filter_args} = filter_entries(filterable?, type_name)
     {sort_params, sort_args} = sort_entries(sortable?, type_name)
 
@@ -500,7 +500,7 @@ defmodule AshSwift.Codegen.Emitter do
 
     # A get's read arguments go to the request's `arguments:` — the runtime merges
     # them into the `input` dict alongside any native get_by lookup fields.
-    {input_params, input_args} = read_input_entries(action, "arguments")
+    {input_params, input_args} = input_entries(action, "arguments")
 
     %{
       rpc_name: rpc_name,
@@ -561,23 +561,27 @@ defmodule AshSwift.Codegen.Emitter do
     }
   end
 
-  # Destroy actions: primary-key param only, void return.
+  # Destroy actions: primary-key param, plus a typed `input:` when the action
+  # declares arguments (issue #102); void return.
   # M1: single primary-key field only; its value travels as the `identity` string.
   defp method_spec(
-         %{rpc_name: rpc_name, action_type: :destroy, primary_key_params: pk_params},
+         %{rpc_name: rpc_name, action_type: :destroy, primary_key_params: pk_params} = action,
          type_name
        ) do
+    {input_params, input_args} = input_entries(action, "input")
+
     %{
       rpc_name: rpc_name,
       func_name: lower_camel(rpc_name),
       doc: "destroy record",
-      params: Enum.map(pk_params, &field_param/1),
+      params: Enum.map(pk_params, &field_param/1) ++ input_params,
       return_type: nil,
       request_type: "DestroyRequest",
-      request_args: [
-        {"action", swift_string(rpc_name)},
-        {"identity", pk_identity!(pk_params, type_name, "destroy")}
-      ]
+      request_args:
+        [
+          {"action", swift_string(rpc_name)},
+          {"identity", pk_identity!(pk_params, type_name, "destroy")}
+        ] ++ input_args
     }
   end
 
@@ -694,26 +698,31 @@ defmodule AshSwift.Codegen.Emitter do
 
   defp filter_entries(false, _type_name), do: {[], []}
 
-  # The typed `input:` parameter for a read action that declares arguments (issue
-  # #87), and its request argument under `label` (`input` for list/paginated
-  # requests, `arguments` for get requests). Required when any argument must be
-  # supplied; otherwise an optional `= nil` so `input`-less calls still compile.
-  # A read with no arguments gets neither, leaving its signature byte-identical.
-  # The value is type-erased to AnyEncodable, like `filter`. Every clause matches
-  # `action_type: :read` so a non-read action map (which carries no
-  # `input_required?`) fails loudly here instead of defaulting to an optional input.
-  defp read_input_entries(%{action_type: :read, input_struct_name: nil}, _label), do: {[], []}
+  # The typed `input:` parameter for a read or destroy action that declares
+  # arguments (issues #87, #102), and its request argument under `label` (`input`
+  # for list/paginated/destroy requests, `arguments` for get requests). Required
+  # when any argument must be supplied; otherwise an optional `= nil` so
+  # `input`-less calls still compile. An action with no arguments gets neither,
+  # leaving its signature byte-identical. The value is type-erased to
+  # AnyEncodable, like `filter`. Every clause is guarded to read/destroy so any
+  # other action map (which carries no `input_required?`) fails loudly here
+  # instead of defaulting to an optional input.
+  defp input_entries(%{action_type: type, input_struct_name: nil}, _label)
+       when type in [:read, :destroy],
+       do: {[], []}
 
-  defp read_input_entries(
-         %{action_type: :read, input_struct_name: struct_name, input_required?: true},
+  defp input_entries(
+         %{action_type: type, input_struct_name: struct_name, input_required?: true},
          label
-       ),
+       )
+       when type in [:read, :destroy],
        do: {[%{name: "input", type: struct_name, default: nil}], [{label, "AnyEncodable(input)"}]}
 
-  defp read_input_entries(
-         %{action_type: :read, input_struct_name: struct_name, input_required?: false},
+  defp input_entries(
+         %{action_type: type, input_struct_name: struct_name, input_required?: false},
          label
-       ) do
+       )
+       when type in [:read, :destroy] do
     {[%{name: "input", type: "#{struct_name}?", default: "nil"}],
      [{label, "input.map { AnyEncodable($0) }"}]}
   end

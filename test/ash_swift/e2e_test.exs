@@ -654,7 +654,7 @@ defmodule AshSwift.E2ETest do
     assert status == 0, "swift test failed:\n#{output}"
   end
 
-  test "read-action arguments: the generated functions' request bodies narrow the result set (issue #87)" do
+  test "read/destroy action arguments: the generated functions' request bodies carry them (issues #87, #102)" do
     repo_root = File.cwd!()
     tmp = make_consumer_package(repo_root)
     sources = Path.join([tmp, "Sources", "GeneratedClient"])
@@ -688,6 +688,15 @@ defmodule AshSwift.E2ETest do
         %{title: "#{token}-open", completed: false, user_id: owner.id},
         domain: AshSwift.Test.Domain
       )
+
+    # Destroy-action arguments (#102): one todo per destroy call below.
+    mk = fn suffix ->
+      Ash.create!(AshSwift.Test.Todo, %{title: "#{token}-#{suffix}"},
+        domain: AshSwift.Test.Domain
+      )
+    end
+
+    [archived, vetoed, discarded, plain] = Enum.map(~w(a v d p), mk)
 
     # Step 1 (Swift): call each generated read function through a stub transport
     # that captures the outgoing body and writes it to disk. The canned responses
@@ -753,6 +762,17 @@ defmodule AshSwift.E2ETest do
                 title: "#{token}-done", input: FindTodoScopedInput(userId: ownerId), fields: ["id"])
             let _ = try await rpc("find_open_done_only", record).findTodoScoped(
                 title: "#{token}-open", input: FindTodoScopedInput(completedOnly: true), fields: ["id"])
+        }
+
+        func testCaptureDestroyBodies() async throws {
+            let ok = #"{"success":true,"data":{}}"#
+            try await rpc("archive", ok).archiveTodo(
+                id: "#{archived.id}", input: ArchiveTodoInput(reason: "done"))
+            try await rpc("veto", ok).archiveTodo(
+                id: "#{vetoed.id}", input: ArchiveTodoInput(reason: "veto"))
+            try await rpc("discard", ok).discardTodo(
+                id: "#{discarded.id}", input: DiscardTodoInput(default: "x", hard: true))
+            try await rpc("discard_bare", ok).discardTodo(id: "#{plain.id}")
         }
     }
     """
@@ -825,6 +845,37 @@ defmodule AshSwift.E2ETest do
 
     {_body, result} = run.("find_open_done_only")
     assert result["success"] == false
+
+    # Destroy arguments (#102): they ride under `input`, the record under `identity`.
+    exists? = fn todo ->
+      match?({:ok, _}, Ash.get(AshSwift.Test.Todo, todo.id, domain: AshSwift.Test.Domain))
+    end
+
+    # The argument rides under `input`, the record under `identity`.
+    {body, result} = run.("archive")
+    assert body["identity"] == archived.id
+    assert body["input"] == %{"reason" => "done"}
+    assert result["success"] == true
+    refute exists?.(archived)
+
+    # The action actually received the argument: a vetoing reason is refused and
+    # the record survives.
+    {body, result} = run.("veto")
+    assert body["input"] == %{"reason" => "veto"}
+    assert result["success"] == false
+    assert exists?.(vetoed)
+
+    # Optional arguments: a keyword-named one reaches the wire under its own key.
+    {body, result} = run.("discard")
+    assert body["input"] == %{"default" => "x", "hard" => true}
+    assert result["success"] == true
+    refute exists?.(discarded)
+
+    # No input → no `input` key at all, and an all-optional destroy still succeeds.
+    {body, result} = run.("discard_bare")
+    refute Map.has_key?(body, "input")
+    assert result["success"] == true
+    refute exists?.(plain)
   end
 
   test "custom headers are forwarded on generated calls; backend errors surface as typed AshRpcError" do

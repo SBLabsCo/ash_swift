@@ -118,6 +118,19 @@ final class RpcRequestTests: XCTestCase {
         XCTAssertEqual(json["action"] as? String, "destroy_todo")
         XCTAssertEqual(json["identity"] as? String, "uuid-9")
         XCTAssertNil(json["fields"], "destroy carries no field selection")
+        XCTAssertNil(json["input"], "an argument-less destroy omits input")
+    }
+
+    func testDestroyRequestBodyCarriesInputWhenGiven() throws {
+        let json = try encodedBody(
+            DestroyRequest(
+                action: "archive_todo", identity: "uuid-9",
+                input: AnyEncodable(StubInput(title: "why")))
+        )
+        XCTAssertEqual(json["action"] as? String, "archive_todo")
+        XCTAssertEqual(json["identity"] as? String, "uuid-9")
+        let input = try XCTUnwrap(json["input"] as? [String: Any])
+        XCTAssertEqual(input["title"] as? String, "why")
     }
 
     func testGenericActionRequestBodyCarriesInput() throws {

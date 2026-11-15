@@ -43,13 +43,36 @@ defmodule AshSwift.Codegen.ReaderTest do
     test "CRUD actions carry exactly the documented keys; generic actions their own set" do
       todo = resource(Reader.read(@domains), "Todo")
 
-      for name <- [:list_todos, :get_todo, :fetch_todo, :create_todo, :update_todo, :destroy_todo] do
+      for name <- [
+            :list_todos,
+            :get_todo,
+            :fetch_todo,
+            :create_todo,
+            :update_todo,
+            :destroy_todo,
+            :archive_todo,
+            :discard_todo
+          ] do
         action = Enum.find(todo.actions, &(&1.rpc_name == name))
         assert MapSet.new(Map.keys(action)) == @crud_keys, "CRUD keys drifted for #{name}"
       end
 
       ping = Enum.find(todo.actions, &(&1.rpc_name == :ping))
       assert MapSet.new(Map.keys(ping)) == @generic_keys
+    end
+  end
+
+  describe "destroy action inputs (#102)" do
+    test "a destroy gets an input struct only when it declares inputs" do
+      todo = resource(Reader.read(@domains), "Todo")
+      action = fn name -> Enum.find(todo.actions, &(&1.rpc_name == name)) end
+
+      assert action.(:archive_todo).input_struct_name == "ArchiveTodoInput"
+      assert action.(:archive_todo).input_required? == true
+      assert action.(:discard_todo).input_struct_name == "DiscardTodoInput"
+      assert action.(:discard_todo).input_required? == false
+      assert action.(:destroy_todo).input_struct_name == nil
+      assert action.(:destroy_todo).input_required? == false
     end
   end
 

@@ -1167,6 +1167,46 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
+  describe "destroy action arguments (issue #102)" do
+    setup do
+      %{files: Codegen.build_files(@domains)}
+    end
+
+    test "a required argument generates an input struct and a required input:", %{files: files} do
+      body = input_struct(files["AshRpcTypes.swift"], "ArchiveTodoInput")
+      assert body =~ "    public var reason: String\n"
+
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func archiveTodo(id: String, input: ArchiveTodoInput) async throws {"
+
+      assert functions =~
+               ~s|DestroyRequest(action: "archive_todo", identity: id, input: AnyEncodable(input))|
+    end
+
+    test "only-optional arguments make input: optional, with keyword escaping", %{files: files} do
+      body = input_struct(files["AshRpcTypes.swift"], "DiscardTodoInput")
+      assert body =~ "    public var `default`: String?\n"
+      assert body =~ "    public var hard: Bool?\n"
+
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func discardTodo(id: String, input: DiscardTodoInput? = nil) async throws {"
+
+      assert functions =~
+               ~s|DestroyRequest(action: "discard_todo", identity: id, input: input.map { AnyEncodable($0) })|
+    end
+
+    test "a destroy without arguments keeps its exact signature", %{files: files} do
+      functions = files["AshRpcFunctions.swift"]
+      assert functions =~ "public func destroyTodo(id: String) async throws {"
+      assert functions =~ ~s|DestroyRequest(action: "destroy_todo", identity: id)|
+      refute files["AshRpcTypes.swift"] =~ "DestroyTodoInput"
+    end
+  end
+
   describe "read action arguments (issue #87)" do
     setup do
       %{files: Codegen.build_files(@domains)}
