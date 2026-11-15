@@ -6,3 +6,7 @@ swift_exclude = if System.find_executable("swift"), do: [], else: [:swift_build]
 
 ExUnit.configure(exclude: swift_exclude)
 ExUnit.start()
+
+# The :swift_build suites share one SwiftPM consumer package per run
+# (AshSwift.Test.SwiftConsumer); delete it once the suite finishes.
+ExUnit.after_suite(fn _ -> AshSwift.Test.SwiftConsumer.cleanup() end)

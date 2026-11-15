@@ -10,22 +10,18 @@ defmodule AshSwift.E2ETest do
   """
   use ExUnit.Case, async: false
 
-  alias AshSwift.Codegen
+  alias AshSwift.Test.SwiftConsumer
 
-  @domains [AshSwift.Test.Domain]
   @moduletag :swift_build
 
   test "generated Swift list function decodes real RPC pipeline JSON" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Generate the Swift types and functions into the consumer package.
-    assert {:ok, written} = Codegen.generate(@domains, sources)
-    assert "AshRpcTypes.swift" in written
-    assert "AshRpcFunctions.swift" in written
+    # The shared package already holds the generated client (SwiftConsumer).
+    assert File.exists?(Path.join(SwiftConsumer.sources_dir(tmp), "AshRpcTypes.swift"))
+    assert File.exists?(Path.join(SwiftConsumer.sources_dir(tmp), "AshRpcFunctions.swift"))
 
     # Create a todo (owned by a user) in-process using the ETS-backed data layer.
     # Assigning an owner lets us select the multi-word `user_id` field below, which
@@ -96,20 +92,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EDecodeTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EDecodeTest"], cd: tmp, stderr_to_stdout: true)
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EDecodeTest")
   end
 
   test "generated Swift model decodes nested relationship data" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Create a user and a todo that belongs to that user.
     user =
@@ -180,24 +168,16 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2ENestedRelationshipTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2ENestedRelationshipTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2ENestedRelationshipTest")
   end
 
   test "generated Swift enum decodes from real backend enum value" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
-    assert {:ok, written} = Codegen.generate(@domains, sources)
-    assert "AshRpcTypes.swift" in written
+    # The shared package already holds the generated client (SwiftConsumer).
+    assert File.exists?(Path.join(SwiftConsumer.sources_dir(tmp), "AshRpcTypes.swift"))
+    assert File.exists?(Path.join(SwiftConsumer.sources_dir(tmp), "AshRpcFunctions.swift"))
 
     # Create a todo with an explicit priority value so the wire format carries
     # the enum string ("high") and proves the generated Swift enum decodes it.
@@ -256,23 +236,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EEnumDecodeTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EEnumDecodeTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EEnumDecodeTest")
   end
 
   test "get action: single-record retrieval and not-found path exercise both not_found_error? behaviors" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Create a record so we can retrieve it by id.
     todo =
@@ -352,13 +321,7 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EGetActionTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EGetActionTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EGetActionTest")
   end
 
   test "pure get? action: narrows by its own arguments, never by identity (issue #91)" do
@@ -393,13 +356,8 @@ defmodule AshSwift.E2ETest do
   end
 
   test "create, update, and destroy actions encode correctly and return typed records" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     conn = %Plug.Conn{private: %{}, assigns: %{}}
 
@@ -516,23 +474,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EMutationTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EMutationTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EMutationTest")
   end
 
   test "create/update/generic action arguments travel in `input` and the generated input structs encode them (issues #83, #84)" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     conn = %Plug.Conn{private: %{}, assigns: %{}}
 
@@ -645,25 +592,15 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EActionArgumentsTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EActionArgumentsTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EActionArgumentsTest")
   end
 
   test "read/destroy action arguments: the generated functions' request bodies carry them (issues #87, #102)" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
     bodies_dir = Path.join(tmp, "captured_bodies")
-    File.mkdir_p!(tests_dir)
+    File.rm_rf!(bodies_dir)
     File.mkdir_p!(bodies_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
 
     # A fresh owner with one completed and one open todo. The ETS table is shared
     # across this module's tests, so every assertion below is scoped to these rows
@@ -779,13 +716,7 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EReadArgumentsTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EReadArgumentsTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EReadArgumentsTest")
 
     # Step 2 (Elixir): replay each captured body through the real RPC pipeline.
     conn = %Plug.Conn{private: %{}, assigns: %{}}
@@ -879,13 +810,8 @@ defmodule AshSwift.E2ETest do
   end
 
   test "custom headers are forwarded on generated calls; backend errors surface as typed AshRpcError" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # This test exercises the two acceptance criteria (stories 24, 25 in the PRD)
     # through the *generated* AshRpc client, not the runtime directly:
@@ -983,23 +909,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EHeadersAndErrorsTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EHeadersAndErrorsTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EHeadersAndErrorsTest")
   end
 
   test "a real backend error decodes with its vars, shortMessage, fields and path" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Provoke a real validation failure: `title` is `allow_nil?: false`, so the
     # pipeline returns a `required` error carrying the affected field in `vars`.
@@ -1079,23 +994,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EErrorVarsTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EErrorVarsTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EErrorVarsTest")
   end
 
   test "offset-paginated action decodes real backend JSON into OffsetPage<T>" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Create several todos so the paginated response contains results.
     for i <- 1..3 do
@@ -1161,23 +1065,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EOffsetPageTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EOffsetPageTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EOffsetPageTest")
   end
 
   test "optional-pagination read composes filter + sort + page on a single call (issue #37)" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Seed rows in a unique high-score band so `score >= 1000` isolates this test's
     # records from anything else ETS holds (other tests use single/double-digit
@@ -1328,23 +1221,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EPageCompositionTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EPageCompositionTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EPageCompositionTest")
   end
 
   test "keyset optional-pagination overload walks the cursor with filter + sort (issue #37)" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Isolate from the offset composition test (which reserves `score >= 1000`,
     # `completed == true`): these rows are `completed == false`, so neither test's
@@ -1482,23 +1364,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EKeysetOptionalTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EKeysetOptionalTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EKeysetOptionalTest")
   end
 
   test "extended Ash types (Decimal, Date, UtcDatetime, UtcDatetimeUsec, Map) decode from real pipeline JSON" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Create a record with every extended-type field populated. Values chosen so
     # each one round-trips through Jason.encode!/1 and reaches the Swift decoder.
@@ -1633,23 +1504,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EExtendedTypesTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EExtendedTypesTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EExtendedTypesTest")
   end
 
   test "sorted read action: the Swift-assembled sort string is what the pipeline accepts" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Seed three todos with distinct, prefixed titles and a nullable score, so the
     # ordering assertions can isolate this test's records from any others ETS holds.
@@ -1739,20 +1599,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2ESortTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2ESortTest"], cd: tmp, stderr_to_stdout: true)
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2ESortTest")
   end
 
   test "filtered read action: the Swift-encoded filter map is what the pipeline accepts" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Seed todos spanning the filter predicates — completed flag, score comparison,
     # and an enum membership test. Distinct prefixes isolate this test's rows from
@@ -1839,20 +1691,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EFilterTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EFilterTest"], cd: tmp, stderr_to_stdout: true)
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EFilterTest")
   end
 
   test "filtered read with logical combinators: the Swift-encoded and/or/not maps are what the pipeline accepts" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # Seed todos that pin down a compound predicate combining `and` with a nested
     # `or`. Distinct prefixes isolate this test's rows from anything else ETS holds.
@@ -2000,23 +1844,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EFilterCombinatorTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EFilterCombinatorTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EFilterCombinatorTest")
   end
 
   test "aggregate fields decode from real pipeline JSON into the generated model (issue #51)" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # A user with two todos pins the aggregate values: count = 2, exists = true,
     # max(score) = 7. The aggregates are scoped to this user's own todos, so other
@@ -2102,23 +1935,12 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2EAggregateTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2EAggregateTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
+    SwiftConsumer.swift_test!(tmp, "E2EAggregateTest")
   end
 
   test "a zero-argument calculation decodes from real pipeline JSON into the generated model (issue #52)" do
-    repo_root = File.cwd!()
-    tmp = make_consumer_package(repo_root)
-    sources = Path.join([tmp, "Sources", "GeneratedClient"])
-    tests_dir = Path.join([tmp, "Tests", "E2ETests"])
-    File.mkdir_p!(tests_dir)
-
-    assert {:ok, _written} = Codegen.generate(@domains, sources)
+    tmp = SwiftConsumer.shared_package()
+    tests_dir = SwiftConsumer.tests_dir(tmp)
 
     # `display_name` is a zero-argument :string calculation: expr(name <> " <" <>
     # email <> ">"). It computes purely from this user's own attributes, so the
@@ -2182,55 +2004,6 @@ defmodule AshSwift.E2ETest do
 
     File.write!(Path.join(tests_dir, "E2ECalculationTest.swift"), e2e_swift)
 
-    {output, status} =
-      System.cmd("swift", ["test", "--filter", "E2ECalculationTest"],
-        cd: tmp,
-        stderr_to_stdout: true
-      )
-
-    assert status == 0, "swift test failed:\n#{output}"
-  end
-
-  # Builds a throwaway SPM package with both a library target (for the generated
-  # client) and a test target (for the E2E XCTest), mirroring how a real consuming
-  # app would depend on AshSwiftRuntime (ADR-0005).
-  defp make_consumer_package(repo_root) do
-    tmp =
-      Path.join(System.tmp_dir!(), "ash_swift_e2e_#{System.unique_integer([:positive])}")
-
-    on_exit(fn -> File.rm_rf!(tmp) end)
-    File.mkdir_p!(Path.join([tmp, "Sources", "GeneratedClient"]))
-    File.mkdir_p!(Path.join([tmp, "Tests", "E2ETests"]))
-
-    pkg_name = String.downcase(Path.basename(repo_root))
-
-    manifest = """
-    // swift-tools-version:5.9
-    import PackageDescription
-
-    let package = Package(
-        name: "GeneratedClientE2E",
-        platforms: [.iOS(.v16), .macOS(.v13)],
-        dependencies: [
-            .package(path: #{inspect(repo_root)})
-        ],
-        targets: [
-            .target(
-                name: "GeneratedClient",
-                dependencies: [.product(name: "AshSwiftRuntime", package: #{inspect(pkg_name)})]
-            ),
-            .testTarget(
-                name: "E2ETests",
-                dependencies: [
-                    "GeneratedClient",
-                    .product(name: "AshSwiftRuntime", package: #{inspect(pkg_name)})
-                ]
-            )
-        ]
-    )
-    """
-
-    File.write!(Path.join(tmp, "Package.swift"), manifest)
-    tmp
+    SwiftConsumer.swift_test!(tmp, "E2ECalculationTest")
   end
 end
