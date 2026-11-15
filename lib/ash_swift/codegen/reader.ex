@@ -41,14 +41,15 @@ defmodule AshSwift.Codegen.Reader do
   value is *meaningful* only on reads, not that the key is absent elsewhere.
 
       %{
-        rpc_name:        String.t(),           # RPC action name; the Swift method name source
+        rpc_name:        atom,                 # RPC action name; the Swift method name source
         action:          atom,                 # the underlying Ash action name
         action_type:     :read | :create | :update | :destroy | :action,
         is_get?:         boolean,              # true for a single-record read (native get?, or RPC get?/get_by); false otherwise
         get_by_params:   [%{name, swift_type}],  # lookup params of a get; [] when not a get or a pure get?
         get_by_location: :input | :get_by | :none | nil,   # see below
         not_found_error?: boolean,             # meaningful only when is_get?: true => returns T and throws on missing, false => T?;
-                                               # on non-gets it carries the configured default and is ignored
+                                               # on CRUD non-gets it carries the configured default; on generic actions it is always false.
+                                               # ignored in both cases
         input_struct_name: String.t() | nil,   # the `{Name}Input` struct. create/update: always set; destroy: always nil
                                                # (even with arguments); read: set only when it has non-lookup arguments;
                                                # generic: set only when it has inputs
@@ -78,9 +79,9 @@ defmodule AshSwift.Codegen.Reader do
   within a get `:none` means there is no lookup channel (a pure get still emits
   a get function, with no lookup parameter). The emitter picks the get clause
   on `is_get?`; keeping `:none` distinct from `nil` lets that clause's `case`
-  match every value with no `nil` fallthrough. They are *not* related to `:none` in the pagination
-  keys, where it means "no pagination"; the two atoms live in different keys
-  and are never compared across them.
+  match every value with no `nil` fallthrough. They are *not* related to `:none` in
+  the pagination keys, where it means "no pagination"; the two atoms live in
+  different keys and are never compared across them.
 
   The two query-surface fields differ in shape, so mind which you assert on:
 
