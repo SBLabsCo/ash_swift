@@ -145,6 +145,25 @@ defmodule AshSwift.Codegen.ContractTest do
       assert get_todo.filterable == false
     end
 
+    test "create actions do not list the server-generated primary key as an input (#101)" do
+      doc = Contract.build(@domains)
+
+      for name <- ["create_todo", "create_todo_with_args", "create_user"] do
+        action = Enum.find(doc.actions, &(&1.name == name))
+        assert action, "#{name} not found in doc.actions"
+        refute Enum.any?(action.inputs, &(&1.name == "id")), "#{name} must not list `id`"
+      end
+
+      # update still addresses its record by the primary key.
+      update = Enum.find(doc.actions, &(&1.name == "update_todo"))
+      assert update, "update_todo not found"
+      assert Enum.any?(update.inputs, &(&1.name == "id" and &1.required))
+
+      destroy = Enum.find(doc.actions, &(&1.name == "destroy_todo"))
+      assert destroy, "destroy_todo not found"
+      assert Enum.any?(destroy.inputs, &(&1.name == "id" and &1.required))
+    end
+
     test "a resource's model fields are all Optional (field-selection safe)" do
       doc = Contract.build(@domains)
       todo = Enum.find(doc.types, &(&1.name == "Todo" and &1.kind == "resource"))

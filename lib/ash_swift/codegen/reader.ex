@@ -55,8 +55,8 @@ defmodule AshSwift.Codegen.Reader do
                                                # generic: set only when it has inputs
         input_required?: boolean,              # [CRUD only; absent on generic] meaningful only for reads: whether `input:`
                                                # must be supplied (some argument is required); false otherwise
-        primary_key_params: [%{name, swift_type}],  # create/update/destroy: the resource's PK params; [] for read/generic.
-                                               # The emitter uses it only for update/destroy (create ignores it)
+        primary_key_params: [%{name, swift_type}],  # update/destroy: the resource's PK params; [] for create/read/generic.
+                                               # The identity that addresses the record; the emitter sends it as `identity`
         pagination_type: :offset | :keyset | :none,           # required pagination => paginated return
         optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload
         sortable?:       boolean,              # list reads only: offers a `sort:` parameter
@@ -453,19 +453,16 @@ defmodule AshSwift.Codegen.Reader do
     # filter is a compile error, not a silently-ignored argument.
     filterable? = maction.type == :read and not is_get? and filter_enabled?(rpc_action)
 
-    {input_struct_name, primary_key_params} =
-      case maction.type do
-        type when type in [:create, :update] ->
-          struct_name = pascal_case(rpc_action.name) <> "Input"
+    input_struct_name =
+      if maction.type in [:create, :update], do: pascal_case(rpc_action.name) <> "Input"
 
-          {struct_name, build_get_by_params(mres.primary_key, resource, formatter)}
-
-        :destroy ->
-          {nil, build_get_by_params(mres.primary_key, resource, formatter)}
-
-        _ ->
-          {nil, []}
-      end
+    # A create addresses no existing record, so it has no identity params. A
+    # primary key the caller supplies arrives through the accepted input fields
+    # like any other attribute.
+    primary_key_params =
+      if maction.type in [:update, :destroy],
+        do: build_get_by_params(mres.primary_key, resource, formatter),
+        else: []
 
     # A read's declared arguments (issue #87) become an input struct, minus any
     # native get_by fields — those are already the get's lookup params, sent in
