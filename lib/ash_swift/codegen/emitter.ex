@@ -474,7 +474,8 @@ defmodule AshSwift.Codegen.Emitter do
            not_found_error?: not_found_error?
          } = action,
          type_name
-       ) do
+       )
+       when not is_nil(get) do
     {request_type, return_type} =
       if not_found_error?,
         do: {"GetRequest", type_name},

@@ -119,9 +119,12 @@ defmodule AshSwift.Codegen.ReaderTest do
   describe "get? lookup location (#66, #91)" do
     test "a list read, a create and a generic action are not gets" do
       todo = resource(Reader.read(@domains), "Todo")
-      list = Enum.find(todo.actions, &(&1.action_type == :read and &1.get == nil))
-      assert list
-      assert Enum.all?(todo.actions, &(&1.action_type == :read or &1.get == nil))
+
+      for rpc_name <- [:list_todos, :create_todo, :ping] do
+        action = Enum.find(todo.actions, &(&1.rpc_name == rpc_name))
+        assert action, "fixture lost #{rpc_name}"
+        assert action.get == nil
+      end
     end
 
     test "a pure get? action has no lookup params (#91)" do

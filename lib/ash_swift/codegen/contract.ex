@@ -86,15 +86,15 @@ defmodule AshSwift.Codegen.Contract do
 
   What the contract does **not** see: a change that is wire-only rather than
   binary-shaped — e.g. `get` flipping between `{:input, params}` and
-  `{:get_by, params}` (how the client sends a lookup key) — has no representation here
-  (or in the emitted Swift's compiled shape) because the generated function
-  signature is unchanged either way. `get` takes one of
+  `{:get_by, params}` (how the client sends a lookup key) — has no
+  representation here (or in the emitted Swift's compiled shape) because the
+  generated function signature is unchanged either way. `get` takes one of
   `nil | :pure | {:input, params} | {:get_by, params}` (see the Reader
   moduledoc); only the `:input` <-> `:get_by` move is wire-only. A move to or
-  from `:pure` (a pure `get?` read) is *not*: the generated signature gains or loses its lookup
-  params, so the contract does show it. A gate built on this document, like a
-  gate built on the emitted Swift, cannot see the wire-only class of change;
-  it needs its own coverage (e.g. `AshSwift.Codegen.ReaderTest`).
+  from `:pure` (a pure `get?` read) is *not*: the generated signature gains or
+  loses its lookup params, so the contract does show it. A gate built on this
+  document, like a gate built on the emitted Swift, cannot see the wire-only
+  class of change; it needs its own coverage (e.g. `AshSwift.Codegen.ReaderTest`).
 
   Every list is sorted by name and the JSON encoding uses alphabetically sorted
   object keys throughout (`to_ordered/1`), so two runs over the same domains
