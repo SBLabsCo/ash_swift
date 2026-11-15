@@ -30,12 +30,12 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "action IR key sets (#95)" do
-    @crud_keys ~w(rpc_name action action_type is_get? get_by_params get_by_location
+    @crud_keys ~w(rpc_name action action_type get
                   not_found_error? input_struct_name input_required? primary_key_params
                   pagination_type optional_pagination_type sortable? filterable?)a
                |> MapSet.new()
 
-    @generic_keys ~w(rpc_name action action_type is_get? get_by_params get_by_location
+    @generic_keys ~w(rpc_name action action_type get
                      not_found_error? input_struct_name primary_key_params pagination_type
                      optional_pagination_type sortable? filterable? generic_return)a
                   |> MapSet.new()
@@ -117,20 +117,28 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "get? lookup location (#66, #91)" do
+    test "a list read, a create and a generic action are not gets" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      for rpc_name <- [:list_todos, :create_todo, :ping] do
+        action = Enum.find(todo.actions, &(&1.rpc_name == rpc_name))
+        assert action, "fixture lost #{rpc_name}"
+        assert action.get == nil
+      end
+    end
+
     test "a pure get? action has no lookup params (#91)" do
       todo = resource(Reader.read(@domains), "Todo")
       fetch = Enum.find(todo.actions, &(&1.rpc_name == :fetch_todo))
 
-      assert fetch.get_by_location == :none
-      assert fetch.get_by_params == []
+      assert fetch.get == :pure
     end
 
     test "a pure get? action with arguments keeps them as read input, no lookup (#91)" do
       todo = resource(Reader.read(@domains), "Todo")
       fetch = Enum.find(todo.actions, &(&1.rpc_name == :fetch_todo_by_title))
 
-      assert fetch.get_by_location == :none
-      assert fetch.get_by_params == []
+      assert fetch.get == :pure
       assert fetch.input_struct_name == "FetchTodoByTitleInput"
 
       input = Enum.find(todo.input_structs, &(&1.struct_name == "FetchTodoByTitleInput"))
@@ -141,14 +149,14 @@ defmodule AshSwift.Codegen.ReaderTest do
       todo = resource(Reader.read(@domains), "Todo")
       get_todo = Enum.find(todo.actions, &(&1.rpc_name == :get_todo))
 
-      assert get_todo.get_by_location == :input
+      assert {:input, [%{name: "id"}]} = get_todo.get
     end
 
     test "an RPC-level get_by action still travels via :get_by" do
       todo = resource(Reader.read(@domains), "Todo")
       find_by_title = Enum.find(todo.actions, &(&1.rpc_name == :find_todo_by_title))
 
-      assert find_by_title.get_by_location == :get_by
+      assert {:get_by, [%{name: "title"}]} = find_by_title.get
     end
   end
 
