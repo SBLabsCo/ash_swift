@@ -17,13 +17,11 @@ defmodule AshSwift.SwiftBuildTest do
   test "generated Swift, plus a hand-written consumer, compiles against AshSwiftRuntime" do
     # The shared package holds the generated client plus the "shouldPass"
     # ConsumerCheck fixture that exercises the emitted surface, proving it is
-    # usable (not just consistent). This is the one up-front compile of the
-    # client the e2e suite also builds on.
+    # usable (not just consistent). The package is built incrementally, so
+    # whichever :swift_build test runs first pays for the cold build.
     tmp = SwiftConsumer.shared_package()
     sources = SwiftConsumer.sources_dir(tmp)
 
-    assert File.exists?(Path.join(sources, "AshRpcTypes.swift"))
-    assert File.exists?(Path.join(sources, "AshRpcFunctions.swift"))
     assert File.exists?(Path.join(sources, "ConsumerCheck.swift"))
 
     {output, status} = SwiftConsumer.build_client(tmp)

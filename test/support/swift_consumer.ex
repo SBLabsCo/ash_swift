@@ -10,41 +10,49 @@ defmodule AshSwift.Test.SwiftConsumer do
   runs are incremental. The package is deleted by `cleanup/0` (wired into
   `ExUnit.after_suite/1` in `test_helper.exs`).
 
-  Test files compile together into one test target, so a broken test file would
-  otherwise fail every later test with an error that is not its own. Two guards
-  keep failures attributable:
-
-    * the generated client is compiled up front (`swift build`) by every
-      `swift_test!/2`; if that fails the message says the *shared generated
-      client* failed to compile, not the test;
-    * `swift_test!/2` inspects compile errors and, when they point at a different
-      test's Swift file, says so and names that file.
+  `run_swift_test!/2` writes a test's Swift file into the shared test target and
+  removes it again when the test exits, so the target only ever holds the running
+  test's file and one test's compile error can never fail another. The generated
+  client is compiled once (`swift build`, memoized after the first success); if
+  that fails the message says the *shared generated client* failed to compile,
+  not the test.
 
   Tests that need different generated output (the sort-less resource check) use
   `fresh_package/2` and own their build.
   """
 
   import ExUnit.Assertions
+  import ExUnit.Callbacks, only: [on_exit: 1]
 
   alias AshSwift.Codegen
 
   @domains [AshSwift.Test.Domain]
   @key {__MODULE__, :shared}
+  @built_key {__MODULE__, :built}
 
   @doc "Path of the run-wide shared package, generating the client on first use."
   def shared_package do
     case :persistent_term.get(@key, nil) do
       nil ->
         tmp = fresh_package("ash_swift_shared", tests: true)
-        sources = sources_dir(tmp)
-        {:ok, _} = Codegen.generate(@domains, sources)
 
-        # A hand-written consumer exercising the emitted surface, compiled with
-        # the client so every build also proves the surface is usable.
-        File.cp!(
-          Path.join(File.cwd!(), "test/support/swift/ConsumerCheck.swift"),
-          Path.join(sources, "ConsumerCheck.swift")
-        )
+        # If generation fails, drop the half-built package (it is never
+        # registered, so `cleanup/0` could not find it) and re-raise.
+        try do
+          sources = sources_dir(tmp)
+          {:ok, _} = Codegen.generate(@domains, sources)
+
+          # A hand-written consumer exercising the emitted surface, compiled with
+          # the client so every build also proves the surface is usable.
+          File.cp!(
+            Path.join(File.cwd!(), "test/support/swift/ConsumerCheck.swift"),
+            Path.join(sources, "ConsumerCheck.swift")
+          )
+        catch
+          kind, reason ->
+            File.rm_rf!(tmp)
+            :erlang.raise(kind, reason, __STACKTRACE__)
+        end
 
         :persistent_term.put(@key, tmp)
         tmp
@@ -112,6 +120,7 @@ defmodule AshSwift.Test.SwiftConsumer do
     end
 
     :persistent_term.erase(@key)
+    :persistent_term.erase(@built_key)
     :ok
   end
 
@@ -123,35 +132,37 @@ defmodule AshSwift.Test.SwiftConsumer do
   def build_client(tmp), do: System.cmd("swift", ["build"], cd: tmp, stderr_to_stdout: true)
 
   @doc """
-  Runs `swift test --filter <class>` in the shared package and asserts it
-  passes, attributing compile failures that belong to another test's file.
+  Writes `swift_source` as `<class>.swift` into the shared package's test
+  target, runs `swift test --filter <class>` and asserts it passes. The file is
+  removed when the test exits. `class` must be the XCTest class name in the source.
   """
-  def swift_test!(tmp, class) do
-    {build_output, build_status} = build_client(tmp)
+  def run_swift_test!(class, swift_source) do
+    tmp = shared_package()
+    file = Path.join(tests_dir(tmp), "#{class}.swift")
+    File.write!(file, swift_source)
+    on_exit(fn -> File.rm(file) end)
 
-    assert build_status == 0,
-           "the shared generated client failed to compile (not specific to #{class}):\n" <>
-             build_output
+    assert_client_built!(tmp, class)
 
     {output, status} =
       System.cmd("swift", ["test", "--filter", class], cd: tmp, stderr_to_stdout: true)
 
-    assert status == 0, failure_message(class, output)
+    assert status == 0, "swift test #{class} failed:\n#{output}"
   end
 
-  defp failure_message(class, output) do
-    other_files =
-      ~r{Tests/E2ETests/(\w+)\.swift:\d+:\d+: error:}
-      |> Regex.scan(output, capture: :all_but_first)
-      |> List.flatten()
-      |> Enum.uniq()
-      |> Enum.reject(&(&1 == class))
+  # The library target cannot change after `shared_package/0`, so a successful
+  # build is memoized; a failure is not, so each test reports it.
+  defp assert_client_built!(tmp, class) do
+    unless :persistent_term.get(@built_key, false) do
+      {output, status} = build_client(tmp)
 
-    if other_files == [] do
-      "swift test #{class} failed:\n#{output}"
-    else
-      "swift test #{class} failed because another test's Swift file does not compile " <>
-        "(#{Enum.join(other_files, ", ")}); that test owns the failure:\n#{output}"
+      assert status == 0,
+             "the shared generated client failed to compile (not specific to #{class}):\n" <>
+               output
+
+      :persistent_term.put(@built_key, true)
     end
+
+    :ok
   end
 end

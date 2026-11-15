@@ -15,14 +15,6 @@ defmodule AshSwift.E2ETest do
   @moduletag :swift_build
 
   test "generated Swift list function decodes real RPC pipeline JSON" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
-    # Generate the Swift types and functions into the consumer package.
-    # The shared package already holds the generated client (SwiftConsumer).
-    assert File.exists?(Path.join(SwiftConsumer.sources_dir(tmp), "AshRpcTypes.swift"))
-    assert File.exists?(Path.join(SwiftConsumer.sources_dir(tmp), "AshRpcFunctions.swift"))
-
     # Create a todo (owned by a user) in-process using the ETS-backed data layer.
     # Assigning an owner lets us select the multi-word `user_id` field below, which
     # exercises the snake_case -> camelCase wire mapping end to end.
@@ -90,15 +82,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EDecodeTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EDecodeTest")
+    SwiftConsumer.run_swift_test!("E2EDecodeTest", e2e_swift)
   end
 
   test "generated Swift model decodes nested relationship data" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Create a user and a todo that belongs to that user.
     user =
       Ash.create!(AshSwift.Test.User, %{name: "Nested Owner", email: "nested@example.com"},
@@ -166,19 +153,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2ENestedRelationshipTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2ENestedRelationshipTest")
+    SwiftConsumer.run_swift_test!("E2ENestedRelationshipTest", e2e_swift)
   end
 
   test "generated Swift enum decodes from real backend enum value" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
-    # The shared package already holds the generated client (SwiftConsumer).
-    assert File.exists?(Path.join(SwiftConsumer.sources_dir(tmp), "AshRpcTypes.swift"))
-    assert File.exists?(Path.join(SwiftConsumer.sources_dir(tmp), "AshRpcFunctions.swift"))
-
     # Create a todo with an explicit priority value so the wire format carries
     # the enum string ("high") and proves the generated Swift enum decodes it.
     Ash.create!(AshSwift.Test.Todo, %{title: "Enum Todo", priority: :high},
@@ -234,15 +212,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EEnumDecodeTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EEnumDecodeTest")
+    SwiftConsumer.run_swift_test!("E2EEnumDecodeTest", e2e_swift)
   end
 
   test "get action: single-record retrieval and not-found path exercise both not_found_error? behaviors" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Create a record so we can retrieve it by id.
     todo =
       Ash.create!(AshSwift.Test.Todo, %{title: "Get E2E Todo"}, domain: AshSwift.Test.Domain)
@@ -319,9 +292,7 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EGetActionTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EGetActionTest")
+    SwiftConsumer.run_swift_test!("E2EGetActionTest", e2e_swift)
   end
 
   test "pure get? action: narrows by its own arguments, never by identity (issue #91)" do
@@ -356,9 +327,6 @@ defmodule AshSwift.E2ETest do
   end
 
   test "create, update, and destroy actions encode correctly and return typed records" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     conn = %Plug.Conn{private: %{}, assigns: %{}}
 
     # --- Create ---
@@ -472,15 +440,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EMutationTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EMutationTest")
+    SwiftConsumer.run_swift_test!("E2EMutationTest", e2e_swift)
   end
 
   test "create/update/generic action arguments travel in `input` and the generated input structs encode them (issues #83, #84)" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     conn = %Plug.Conn{private: %{}, assigns: %{}}
 
     # The exact `input` dicts the generated Swift encodes below. Arguments ride the
@@ -590,14 +553,11 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EActionArgumentsTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EActionArgumentsTest")
+    SwiftConsumer.run_swift_test!("E2EActionArgumentsTest", e2e_swift)
   end
 
   test "read/destroy action arguments: the generated functions' request bodies carry them (issues #87, #102)" do
     tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
     bodies_dir = Path.join(tmp, "captured_bodies")
     File.rm_rf!(bodies_dir)
     File.mkdir_p!(bodies_dir)
@@ -714,9 +674,7 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EReadArgumentsTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EReadArgumentsTest")
+    SwiftConsumer.run_swift_test!("E2EReadArgumentsTest", e2e_swift)
 
     # Step 2 (Elixir): replay each captured body through the real RPC pipeline.
     conn = %Plug.Conn{private: %{}, assigns: %{}}
@@ -810,9 +768,6 @@ defmodule AshSwift.E2ETest do
   end
 
   test "custom headers are forwarded on generated calls; backend errors surface as typed AshRpcError" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # This test exercises the two acceptance criteria (stories 24, 25 in the PRD)
     # through the *generated* AshRpc client, not the runtime directly:
     #   1. A bearer token set in AshRpcConfig.headers reaches every request the
@@ -907,15 +862,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EHeadersAndErrorsTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EHeadersAndErrorsTest")
+    SwiftConsumer.run_swift_test!("E2EHeadersAndErrorsTest", e2e_swift)
   end
 
   test "a real backend error decodes with its vars, shortMessage, fields and path" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Provoke a real validation failure: `title` is `allow_nil?: false`, so the
     # pipeline returns a `required` error carrying the affected field in `vars`.
     # This is the shape issue #81 is about — a typed refusal whose *data* lives
@@ -992,15 +942,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EErrorVarsTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EErrorVarsTest")
+    SwiftConsumer.run_swift_test!("E2EErrorVarsTest", e2e_swift)
   end
 
   test "offset-paginated action decodes real backend JSON into OffsetPage<T>" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Create several todos so the paginated response contains results.
     for i <- 1..3 do
       Ash.create!(AshSwift.Test.Todo, %{title: "Paged Todo #{i}"}, domain: AshSwift.Test.Domain)
@@ -1063,15 +1008,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EOffsetPageTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EOffsetPageTest")
+    SwiftConsumer.run_swift_test!("E2EOffsetPageTest", e2e_swift)
   end
 
   test "optional-pagination read composes filter + sort + page on a single call (issue #37)" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Seed rows in a unique high-score band so `score >= 1000` isolates this test's
     # records from anything else ETS holds (other tests use single/double-digit
     # scores). The incomplete row is excluded by the `completed == true` predicate,
@@ -1219,15 +1159,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EPageCompositionTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EPageCompositionTest")
+    SwiftConsumer.run_swift_test!("E2EPageCompositionTest", e2e_swift)
   end
 
   test "keyset optional-pagination overload walks the cursor with filter + sort (issue #37)" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Isolate from the offset composition test (which reserves `score >= 1000`,
     # `completed == true`): these rows are `completed == false`, so neither test's
     # filter catches the other's rows even though ETS is shared across the suite.
@@ -1362,15 +1297,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EKeysetOptionalTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EKeysetOptionalTest")
+    SwiftConsumer.run_swift_test!("E2EKeysetOptionalTest", e2e_swift)
   end
 
   test "extended Ash types (Decimal, Date, UtcDatetime, UtcDatetimeUsec, Map) decode from real pipeline JSON" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Create a record with every extended-type field populated. Values chosen so
     # each one round-trips through Jason.encode!/1 and reaches the Swift decoder.
     #   deadline  → Ash.Type.Date       → JSON string "2024-06-15"
@@ -1502,15 +1432,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EExtendedTypesTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EExtendedTypesTest")
+    SwiftConsumer.run_swift_test!("E2EExtendedTypesTest", e2e_swift)
   end
 
   test "sorted read action: the Swift-assembled sort string is what the pipeline accepts" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Seed three todos with distinct, prefixed titles and a nullable score, so the
     # ordering assertions can isolate this test's records from any others ETS holds.
     for {title, score} <- [{"SortE2E-Alpha", 2}, {"SortE2E-Bravo", nil}, {"SortE2E-Charlie", 1}] do
@@ -1597,15 +1522,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2ESortTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2ESortTest")
+    SwiftConsumer.run_swift_test!("E2ESortTest", e2e_swift)
   end
 
   test "filtered read action: the Swift-encoded filter map is what the pipeline accepts" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Seed todos spanning the filter predicates — completed flag, score comparison,
     # and an enum membership test. Distinct prefixes isolate this test's rows from
     # anything else ETS holds.
@@ -1689,15 +1609,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EFilterTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EFilterTest")
+    SwiftConsumer.run_swift_test!("E2EFilterTest", e2e_swift)
   end
 
   test "filtered read with logical combinators: the Swift-encoded and/or/not maps are what the pipeline accepts" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # Seed todos that pin down a compound predicate combining `and` with a nested
     # `or`. Distinct prefixes isolate this test's rows from anything else ETS holds.
     #   filter ≡ completed == true AND (priority == high OR score > 8)
@@ -1842,15 +1757,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EFilterCombinatorTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EFilterCombinatorTest")
+    SwiftConsumer.run_swift_test!("E2EFilterCombinatorTest", e2e_swift)
   end
 
   test "aggregate fields decode from real pipeline JSON into the generated model (issue #51)" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # A user with two todos pins the aggregate values: count = 2, exists = true,
     # max(score) = 7. The aggregates are scoped to this user's own todos, so other
     # tests' todos (owned by different users) can't perturb the assertions even
@@ -1933,15 +1843,10 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2EAggregateTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2EAggregateTest")
+    SwiftConsumer.run_swift_test!("E2EAggregateTest", e2e_swift)
   end
 
   test "a zero-argument calculation decodes from real pipeline JSON into the generated model (issue #52)" do
-    tmp = SwiftConsumer.shared_package()
-    tests_dir = SwiftConsumer.tests_dir(tmp)
-
     # `display_name` is a zero-argument :string calculation: expr(name <> " <" <>
     # email <> ">"). It computes purely from this user's own attributes, so the
     # asserted value is fully determined by the create below and can't be perturbed
@@ -2002,8 +1907,6 @@ defmodule AshSwift.E2ETest do
     }
     """
 
-    File.write!(Path.join(tests_dir, "E2ECalculationTest.swift"), e2e_swift)
-
-    SwiftConsumer.swift_test!(tmp, "E2ECalculationTest")
+    SwiftConsumer.run_swift_test!("E2ECalculationTest", e2e_swift)
   end
 end
