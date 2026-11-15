@@ -21,3 +21,8 @@ Package.resolved
 
 # macOS
 .DS_Store
+
+# Claude Code worktrees (ship-ticket implementers, ad-hoc)
+/.claude/worktrees/
+# Review-decline rationale files bin/pr-open folds into the PR body
+.pr-declined*.md

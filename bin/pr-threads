@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+#
+# bin/pr-threads — list and resolve a pull request's unresolved review threads
+# (ported from SBLabsCo/SwingClips#537). The deterministic half of the address-review loop: an
+# agent decides fix-or-decline, this script does the GraphQL bookkeeping.
+#
+#     bin/pr-threads <pr>                                   # list unresolved threads
+#     bin/pr-threads <pr> --resolve <id>...                 # resolve those threads
+#     bin/pr-threads <pr> --resolve <id>... --reply <text>  # reply first, then resolve
+#
+# Run it in the repository the PR belongs to (it resolves owner/name via `gh repo view`).
+#
+# Output contract — stdout is always JSON, stderr is for humans:
+#
+#   list:     an array of the unresolved threads, `[]` when none:
+#               [{"id","path","line","outdated","author","body","url",
+#                 "replies":[{"author","body"}]}]
+#             `author`/`body`/`url` are the thread's root comment's; `id` is what
+#             --resolve takes.
+#   resolve:  an array with one entry per requested id, in order:
+#               [{"id","replied":bool,"resolved":bool,"already":bool}]
+#             Every id must be a thread of <pr>, checked before anything is changed;
+#             otherwise exit 1 (`reason: "unknown_thread"`) and nothing is touched. An id
+#             that is already resolved is reported `already:true` and left alone (no
+#             reply, no mutation). Exit 0 only if every id ends up resolved; a failure on
+#             one id is reported on stderr and in its entry (exit 3), and the rest are
+#             still attempted.
+#   failure:  anything that is not the per-id array above (this tool's own result shape
+#             on a partial failure, with exit 3) is one object on stdout:
+#               {"ok":false,"pr":<n>,"reason":"gh_failed|bad_response|unknown_thread|...",
+#                "message":"..."}
+#
+# --reply posts the same text as a reply on every thread named by --resolve (the
+# decline-with-rationale case: one rationale, one thread — pass one id). A reply that
+# fails leaves that thread unresolved: a declined finding must never be closed without
+# its rationale being on record. An entry of {"replied":true,"resolved":false} means the
+# reply landed but the resolve failed: retry with `--resolve <id>` alone — rerunning with
+# --reply would post the rationale twice.
+#
+# Limits: a thread's comments are read 50 at a time and not paginated, so a thread with
+# more than 50 comments lists only its first 50 (root plus 49 replies).
+#
+# Exit codes (bin/cli-lib.sh, the table every bin/ CLI shares): 0 ok, 1 a domain no (an
+# id that is not this PR's thread), 2 usage error (nothing on stdout), 3 a tool failed
+# (gh or jq missing, gh failing, an unparseable response, or a thread that would not
+# resolve).
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=./cli-lib.sh
+. "$REPO_ROOT/bin/cli-lib.sh"
+# shellcheck source=./pr-threads-lib.sh
+. "$REPO_ROOT/bin/pr-threads-lib.sh"
+cli_init pr-threads
+
+usage() {
+  sed -n '3,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//;s/^#$//'
+}
+
+die_usage() {
+  cli_usage_error "$1" "usage: bin/pr-threads <pr> [--resolve <thread-id>... [--reply <text>]]"
+}
+
+[[ $# -gt 0 ]] || die_usage "missing <pr>"
+case "$1" in -h | --help) usage; exit 0 ;; esac
+
+pr="$1"; shift
+cli_valid_number "$pr" || die_usage "'$pr' is not a pull request number"
+
+ids=()
+reply=""
+have_reply=0
+resolving=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --resolve)
+      resolving=1; shift
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        pr_threads_valid_thread_id "$1" || die_usage "'$1' is not a thread id"
+        # Dedupe: a repeated id must not post its rationale twice.
+        [[ " ${ids[*]-} " == *" $1 "* ]] || ids+=("$1")
+        shift
+      done ;;
+    --reply)
+      [[ $# -ge 2 ]] || die_usage "--reply needs text"
+      reply="$2"; have_reply=1; shift 2 ;;
+    *) die_usage "unknown argument '$1'" ;;
+  esac
+done
+
+if [[ "$resolving" -eq 1 && ${#ids[@]} -eq 0 ]]; then die_usage "--resolve needs at least one thread id"; fi
+if [[ "$have_reply" -eq 1 && "$resolving" -eq 0 ]]; then die_usage "--reply only makes sense with --resolve"; fi
+if [[ "$have_reply" -eq 1 && -z "${reply//[[:space:]]/}" ]]; then die_usage "--reply text is empty"; fi
+
+cli_require_tools gh jq
+CLI_TAG="PR #$pr"
+CLI_CONTEXT="$(jq -cn --argjson pr "$pr" '{pr: $pr}')"
+
+cli_repo ""
+owner="${CLI_REPO%/*}"; name="${CLI_REPO#*/}"
+
+# shellcheck disable=SC2016  # $-variables belong to GraphQL, not the shell
+cli_gh_json_or_fail pages --shape 'type == "array"' api graphql --paginate --slurp \
+  -f owner="$owner" -f name="$name" -F pr="$pr" \
+  -f query='
+    query($owner: String!, $name: String!, $pr: Int!, $endCursor: String) {
+      repository(owner: $owner, name: $name) {
+        pullRequest(number: $pr) {
+          reviewThreads(first: 100, after: $endCursor) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              id isResolved isOutdated path line originalLine
+              comments(first: 50) { nodes { body url author { login } } }
+            }
+          }
+        }
+      }
+    }'
+
+if [[ "$resolving" -eq 0 ]]; then
+  list="$(printf '%s' "$pages" | jq "$PR_THREADS_UNRESOLVED_JQ" 2>/dev/null)" \
+    || cli_fail "$CLI_TOOL" bad_response "unexpected GraphQL response (does the PR exist?)"
+  printf '%s\n' "$list"
+  exit 0
+fi
+
+# Resolve mode: every id must be one of THIS PR's threads, checked before any mutation,
+# so an id copied from another PR (or mistyped) is refused rather than silently resolved.
+states="$(printf '%s' "$pages" | jq -c "$PR_THREADS_STATE_JQ" 2>/dev/null)" \
+  || cli_fail "$CLI_TOOL" bad_response "unexpected GraphQL response (does the PR exist?)"
+for id in "${ids[@]}"; do
+  [[ "$(jq -r --arg id "$id" 'has($id)' <<<"$states")" == true ]] \
+    || cli_fail "$CLI_NO" unknown_thread "$id is not a review thread of PR #$pr; nothing was changed"
+done
+
+status="$CLI_OK"
+results=()
+for id in "${ids[@]}"; do
+  replied=false
+  resolved=false
+  already=false
+  ok=1
+  if [[ "$(jq -r --arg id "$id" '.[$id]' <<<"$states")" == true ]]; then
+    already=true; resolved=true; ok=0
+  fi
+  if [[ "$have_reply" -eq 1 && "$already" == false ]]; then
+    # shellcheck disable=SC2016
+    if cli_gh _ignored api graphql -f id="$id" -f body="$reply" -f query='
+        mutation($id: ID!, $body: String!) {
+          addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $id, body: $body}) {
+            comment { id }
+          }
+        }'; then
+      replied=true
+    else
+      cli_say "reply to $id failed; leaving it unresolved ($CLI_ERR)"
+      ok=0
+    fi
+  fi
+  if [[ "$ok" -eq 1 ]]; then
+    # shellcheck disable=SC2016
+    if cli_gh _ignored api graphql -f id="$id" -f query='
+        mutation($id: ID!) {
+          resolveReviewThread(input: {threadId: $id}) { thread { isResolved } }
+        }'; then
+      resolved=true
+    else
+      cli_say "resolving $id failed ($CLI_ERR)"
+    fi
+  fi
+  [[ "$resolved" == true ]] || status="$CLI_TOOL"
+  results+=("$(jq -cn --arg id "$id" --argjson replied "$replied" --argjson resolved "$resolved" \
+    --argjson already "$already" '{id: $id, replied: $replied, resolved: $resolved, already: $already}')")
+done
+
+printf '%s\n' "${results[@]}" | jq -s '.'
+exit "$status"

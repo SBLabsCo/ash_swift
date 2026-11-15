@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+#
+# bin/orchestration-fresh — refuse to run the delivery loop on stale machinery
+# (ported from SBLabsCo/SwingClips#595). The ship-ticket workflow's own script, its agent
+# definitions and its skills are loaded from the MAIN checkout's working tree, which agents
+# never pull (it is a human's working checkout). So a merged change to them does nothing
+# until someone pulls by hand, and a run can silently use code that is many commits behind.
+#
+#     bin/orchestration-fresh                   # fetch origin/main, compare, report
+#     bin/orchestration-fresh --remote origin   # --remote defaults to origin
+#
+# Fetches `<remote>/main`, then compares the main checkout's working tree under
+# `.claude/workflows`, `.claude/agents` and `.claude/skills` with `<remote>/main`'s.
+#
+#   fresh   exit 0, `{"ok":true,"behind":0,"ahead":0,"paths":[]}` — nothing differs. (`behind` is how
+#           many commits the main checkout's HEAD is behind; it may be non-zero when none
+#           of them touched the checked paths.)
+#   stale   exit 1, `{"ok":false,"reason":"stale","behind":3,"paths":[".claude/workflows/ship-ticket.js"],
+#           "message":"..."}` — the message names the paths, how far behind, and the fix:
+#           `git -C <main checkout> merge --ff-only origin/main` (bin/after-merge does this
+#           by itself after a merge, when the checkout is clean and on main). When the checkout
+#           is AHEAD of origin/main (`ahead` > 0), or nothing is behind but the watched paths
+#           still differ, the message says to push or revert the local commits/edits instead:
+#           a fast-forward would not clear that.
+#
+# Exit codes are the shared bin/ table (bin/cli-lib.sh): 0 fresh, 1 stale, 2 usage (nothing
+# on stdout), 3 a tool failed (git fetch failed: freshness is unknown, not "stale").
+# It changes nothing except the remote-tracking ref the fetch updates. Run from the main
+# checkout (or any worktree: it inspects the main checkout either way).
+#
+# Requires `git` and `jq`.
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=./cli-lib.sh
+. "$REPO_ROOT/bin/cli-lib.sh"
+# shellcheck source=./worktree-lib.sh
+. "$REPO_ROOT/bin/worktree-lib.sh"
+cli_init orchestration-fresh
+
+usage() { sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
+die_usage() { cli_usage_error "$1" "usage: bin/orchestration-fresh [--remote <name>]"; }
+
+REMOTE=origin
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage; exit 0 ;;
+    --remote) [[ $# -ge 2 ]] || die_usage "--remote needs a name"; REMOTE="$2"; shift 2 ;;
+    *) die_usage "unknown argument '$1'" ;;
+  esac
+done
+
+cli_require_tools git jq
+MAIN_ROOT="$(worktree_main_root "$REPO_ROOT")" \
+  || cli_fail "$CLI_TOOL" git_failed "cannot find the main checkout from $REPO_ROOT"
+
+cli_quiet "git fetch $REMOTE main" git -C "$MAIN_ROOT" fetch "$REMOTE" main \
+  || cli_fail "$CLI_TOOL" git_failed "git fetch $REMOTE main failed; cannot tell whether the orchestration is fresh"
+
+WATCHED=(.claude/workflows .claude/agents .claude/skills)
+diff_out="$(git -C "$MAIN_ROOT" diff --name-only "$REMOTE/main" -- "${WATCHED[@]}" 2>/dev/null)" \
+  || cli_fail "$CLI_TOOL" git_failed "git diff against $REMOTE/main failed"
+behind="$(git -C "$MAIN_ROOT" rev-list --count "HEAD..$REMOTE/main" 2>/dev/null)" \
+  || cli_fail "$CLI_TOOL" git_failed "git rev-list against $REMOTE/main failed"
+ahead="$(git -C "$MAIN_ROOT" rev-list --count "$REMOTE/main..HEAD" 2>/dev/null)" \
+  || cli_fail "$CLI_TOOL" git_failed "git rev-list against $REMOTE/main failed"
+
+paths="$(jq -Rn '[inputs | select(length > 0)]' <<<"$diff_out")"
+if [[ "$paths" == "[]" ]]; then
+  jq -cn --argjson b "$behind" --argjson a "$ahead" '{ok: true, behind: $b, ahead: $a, paths: []}'
+  exit "$CLI_OK"
+fi
+
+CLI_CONTEXT="$(jq -cn --argjson b "$behind" --argjson a "$ahead" --argjson p "$paths" '{behind: $b, ahead: $a, paths: $p}')"
+named="$(jq -r 'join(", ")' <<<"$paths")"
+if [[ "$ahead" -gt 0 || "$behind" -eq 0 ]]; then
+  # A fast-forward cannot clear this: the checkout has its own commits or uncommitted edits.
+  cli_fail "$CLI_NO" stale \
+    "the main checkout ($MAIN_ROOT) is ${behind} commit(s) behind and ${ahead} ahead of $REMOTE/main, and its orchestration differs: ${named}. It has local commits or edits under the watched paths; push or revert them (a fast-forward will not clear this)"
+fi
+cli_fail "$CLI_NO" stale \
+  "the main checkout ($MAIN_ROOT) is ${behind} commit(s) behind $REMOTE/main and its orchestration differs: ${named}. Bring it current with: git -C $MAIN_ROOT merge --ff-only $REMOTE/main"

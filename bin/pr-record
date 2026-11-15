@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+#
+# bin/pr-record — persist and read a ship-ticket run record on its pull request
+# (ported from SBLabsCo/SwingClips#543). The workflow's per-ticket result becomes durable data: one
+# hidden, versioned JSON comment per PR, so a later `factory-stats` reads records
+# instead of reconstructing them from prose.
+#
+#     bin/pr-record <pr> --file <record.json>   # post (or update in place) the record
+#     bin/pr-record <pr> --read                 # print the latest trusted record
+#
+# Run it in the repository the PR belongs to (it resolves owner/name via `gh repo view`).
+#
+# The comment is one line, `<!-- ash-swift-run-record: {...} -->`, and nothing else; the
+# format and its `v` bump rule are in docs/agents/ship-ticket.md, next to the review
+# verdict footer. --file requires a record that is an object with `v == 1`, a numeric `issue`
+# and `pr` equal to <pr>; a re-run updates the caller's own earlier record comment
+# instead of adding another, and leaves it alone when the record is unchanged.
+#
+# Output contract — stdout is always JSON, stderr is for humans:
+#
+#   --file:  {"ok":true,"pr":<n>,"comment_id":<id>,"action":"created|updated|unchanged"}
+#   --read:  the record object itself; exit 1 (`no_record`) when the PR has none. Only a
+#            record posted by an OWNER, MEMBER or COLLABORATOR counts, latest wins.
+#   failure: {"ok":false,"pr":<n>,"reason":"...","message":"..."}
+#
+# Exit codes (bin/cli-lib.sh): 0 ok, 1 a domain no (no record to read, an invalid record,
+# a record too large for a comment), 2 usage (nothing on stdout), 3 a tool failure (gh or
+# jq missing or failing, an unparseable response).
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=./cli-lib.sh
+. "$REPO_ROOT/bin/cli-lib.sh"
+# shellcheck source=./pr-record-lib.sh
+. "$REPO_ROOT/bin/pr-record-lib.sh"
+cli_init pr-record
+
+usage() {
+  sed -n '3,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//;s/^#$//'
+}
+
+die_usage() {
+  cli_usage_error "$1" "usage: bin/pr-record <pr> (--file <record.json> | --read)"
+}
+
+[[ $# -gt 0 ]] || die_usage "missing <pr>"
+case "$1" in -h | --help) usage; exit 0 ;; esac
+
+pr="$1"; shift
+cli_valid_number "$pr" || die_usage "'$pr' is not a pull request number"
+
+file=""
+mode=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --file) [[ $# -ge 2 ]] || die_usage "--file needs a path"; file="$2"; mode=write; shift 2 ;;
+    --read) mode=read; shift ;;
+    *) die_usage "unknown argument '$1'" ;;
+  esac
+done
+[[ -n "$mode" ]] || die_usage "say --file <record.json> or --read"
+[[ "$mode" != write || -f "$file" ]] || die_usage "'$file' is not a file"
+
+cli_require_tools gh jq
+CLI_TAG="PR #$pr"
+CLI_CONTEXT="$(jq -cn --argjson pr "$pr" '{pr: $pr}')"
+
+cli_repo ""
+cli_gh_json_or_fail pages --shape 'type == "array"' api "repos/$CLI_REPO/issues/$pr/comments" --paginate --slurp
+matching="$(pr_record_matching "$(jq -c 'add // []' <<<"$pages")" "$pr")" \
+  || cli_fail "$CLI_TOOL" bad_response "unexpected comments response"
+
+if [[ "$mode" == read ]]; then
+  found="$(pr_record_latest_trusted "$matching")"
+  [[ "$found" != null ]] || cli_fail "$CLI_NO" no_record "PR #$pr carries no run record from a trusted author"
+  jq -c .record <<<"$found"
+  exit 0
+fi
+
+record="$(jq -c . "$file" 2>/dev/null)" || cli_fail "$CLI_NO" invalid_record "$file is not JSON"
+pr_record_valid "$pr" "$record" \
+  || cli_fail "$CLI_NO" invalid_record "the record needs v == 1, a numeric issue and pr == $pr"
+body="$(pr_record_line "$record")"
+if [[ "${#body}" -gt "$PR_RECORD_MAX_CHARS" ]]; then
+  cli_fail "$CLI_NO" too_large "the record is ${#body} characters; a PR comment holds ~$PR_RECORD_MAX_CHARS — trim the record"
+fi
+
+cli_gh_or_fail me api user --jq .login
+own="$(pr_record_latest_own "$matching" "$me")"
+if [[ "$own" == null ]]; then
+  cli_gh_json_or_fail posted --shape 'type == "object" and has("id")' \
+    api -X POST "repos/$CLI_REPO/issues/$pr/comments" -f body="$body"
+  action=created
+elif [[ "$(jq -c .record <<<"$own")" == "$record" ]]; then
+  posted="$(jq -c '{id}' <<<"$own")"
+  action=unchanged
+else
+  cli_gh_json_or_fail posted --shape 'type == "object" and has("id")' \
+    api -X PATCH "repos/$CLI_REPO/issues/comments/$(jq -r .id <<<"$own")" -f body="$body"
+  action=updated
+fi
+jq -cn --argjson pr "$pr" --argjson id "$(jq .id <<<"$posted")" --arg a "$action" \
+  '{ok: true, pr: $pr, comment_id: $id, action: $a}'
