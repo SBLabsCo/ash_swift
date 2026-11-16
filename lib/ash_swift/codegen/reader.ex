@@ -1174,8 +1174,9 @@ defmodule AshSwift.Codegen.Reader do
 
   # Augments the primary resource list with any related resources referenced by
   # their relationships, or by a generic action's resource return (#56), that
-  # aren't already in the primary set. The related resource's struct must be in the types file so the nested field decodes
-  # correctly. Only one hop of relationship expansion is performed for M1.
+  # aren't already in the primary set. The related resource's struct must be in
+  # the types file so the nested field decodes correctly. Only one hop of
+  # relationship expansion is performed for M1.
   #
   # Related entries share the same map shape as primary entries (resource_module:
   # nil, actions: []) so render_types and render_functions always see uniform
