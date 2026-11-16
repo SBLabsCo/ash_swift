@@ -466,4 +466,176 @@ defmodule AshSwift.Codegen.ReaderTest do
                Enum.find(item.fields, &(&1.name == "uploadUrl"))
     end
   end
+
+  describe "aggregates (#51)" do
+    test "public aggregates are typed from their resolved type" do
+      user = resource(Reader.read(@domains), "User")
+
+      # count -> Int, exists -> Bool.
+      assert attr_type(user, "todoCount") == "Int"
+      assert attr_type(user, "hasTodos") == "Bool"
+      # max/min/sum preserve the field's type; avg promotes :integer to :float -> Double.
+      assert attr_type(user, "highestScore") == "Int"
+      assert attr_type(user, "lowestScore") == "Int"
+      assert attr_type(user, "totalScore") == "Int"
+      assert attr_type(user, "averageScore") == "Double"
+    end
+
+    test "an aggregate whose resolved type is an enum is typed with a generated enum" do
+      user = resource(Reader.read(@domains), "User")
+
+      assert attr_type(user, "topPriority") == "UserTopPriority"
+      enum = Enum.find(user.enums, &(&1.enum_name == "UserTopPriority"))
+      assert Enum.sort(enum.cases) == [:high, :low, :medium]
+    end
+
+    test "an aggregate that resolves to no scalar/enum (a list) is skipped" do
+      user = resource(Reader.read(@domains), "User")
+
+      refute Enum.any?(user.fields, &(&1.name == "todoTitles"))
+    end
+
+    test "private aggregates are excluded" do
+      user = resource(Reader.read(@domains), "User")
+
+      refute Enum.any?(user.fields, &(&1.name == "secretCount"))
+    end
+  end
+
+  describe "calculations (#52)" do
+    test "a zero-argument scalar calculation is a typed field" do
+      user = resource(Reader.read(@domains), "User")
+
+      assert attr_type(user, "displayName") == "String"
+    end
+
+    test "a zero-argument calculation whose type is an enum is typed with a generated enum" do
+      user = resource(Reader.read(@domains), "User")
+
+      assert attr_type(user, "nameSize") == "UserNameSize"
+      enum = Enum.find(user.enums, &(&1.enum_name == "UserNameSize"))
+      assert Enum.sort(enum.cases) == [:long, :short]
+    end
+
+    test "argument-bearing calculations (optional or required argument) are skipped" do
+      user = resource(Reader.read(@domains), "User")
+      names = Enum.map(user.fields, & &1.name)
+
+      refute "greeting" in names
+      refute "nameMatches" in names
+    end
+
+    test "a calculation returning a non-scalar (map) type is skipped" do
+      user = resource(Reader.read(@domains), "User")
+
+      refute Enum.any?(user.fields, &(&1.name == "nameSummary"))
+    end
+
+    test "private calculations are excluded" do
+      user = resource(Reader.read(@domains), "User")
+
+      refute Enum.any?(user.fields, &(&1.name == "secretLabel"))
+    end
+  end
+
+  describe "relationship fields" do
+    test "belongs_to and has_many are typed with the related struct" do
+      ir = Reader.read(@domains)
+
+      assert attr_type(resource(ir, "Todo"), "user") == "User"
+      assert attr_type(resource(ir, "User"), "todos") == "[Todo]"
+    end
+  end
+
+  describe "2-hop relationship guard" do
+    setup do
+      %{ir: Reader.read([AshSwift.Test.TagDomain])}
+    end
+
+    test "the 1-hop related resource is read; the 2-hop resource is not", %{ir: ir} do
+      type_names = Enum.map(ir.all_resources, & &1.type_name)
+
+      assert "Category" in type_names
+      refute "Publisher" in type_names
+      assert attr_type(resource(ir, "Tag"), "category") == "Category"
+    end
+
+    test "relationship fields referencing 2-hop types are dropped; scalar fields kept", %{ir: ir} do
+      category = resource(ir, "Category")
+      names = Enum.map(category.fields, & &1.name)
+
+      refute "publisher" in names
+      assert attr_type(category, "name") == "String"
+      assert attr_type(category, "publisherId") == "String"
+    end
+
+    test "an array-of-optional-elements field on a related struct is kept (#78)", %{ir: ir} do
+      # The safety check strips one bracket layer to reach the element type; unless
+      # it also drops the element's own `?`, `[String?]` resolves to the unknown
+      # "String?" and the field disappears.
+      assert attr_type(resource(ir, "Category"), "aliases") == "[String?]"
+    end
+  end
+
+  describe "create/update action arguments (#83, #84)" do
+    defp input_struct(name) do
+      todo = resource(Reader.read(@domains), "Todo")
+      Enum.find(todo.input_structs, &(&1.struct_name == name))
+    end
+
+    defp input_field(struct, name), do: Enum.find(struct.fields, &(&1.name == name))
+
+    test "a create action's arguments become input fields alongside its accepted attributes" do
+      struct = input_struct("CreateTodoWithArgsInput")
+
+      # accepted attribute (required on create)
+      assert %{swift_type: "String", required?: true} = input_field(struct, "title")
+      # scalar argument, required (allow_nil?: false)
+      assert %{swift_type: "String", required?: true} = input_field(struct, "note")
+      # map argument -> same mapping as a generic-action map argument
+      assert %{swift_type: "[String: AshJSON]", required?: false} = input_field(struct, "extras")
+
+      # array-of-record argument -> nested typed struct
+      assert %{swift_type: "[CreateTodoWithArgsChecklistItem]", required?: false} =
+               input_field(struct, "checklist")
+    end
+
+    test "an array-of-record argument generates its nested struct" do
+      item = input_struct("CreateTodoWithArgsChecklistItem")
+
+      assert %{swift_type: "String", required?: true} = input_field(item, "label")
+      assert %{swift_type: "Bool", required?: false} = input_field(item, "done")
+    end
+
+    test "an argument named like an attribute takes the argument's type" do
+      # `score` is an integer attribute but a String argument on this action.
+      assert %{swift_type: "String"} =
+               input_field(input_struct("CreateTodoWithArgsInput"), "score")
+    end
+
+    test "an argument of an unmappable type is omitted from the input struct" do
+      refute input_field(input_struct("CreateTodoWithArgsInput"), "grid")
+    end
+
+    test "an argument-only update (accept []) gets an input struct; a required argument stays required" do
+      assert [%{name: "newTitle", swift_type: "String", required?: true}] =
+               input_struct("RetitleTodoInput").fields
+    end
+
+    test "an update keeps an argument whose same-named attribute is private (#84)" do
+      assert [%{name: "dueDate", swift_type: "String", required?: true}] =
+               input_struct("SetTodoDueDateInput").fields
+    end
+
+    test "a generic action keeps an argument whose same-named attribute is private (#84)" do
+      assert [%{name: "dueDate", swift_type: "String", required?: true}] =
+               input_struct("CheckTodoDueDateInput").fields
+    end
+
+    test "the private attribute itself stays out of the resource fields" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      refute Enum.any?(todo.fields, &(&1.name == "dueDate"))
+    end
+  end
 end
