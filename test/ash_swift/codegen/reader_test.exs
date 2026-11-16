@@ -8,18 +8,30 @@ defmodule AshSwift.Codegen.ReaderTest do
   """
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias AshSwift.Codegen.Reader
 
   @domains [AshSwift.Test.Domain]
+
+  # The IR is immutable data; read it once for the whole module.
+  setup_all do
+    %{ir: Reader.read(@domains)}
+  end
 
   defp resource(ir, type_name), do: Enum.find(ir.all_resources, &(&1.type_name == type_name))
 
   defp attr_type(res, name), do: Enum.find(res.fields, &(&1.name == name)).swift_type
 
-  describe "read/1 shape" do
-    test "returns primary and all resource lists of plain maps" do
-      ir = Reader.read(@domains)
+  defp input_struct(ir, name) do
+    todo = resource(ir, "Todo")
+    Enum.find(todo.input_structs, &(&1.struct_name == name))
+  end
 
+  defp input_field(struct, name), do: Enum.find(struct.fields, &(&1.name == name))
+
+  describe "read/1 shape" do
+    test "returns primary and all resource lists of plain maps", %{ir: ir} do
       assert Enum.map(ir.primary_resources, & &1.type_name) == ["Todo", "User"]
 
       # all_resources folds in related resources, so it is a superset of primary.
@@ -41,8 +53,10 @@ defmodule AshSwift.Codegen.ReaderTest do
                      generic_return_resource)a
                   |> MapSet.new()
 
-    test "CRUD actions carry exactly the documented keys; generic actions their own set" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "CRUD actions carry exactly the documented keys; generic actions their own set", %{
+      ir: ir
+    } do
+      todo = resource(ir, "Todo")
 
       for name <- [
             :list_todos,
@@ -64,8 +78,8 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "destroy action inputs (#102)" do
-    test "a destroy gets an input struct only when it declares inputs" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "a destroy gets an input struct only when it declares inputs", %{ir: ir} do
+      todo = resource(ir, "Todo")
       action = fn name -> Enum.find(todo.actions, &(&1.rpc_name == name)) end
 
       assert action.(:archive_todo).input_struct_name == "ArchiveTodoInput"
@@ -79,53 +93,42 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "input optionality: accepted attributes and arguments (#113, #124, #75)" do
-    setup do
-      todo = resource(Reader.read(@domains), "Todo")
-      struct = fn name -> Enum.find(todo.input_structs, &(&1.struct_name == name)) end
-      field = fn s, name -> Enum.find(s.fields, &(&1.name == name)) end
-      %{struct: struct, field: field}
-    end
+    test "require_attributes makes accepted update/destroy attributes required (#113)", %{ir: ir} do
+      rename = input_struct(ir, "RenameTodoInput")
+      assert %{required?: true} = input_field(rename, "title")
+      assert %{required?: false} = input_field(rename, "priority")
 
-    test "require_attributes makes accepted update/destroy attributes required (#113)", %{
-      struct: struct,
-      field: field
-    } do
-      rename = struct.("RenameTodoInput")
-      assert %{required?: true} = field.(rename, "title")
-      assert %{required?: false} = field.(rename, "priority")
-
-      assert %{required?: true} = field.(struct.("RemoveTitledTodoInput"), "title")
+      assert %{required?: true} = input_field(input_struct(ir, "RemoveTitledTodoInput"), "title")
     end
 
     test "allow_nil_input, nullable and defaulted attributes stay optional; a plain allow_nil?: false one is required (#124)",
-         %{
-           struct: struct,
-           field: field
-         } do
-      input = struct.("CreateLenientTodoInput")
+         %{ir: ir} do
+      input = input_struct(ir, "CreateLenientTodoInput")
 
       # allow_nil?: false, but in allow_nil_input
-      assert %{required?: false} = field.(input, "title")
+      assert %{required?: false} = input_field(input, "title")
       # nullable, in require_attributes: manifest says required, parity says optional
-      assert %{required?: false} = field.(input, "score")
+      assert %{required?: false} = input_field(input, "score")
       # has a default, in require_attributes
-      assert %{required?: false} = field.(input, "completed")
+      assert %{required?: false} = input_field(input, "completed")
 
       # control: allow_nil?: false, no default, not in allow_nil_input
-      assert %{required?: true} = field.(struct.("CreateTodoInput"), "title")
+      assert %{required?: true} = input_field(input_struct(ir, "CreateTodoInput"), "title")
     end
 
     test "a required argument named like a nullable public attribute stays required (#75)", %{
-      struct: struct,
-      field: field
+      ir: ir
     } do
-      assert %{required?: true, swift_type: "Int"} = field.(struct.("SetTodoScoreInput"), "score")
+      assert %{required?: true, swift_type: "Int"} =
+               input_field(input_struct(ir, "SetTodoScoreInput"), "score")
     end
   end
 
   describe "enum classification" do
-    test "an attribute with a one_of / Ash.Type.Enum type becomes a typed enum in the IR" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "an attribute with a one_of / Ash.Type.Enum type becomes a typed enum in the IR", %{
+      ir: ir
+    } do
+      todo = resource(ir, "Todo")
       enum_names = Enum.map(todo.enums, & &1.enum_name)
 
       assert "TodoPriority" in enum_names
@@ -134,11 +137,33 @@ defmodule AshSwift.Codegen.ReaderTest do
       priority = Enum.find(todo.enums, &(&1.enum_name == "TodoPriority"))
       assert priority.cases == [:low, :medium, :high]
     end
+
+    test "an Ash.Type.Enum attribute types its field with the generated enum", %{ir: ir} do
+      todo = resource(ir, "Todo")
+
+      assert attr_type(todo, "status") == "TodoStatus"
+      status = Enum.find(todo.enums, &(&1.enum_name == "TodoStatus"))
+      assert Enum.sort(status.cases) == [:active, :archived, :case, :default, :pending]
+    end
+  end
+
+  describe "scalar attribute type mapping" do
+    # The full Ash-to-Swift table is pinned in type_map_test; this only shows the
+    # Reader applies it to attributes.
+    test "attributes resolve to their Swift wire type in the IR", %{ir: ir} do
+      todo = resource(ir, "Todo")
+
+      # Decimal serialises as "123.45" on the wire; String is the faithful type.
+      assert attr_type(todo, "amount") == "String"
+      assert attr_type(todo, "dueAt") == "Date"
+    end
   end
 
   describe "filter-operator-group selection" do
-    test "each filterable attribute carries the operator generic for its type and nullability" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "each filterable attribute carries the operator generic for its type and nullability", %{
+      ir: ir
+    } do
+      todo = resource(ir, "Todo")
       refute is_nil(todo.filter_struct)
       groups = Map.new(todo.filter_struct.fields, &{&1.name, &1.swift_type})
 
@@ -150,24 +175,62 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert groups["id"] == "EnumOperators<String>"
       # enum, nullable → membership over the generated enum type
       assert groups["priority"] == "NullableEnumOperators<TodoPriority>"
+      assert groups["status"] == "NullableEnumOperators<TodoStatus>"
+      # string, non-null → eq/notEq/in, no isNil
+      assert groups["title"] == "EnumOperators<String>"
+      # string, nullable → isNil added
+      assert groups["default"] == "NullableEnumOperators<String>"
       # ci_string, nullable → case-insensitive-aware group
       assert groups["username"] == "NullableCiStringOperators<String>"
+    end
+
+    test "date/datetime and decimal attributes are comparable, typed by their Swift type", %{
+      ir: ir
+    } do
+      todo = resource(ir, "Todo")
+      groups = Map.new(todo.filter_struct.fields, &{&1.name, &1.swift_type})
+
+      assert groups["dueAt"] == "NullableComparableOperators<Date>"
+      # Decimal maps to a Swift String but the Ash type drives the comparable group.
+      assert groups["amount"] == "NullableComparableOperators<String>"
+    end
+
+    test "every filterable resource gets a filter struct; composite maps are excluded", %{ir: ir} do
+      for type_name <- ["Todo", "User"] do
+        refute is_nil(resource(ir, type_name).filter_struct), "#{type_name} must be filterable"
+      end
+
+      todo = resource(ir, "Todo")
+      refute "metadata" in Enum.map(todo.filter_struct.fields, & &1.name)
     end
   end
 
   describe "sort surface" do
-    test "a resource with sortable attributes gets a typed SortField enum in the IR" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "a resource with sortable attributes gets a typed SortField enum in the IR", %{ir: ir} do
+      todo = resource(ir, "Todo")
       refute is_nil(todo.sort_field)
 
       assert todo.sort_field.type_name == "TodoSortField"
       assert "title" in todo.sort_field.fields
     end
+
+    test "public comparable attributes are sortable; composite maps are not", %{ir: ir} do
+      todo = resource(ir, "Todo")
+
+      for name <- ["completed", "dueAt", "scheduledAt", "title", "amount", "status", "default"] do
+        assert name in todo.sort_field.fields, "#{name} must be sortable"
+      end
+
+      # The backend can't sort by a JSON object.
+      refute "metadata" in todo.sort_field.fields
+
+      assert resource(ir, "User").sort_field.type_name == "UserSortField"
+    end
   end
 
   describe "get? lookup location (#66, #91)" do
-    test "a list read, a create and a generic action are not gets" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "a list read, a create and a generic action are not gets", %{ir: ir} do
+      todo = resource(ir, "Todo")
 
       for rpc_name <- [:list_todos, :create_todo, :ping] do
         action = Enum.find(todo.actions, &(&1.rpc_name == rpc_name))
@@ -176,33 +239,33 @@ defmodule AshSwift.Codegen.ReaderTest do
       end
     end
 
-    test "a pure get? action has no lookup params (#91)" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "a pure get? action has no lookup params (#91)", %{ir: ir} do
+      todo = resource(ir, "Todo")
       fetch = Enum.find(todo.actions, &(&1.rpc_name == :fetch_todo))
 
       assert fetch.get == :pure
     end
 
-    test "a pure get? action with arguments keeps them as read input, no lookup (#91)" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "a pure get? action with arguments keeps them as read input, no lookup (#91)", %{ir: ir} do
+      todo = resource(ir, "Todo")
       fetch = Enum.find(todo.actions, &(&1.rpc_name == :fetch_todo_by_title))
 
       assert fetch.get == :pure
       assert fetch.input_struct_name == "FetchTodoByTitleInput"
 
-      input = Enum.find(todo.input_structs, &(&1.struct_name == "FetchTodoByTitleInput"))
+      input = input_struct(ir, "FetchTodoByTitleInput")
       assert Enum.any?(input.fields, &(&1.name == "title"))
     end
 
-    test "a native get_by action still travels via :input" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "a native get_by action still travels via :input", %{ir: ir} do
+      todo = resource(ir, "Todo")
       get_todo = Enum.find(todo.actions, &(&1.rpc_name == :get_todo))
 
       assert {:input, [%{name: "id"}]} = get_todo.get
     end
 
-    test "an RPC-level get_by action still travels via :get_by" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "an RPC-level get_by action still travels via :get_by", %{ir: ir} do
+      todo = resource(ir, "Todo")
       find_by_title = Enum.find(todo.actions, &(&1.rpc_name == :find_todo_by_title))
 
       assert {:get_by, [%{name: "title"}]} = find_by_title.get
@@ -210,13 +273,14 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "generic-action gating (#54)" do
-    test "unmappable generic actions are dropped; supported ones kept" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "unmappable generic actions are dropped; supported ones kept", %{ir: ir} do
+      todo = resource(ir, "Todo")
       rpc_names = Enum.map(todo.actions, & &1.rpc_name)
 
       # :summarize_all (an array-of-resource return) maps to no Swift type: dropped (#56).
       refute :summarize_all in rpc_names
-      # :deep_broadcast is dropped for its nested-array argument.
+      # :deep_broadcast takes a nested-array argument ({:array, {:array, _}}) whose element is
+      # unmappable, so the whole action is skipped rather than emitted with a wrong-typed input.
       refute :deep_broadcast in rpc_names
 
       # :summarize (a struct return of a resource, allow_nil? true) is an optional
@@ -241,6 +305,19 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert :broadcast in rpc_names
       assert :bulk_create in rpc_names
     end
+
+    test "skipped generic actions are announced with a warning" do
+      log = capture_log(fn -> Reader.read(@domains) end)
+
+      # `summarize_all` returns an array of resources, which maps to no Swift type (#56).
+      assert log =~ "generic action :summarize_all"
+
+      # `deep_broadcast` takes `{:array, {:array, :string}}`: the element is itself
+      # an array, which maps to no Swift type, so the input gate skips the action.
+      assert log =~ "generic action :deep_broadcast"
+      assert log =~ "argument :matrix"
+      assert log =~ "skipping"
+    end
   end
 
   describe "generic action resource return targets (#56)" do
@@ -257,8 +334,8 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "array attributes (#78)" do
-    test "an array attribute maps to the Swift array of its element type" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "an array attribute maps to the Swift array of its element type", %{ir: ir} do
+      todo = resource(ir, "Todo")
 
       # The regression this guards: `{:array, :string}` used to read `type.module`
       # (nil for an array) and fall through to the String catch-all, emitting a
@@ -270,8 +347,8 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert attr_type(todo, "notes") == "[[String: AshJSON]]"
     end
 
-    test "an array of an enum element maps to the generated Swift enum and emits it" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "an array of an enum element maps to the generated Swift enum and emits it", %{ir: ir} do
+      todo = resource(ir, "Todo")
 
       assert attr_type(todo, "labels") == "[TodoLabels]"
 
@@ -279,8 +356,8 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert labels.cases == [:red, :green]
     end
 
-    test "element nullability comes from nil_items?, not the attribute's allow_nil?" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "element nullability comes from nil_items?, not the attribute's allow_nil?", %{ir: ir} do
+      todo = resource(ir, "Todo")
 
       # `tags` is allow_nil?: false and `scores` allow_nil?: true, yet neither
       # permits nil *elements* — only `nil_tags` sets `nil_items?: true`. The array's
@@ -291,8 +368,8 @@ defmodule AshSwift.Codegen.ReaderTest do
       refute attr_type(todo, "scores") =~ "?"
     end
 
-    test "an array whose element maps to no Swift type is omitted, not mis-typed" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "an array whose element maps to no Swift type is omitted, not mis-typed", %{ir: ir} do
+      todo = resource(ir, "Todo")
 
       # `matrix` is {:array, {:array, :string}}: the element is itself an array, which
       # maps to no Swift type. Omitting it makes a consumer's use site a compile
@@ -302,8 +379,8 @@ defmodule AshSwift.Codegen.ReaderTest do
       refute Enum.any?(todo.input_structs, fn s -> Enum.any?(s.fields, &(&1.name == "matrix")) end)
     end
 
-    test "array attributes are excluded from the filter and sort surfaces" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "array attributes are excluded from the filter and sort surfaces", %{ir: ir} do
+      todo = resource(ir, "Todo")
 
       filter_names = Enum.map(todo.filter_struct.fields, & &1.name)
 
@@ -313,9 +390,8 @@ defmodule AshSwift.Codegen.ReaderTest do
       end
     end
 
-    test "an array attribute still reaches the create input struct with its array type" do
-      todo = resource(Reader.read(@domains), "Todo")
-      create = Enum.find(todo.input_structs, &(&1.struct_name == "CreateTodoInput"))
+    test "an array attribute still reaches the create input struct with its array type", %{ir: ir} do
+      create = input_struct(ir, "CreateTodoInput")
 
       # allow_nil?: false but `default []`, so it is accepted yet not required —
       # the array-ness must not disturb the existing required? rule.
@@ -325,25 +401,22 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "generic-action array arguments" do
-    test "an array-of-scalar argument maps to a [Scalar] input field" do
-      todo = resource(Reader.read(@domains), "Todo")
-      struct = Enum.find(todo.input_structs, &(&1.struct_name == "BroadcastInput"))
+    test "an array-of-scalar argument maps to a [Scalar] input field", %{ir: ir} do
+      struct = input_struct(ir, "BroadcastInput")
 
       assert %{name: "tags", swift_type: "[String]", required?: false} =
                Enum.find(struct.fields, &(&1.name == "tags"))
     end
 
-    test "an array-of-record argument generates a typed nested input struct" do
-      todo = resource(Reader.read(@domains), "Todo")
-
+    test "an array-of-record argument generates a typed nested input struct", %{ir: ir} do
       # The top-level input carries the array typed by the generated element struct.
-      bulk_input = Enum.find(todo.input_structs, &(&1.struct_name == "BulkCreateInput"))
+      bulk_input = input_struct(ir, "BulkCreateInput")
 
       assert %{name: "rows", swift_type: "[BulkCreateRowsItem]", required?: true} =
                Enum.find(bulk_input.fields, &(&1.name == "rows"))
 
       # The element struct is emitted, its fields' optionality read from allow_nil?.
-      item = Enum.find(todo.input_structs, &(&1.struct_name == "BulkCreateRowsItem"))
+      item = input_struct(ir, "BulkCreateRowsItem")
       assert item, "expected a generated BulkCreateRowsItem struct"
 
       assert %{swift_type: "String", required?: true} =
@@ -354,9 +427,24 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
+  describe "generic-action map arguments" do
+    test "a map-typed argument maps to the AshJSON dictionary", %{ir: ir} do
+      struct = input_struct(ir, "EchoConfigInput")
+
+      assert %{swift_type: "[String: AshJSON]", required?: false} =
+               input_field(struct, "options")
+    end
+
+    test "an unconstrained array-of-map argument maps to [[String: AshJSON]]", %{ir: ir} do
+      struct = input_struct(ir, "BulkRawInput")
+
+      assert %{swift_type: "[[String: AshJSON]]"} = input_field(struct, "rows")
+    end
+  end
+
   describe "generic-action constrained-map return (#70)" do
-    test "an unconstrained :map return still maps to the untyped [String: AshJSON]" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "an unconstrained :map return still maps to the untyped [String: AshJSON]", %{ir: ir} do
+      todo = resource(ir, "Todo")
       stats = Enum.find(todo.actions, &(&1.rpc_name == :stats))
 
       assert stats.generic_return == {:typed, "[String: AshJSON]"}
@@ -364,8 +452,8 @@ defmodule AshSwift.Codegen.ReaderTest do
       refute Enum.any?(todo.input_structs, &(&1.struct_name == "StatsResult"))
     end
 
-    test "a constrained :map return generates a typed Decodable result struct" do
-      todo = resource(Reader.read(@domains), "Todo")
+    test "a constrained :map return generates a typed Decodable result struct", %{ir: ir} do
+      todo = resource(ir, "Todo")
       upload = Enum.find(todo.actions, &(&1.rpc_name == :upload_start))
 
       # The return is the generated struct, not [String: AshJSON]. Tagged
@@ -373,7 +461,7 @@ defmodule AshSwift.Codegen.ReaderTest do
       # selection for this field-selectable return (issue #73).
       assert upload.generic_return == {:typed_record, "UploadStartResult"}
 
-      result = Enum.find(todo.input_structs, &(&1.struct_name == "UploadStartResult"))
+      result = input_struct(ir, "UploadStartResult")
       assert result, "expected a generated UploadStartResult struct"
       assert result.decodable?, "result struct must be tagged decodable? (renders Decodable)"
 
@@ -393,12 +481,10 @@ defmodule AshSwift.Codegen.ReaderTest do
                Enum.find(result.fields, &(&1.name == "clips"))
     end
 
-    test "an {:array, :map} return field generates a typed, decodable nested struct" do
-      todo = resource(Reader.read(@domains), "Todo")
-
+    test "an {:array, :map} return field generates a typed, decodable nested struct", %{ir: ir} do
       # Named with the result-struct prefix so it never collides with an
       # argument-side `clips` nested struct on the same action.
-      item = Enum.find(todo.input_structs, &(&1.struct_name == "UploadStartResultClipsItem"))
+      item = input_struct(ir, "UploadStartResultClipsItem")
       assert item, "expected a generated UploadStartResultClipsItem struct"
       assert item.decodable?, "nested result struct must be tagged decodable?"
 
@@ -410,6 +496,178 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       assert %{swift_type: "String", required?: true} =
                Enum.find(item.fields, &(&1.name == "uploadUrl"))
+    end
+  end
+
+  describe "aggregates (#51)" do
+    test "public aggregates are typed from their resolved type", %{ir: ir} do
+      user = resource(ir, "User")
+
+      # count -> Int, exists -> Bool.
+      assert attr_type(user, "todoCount") == "Int"
+      assert attr_type(user, "hasTodos") == "Bool"
+      # max/min/sum preserve the field's type; avg promotes :integer to :float -> Double.
+      assert attr_type(user, "highestScore") == "Int"
+      assert attr_type(user, "lowestScore") == "Int"
+      assert attr_type(user, "totalScore") == "Int"
+      assert attr_type(user, "averageScore") == "Double"
+    end
+
+    test "an aggregate whose resolved type is an enum is typed with a generated enum", %{ir: ir} do
+      user = resource(ir, "User")
+
+      assert attr_type(user, "topPriority") == "UserTopPriority"
+      enum = Enum.find(user.enums, &(&1.enum_name == "UserTopPriority"))
+      assert Enum.sort(enum.cases) == [:high, :low, :medium]
+    end
+
+    test "an aggregate that resolves to no scalar/enum (a list) is skipped", %{ir: ir} do
+      user = resource(ir, "User")
+
+      refute Enum.any?(user.fields, &(&1.name == "todoTitles"))
+    end
+
+    test "private aggregates are excluded", %{ir: ir} do
+      user = resource(ir, "User")
+
+      refute Enum.any?(user.fields, &(&1.name == "secretCount"))
+    end
+  end
+
+  describe "calculations (#52)" do
+    test "a zero-argument scalar calculation is a typed field", %{ir: ir} do
+      user = resource(ir, "User")
+
+      assert attr_type(user, "displayName") == "String"
+    end
+
+    test "a zero-argument calculation whose type is an enum is typed with a generated enum", %{
+      ir: ir
+    } do
+      user = resource(ir, "User")
+
+      assert attr_type(user, "nameSize") == "UserNameSize"
+      enum = Enum.find(user.enums, &(&1.enum_name == "UserNameSize"))
+      assert Enum.sort(enum.cases) == [:long, :short]
+    end
+
+    test "argument-bearing calculations (optional or required argument) are skipped", %{ir: ir} do
+      user = resource(ir, "User")
+      names = Enum.map(user.fields, & &1.name)
+
+      refute "greeting" in names
+      refute "nameMatches" in names
+    end
+
+    test "a calculation returning a non-scalar (map) type is skipped", %{ir: ir} do
+      user = resource(ir, "User")
+
+      refute Enum.any?(user.fields, &(&1.name == "nameSummary"))
+    end
+
+    test "private calculations are excluded", %{ir: ir} do
+      user = resource(ir, "User")
+
+      refute Enum.any?(user.fields, &(&1.name == "secretLabel"))
+    end
+  end
+
+  describe "relationship fields" do
+    test "belongs_to and has_many are typed with the related struct", %{ir: ir} do
+      assert attr_type(resource(ir, "Todo"), "user") == "User"
+      assert attr_type(resource(ir, "User"), "todos") == "[Todo]"
+    end
+  end
+
+  describe "2-hop relationship guard" do
+    setup do
+      %{ir: Reader.read([AshSwift.Test.TagDomain])}
+    end
+
+    test "the 1-hop related resource is read; the 2-hop resource is not", %{ir: ir} do
+      type_names = Enum.map(ir.all_resources, & &1.type_name)
+
+      assert "Category" in type_names
+      refute "Publisher" in type_names
+      assert attr_type(resource(ir, "Tag"), "category") == "Category"
+    end
+
+    test "relationship fields referencing 2-hop types are dropped; scalar fields kept", %{ir: ir} do
+      category = resource(ir, "Category")
+      names = Enum.map(category.fields, & &1.name)
+
+      refute "publisher" in names
+      assert attr_type(category, "name") == "String"
+      assert attr_type(category, "publisherId") == "String"
+    end
+
+    test "an array-of-optional-elements field on a related struct is kept (#78)", %{ir: ir} do
+      # The safety check strips one bracket layer to reach the element type; unless
+      # it also drops the element's own `?`, `[String?]` resolves to the unknown
+      # "String?" and the field disappears.
+      assert attr_type(resource(ir, "Category"), "aliases") == "[String?]"
+    end
+  end
+
+  describe "create/update action arguments (#83)" do
+    test "a create action's arguments become input fields alongside its accepted attributes", %{
+      ir: ir
+    } do
+      struct = input_struct(ir, "CreateTodoWithArgsInput")
+
+      # accepted attribute (required on create)
+      assert %{swift_type: "String", required?: true} = input_field(struct, "title")
+      # scalar argument, required (allow_nil?: false)
+      assert %{swift_type: "String", required?: true} = input_field(struct, "note")
+      # map argument -> same mapping as a generic-action map argument
+      assert %{swift_type: "[String: AshJSON]", required?: false} = input_field(struct, "extras")
+
+      # array-of-record argument -> nested typed struct
+      assert %{swift_type: "[CreateTodoWithArgsChecklistItem]", required?: false} =
+               input_field(struct, "checklist")
+    end
+
+    test "an array-of-record argument generates its nested struct", %{ir: ir} do
+      item = input_struct(ir, "CreateTodoWithArgsChecklistItem")
+
+      assert %{swift_type: "String", required?: true} = input_field(item, "label")
+      assert %{swift_type: "Bool", required?: false} = input_field(item, "done")
+    end
+
+    test "an argument named like an attribute takes the argument's type", %{ir: ir} do
+      # `score` is an integer attribute but a String argument on this action.
+      assert %{swift_type: "String"} =
+               input_field(input_struct(ir, "CreateTodoWithArgsInput"), "score")
+    end
+
+    test "an argument of an unmappable type is omitted from the input struct", %{ir: ir} do
+      refute input_field(input_struct(ir, "CreateTodoWithArgsInput"), "grid")
+    end
+
+    test "an argument-only update (accept []) gets an input struct; a required argument stays required",
+         %{ir: ir} do
+      assert [%{name: "newTitle", swift_type: "String", required?: true}] =
+               input_struct(ir, "RetitleTodoInput").fields
+    end
+  end
+
+  describe "arguments named like a private attribute (#84)" do
+    test "an update keeps an argument whose same-named attribute is private (#84)", %{ir: ir} do
+      assert [%{name: "dueDate", swift_type: "String", required?: true}] =
+               input_struct(ir, "SetTodoDueDateInput").fields
+    end
+
+    test "a generic action keeps an argument whose same-named attribute is private (#84)", %{
+      ir: ir
+    } do
+      assert [%{name: "dueDate", swift_type: "String", required?: true}] =
+               input_struct(ir, "CheckTodoDueDateInput").fields
+    end
+
+    test "the private attribute itself stays out of the resource fields", %{ir: ir} do
+      todo = resource(ir, "Todo")
+
+      refute Enum.any?(todo.fields, &(&1.name == "dueDate"))
     end
   end
 end

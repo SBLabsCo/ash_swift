@@ -42,8 +42,6 @@ defmodule AshSwift.CodegenTest do
       types = files["AshRpcTypes.swift"]
       assert types =~ "public enum TodoPriority: String, Codable, Sendable, Equatable {"
       assert types =~ "    case high"
-      assert types =~ "    case low"
-      assert types =~ "    case medium"
       # The enum definition must appear before the struct that uses it
       enum_pos = :binary.match(types, "public enum TodoPriority:") |> elem(0)
       struct_pos = :binary.match(types, "public struct Todo:") |> elem(0)
@@ -54,10 +52,6 @@ defmodule AshSwift.CodegenTest do
       types = files["AshRpcTypes.swift"]
       assert types =~ "public enum TodoStatus: String, Codable, Sendable, Equatable {"
       assert types =~ "    case active"
-      assert types =~ "    case archived"
-      assert types =~ "    case pending"
-      # Field on Todo uses the typed enum, not String
-      assert types =~ "public var status: TodoStatus?"
       # Enum definition appears before the struct that references it
       enum_pos = :binary.match(types, "public enum TodoStatus:") |> elem(0)
       struct_pos = :binary.match(types, "public struct Todo:") |> elem(0)
@@ -71,39 +65,12 @@ defmodule AshSwift.CodegenTest do
       refute types =~ "    case case\n"
     end
 
-    test "emits relationship fields as Optional nested types", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # belongs_to :user on Todo emits a User? field
-      assert types =~ "public var user: User?"
-      # has_many :todos on User emits a [Todo]? field
-      assert types =~ "public var todos: [Todo]?"
-    end
-
-    test "emits public aggregates as Optional fields typed from their resolved type",
-         %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # User's aggregates over :todos (issue #51). Each is selectable like any
-      # other field and decodes through the same Optional struct member.
-      # count → Int, exists → Bool.
-      assert types =~ "public var todoCount: Int?"
-      assert types =~ "public var hasTodos: Bool?"
-      # The complete set of field-typed numeric aggregates, all sharing the scalar
-      # gate → ash_type_to_swift path. max/min/sum preserve the field's type (:integer
-      # → Int); avg promotes to :float → Double, so the assertion pins that :float
-      # stays mapped (and in @derived_scalar_kinds) rather than being skipped.
-      assert types =~ "public var highestScore: Int?"
-      assert types =~ "public var lowestScore: Int?"
-      assert types =~ "public var totalScore: Int?"
-      assert types =~ "public var averageScore: Double?"
-    end
-
     test "emits a Swift enum for an aggregate whose resolved type is an enum",
          %{files: files} do
       types = files["AshRpcTypes.swift"]
       # `top_priority` is a `first` aggregate over the enum attribute :priority, so
       # it resolves to an enum type and is emitted like an enum attribute: a typed
       # field plus a per-resource generated enum.
-      assert types =~ "public var topPriority: UserTopPriority?"
       assert types =~ "public enum UserTopPriority: String, Codable, Sendable, Equatable {"
 
       # Scope the case assertions to the UserTopPriority block. Asserting `case high`
@@ -116,30 +83,6 @@ defmodule AshSwift.CodegenTest do
       assert enum_block =~ "case medium"
     end
 
-    test "skips an aggregate whose resolved type doesn't map to a Swift scalar/enum",
-         %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # `todo_titles` is a `list` aggregate → an array result the manifest reports
-      # with `module: nil`. A derived field with no faithful Swift type is omitted
-      # rather than String-fallbacked (which would silently mis-decode).
-      refute types =~ "todoTitles"
-    end
-
-    test "does not emit private aggregates", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # `secret_count` is a non-public aggregate — codegen's public-only scope must
-      # exclude it (the manifest is built without include_private_aggregates?).
-      refute types =~ "secretCount"
-    end
-
-    test "emits a zero-argument, scalar calculation as an Optional field",
-         %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # `display_name` is a zero-argument :string calculation — emitted like any
-      # scalar field, selectable via the same `.scalar` path (issue #52).
-      assert types =~ "public var displayName: String?"
-    end
-
     test "emits a Swift enum for a zero-argument calculation whose type is an enum",
          %{files: files} do
       types = files["AshRpcTypes.swift"]
@@ -148,7 +91,6 @@ defmodule AshSwift.CodegenTest do
       # plus a per-resource generated enum. This exercises emit_derived_fields/5's
       # enum branch from the *calculation* path (aggregates cover it too, but only
       # indirectly for calcs).
-      assert types =~ "public var nameSize: UserNameSize?"
       assert types =~ "public enum UserNameSize: String, Codable, Sendable, Equatable {"
 
       # Scope the case assertions to the UserNameSize block so they stay
@@ -156,41 +98,6 @@ defmodule AshSwift.CodegenTest do
       enum_block = Regex.run(~r/public enum UserNameSize:.*?\n\}/s, types) |> List.first()
       assert enum_block =~ "case long"
       assert enum_block =~ "case short"
-    end
-
-    test "skips a calculation with an optional argument (deferred to M3)",
-         %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # `greeting` takes one argument with a default. Although the argument is
-      # optional, the reused RPC pipeline still rejects a plain `.scalar` selection
-      # ("Calculation requires arguments") — only the args-bearing shape works, and
-      # that's deferred to M3. So an argument-bearing calc is omitted, not emitted
-      # broken. This guards against the PRD's incorrect "optional → zero-arg" premise.
-      refute types =~ "greeting"
-    end
-
-    test "skips a calculation with a required argument (deferred to M3)",
-         %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # `name_matches` takes a required argument (no default, allow_nil?: false). It
-      # needs an args-bearing selection shape that doesn't exist yet, so it must be
-      # omitted rather than emitted broken.
-      refute types =~ "nameMatches"
-    end
-
-    test "skips a calculation returning a non-scalar (map) type", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # `name_summary` returns :map. Unlike a :map *attribute* (which emits
-      # [String: AshJSON]), a derived field's computed type is dropped when it isn't
-      # a concrete scalar/enum — omission is safe; a wrong guess silently mis-decodes.
-      refute types =~ "nameSummary"
-    end
-
-    test "does not emit private calculations", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # `secret_label` is a non-public calculation — excluded by codegen's
-      # public-only scope (the manifest is built without include_private_calculations?).
-      refute types =~ "secretLabel"
     end
 
     test "the functions file imports the runtime and exposes an AshRpc entry point", %{
@@ -375,85 +282,6 @@ defmodule AshSwift.CodegenTest do
       assert functions =~ ~s(getBy: ["title": title])
     end
 
-    test "Ash.Type.Decimal maps to String (wire format is a JSON string)", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # Decimal serialises as "123.45" on the wire; String is the faithful Swift type.
-      assert types =~ "public var amount: String?"
-    end
-
-    test "Ash.Type.Date maps to String (ISO 8601 date-only wire format)", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      assert types =~ "public var deadline: String?"
-    end
-
-    test "Ash.Type.UtcDatetime maps to Date", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      assert types =~ "public var scheduledAt: Date?"
-    end
-
-    test "Ash.Type.UtcDatetimeUsec maps to Date", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      assert types =~ "public var dueAt: Date?"
-    end
-
-    test "Ash.Type.NaiveDatetime maps to String (no timezone in wire format)", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      assert types =~ "public var startedAt: String?"
-    end
-
-    test "Ash.Type.Map maps to [String: AshJSON]", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      assert types =~ "public var metadata: [String: AshJSON]?"
-    end
-
-    test "Ash.Type.CiString maps to String (plain JSON string wire format)", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # CiString has an explicit mapping, so codegen emits String without the
-      # unmapped-type fallback warning.
-      assert types =~ "public var username: String?"
-    end
-
-    test "an {:array, :string} attribute maps to [String], not a scalar String (#78)", %{
-      files: files
-    } do
-      types = files["AshRpcTypes.swift"]
-
-      # The property a consumer actually receives. Before #78 this emitted
-      # `public var tags: String?`, which compiles and then throws typeMismatch
-      # when the server sends the JSON array — so assert the scalar form is gone
-      # as well as the array form being present.
-      assert types =~ "public var tags: [String]?"
-      refute types =~ "public var tags: String?"
-
-      # Arrays of the other mapped element types ride the same path.
-      assert types =~ "public var scores: [Int]?"
-      assert types =~ "public var labels: [TodoLabels]?"
-      assert types =~ "public var notes: [[String: AshJSON]]?"
-
-      # An array whose elements may be nil is a different shape from an optional
-      # array: the element carries the `?`, and the field's own `?` is unchanged.
-      assert types =~ "public var nilTags: [String?]?"
-
-      # An array element that maps to no Swift type is dropped rather than guessed.
-      refute types =~ "public var matrix"
-    end
-
-    test "array attributes stay out of the filter and sort surfaces (#78)", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-
-      # The operator generics describe scalar predicates, and Ash errors when asked
-      # to sort by an array — so neither surface may carry an array attribute.
-      refute types =~ "public var tags: EnumOperators<String>?"
-      refute types =~ "public var tags: NullableEnumOperators<String>?"
-
-      sort_enum =
-        Regex.run(~r/public enum TodoSortField: String, Sendable \{.*?\n\}/s, types) |> hd()
-
-      for name <- ["tags", "scores", "labels", "nilTags", "notes"] do
-        refute sort_enum =~ "case #{name}"
-      end
-    end
-
     test "backtick-escapes Swift reserved keywords used as function names", %{files: files} do
       functions = files["AshRpcFunctions.swift"]
       # :init is a Swift declaration keyword; bare `public func init(...)` is a syntax error.
@@ -480,40 +308,6 @@ defmodule AshSwift.CodegenTest do
   describe "sort surface (issue #34)" do
     setup do
       %{files: Codegen.build_files(@domains)}
-    end
-
-    test "emits a typed sortable-field enum per resource covering public attributes", %{
-      files: files
-    } do
-      types = files["AshRpcTypes.swift"]
-      assert types =~ "public enum TodoSortField: String, Sendable {"
-      # Public attributes appear as camelCased cases (raw value inferred from name).
-      assert types =~ "    case completed"
-      assert types =~ "    case dueAt"
-      assert types =~ "    case scheduledAt"
-      assert types =~ "    case title"
-      # Users get their own sortable-field enum too.
-      assert types =~ "public enum UserSortField: String, Sendable {"
-    end
-
-    test "excludes non-sortable composite types (Ash.Type.Map) from the sort field set", %{
-      files: files
-    } do
-      types = files["AshRpcTypes.swift"]
-      # `metadata` is an Ash.Type.Map (→ [String: AshJSON]); the backend can't sort
-      # by a JSON object, so it must not appear as a typed sort field.
-      assert Regex.match?(
-               ~r/public enum TodoSortField: String, Sendable \{(?:(?!\}).)*\}/s,
-               types
-             )
-
-      sort_enum =
-        Regex.run(~r/public enum TodoSortField: String, Sendable \{.*?\n\}/s, types) |> hd()
-
-      refute sort_enum =~ "case metadata"
-      # Comparable scalars and enums are still included.
-      assert sort_enum =~ "case amount"
-      assert sort_enum =~ "case status"
     end
 
     test "backtick-escapes Swift reserved keywords in sortable-field cases", %{files: files} do
@@ -583,58 +377,11 @@ defmodule AshSwift.CodegenTest do
       %{files: Codegen.build_files(@domains)}
     end
 
-    test "emits a {Resource}Filter struct per filterable resource", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      assert types =~ "public struct TodoFilter: Encodable, Sendable {"
-      assert types =~ "public struct UserFilter: Encodable, Sendable {"
-    end
-
-    test "a boolean attribute exposes only eq/notEq (EquatableOperators)", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # completed is a non-null Bool → equatable-only operator group, no isNil.
-      assert types =~ "public var completed: EquatableOperators<Bool>?"
-    end
-
-    test "a numeric attribute exposes the comparable operator group", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # score is a nullable Int → comparisons + in + isNil.
-      assert types =~ "public var score: NullableComparableOperators<Int>?"
-    end
-
-    test "a date/datetime attribute exposes the comparable operator group", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # dueAt is a nullable utc_datetime_usec (→ Date) → comparisons + in + isNil.
-      assert types =~ "public var dueAt: NullableComparableOperators<Date>?"
-      # Decimal/Date map to Swift String but stay in the comparable group (Ash type drives it).
-      assert types =~ "public var amount: NullableComparableOperators<String>?"
-    end
-
-    test "an enum attribute filters over the generated Swift enum", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      assert types =~ "public var priority: NullableEnumOperators<TodoPriority>?"
-      assert types =~ "public var status: NullableEnumOperators<TodoStatus>?"
-    end
-
-    test "a non-null string attribute uses the in-group without isNil", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # title is allow_nil?: false → EnumOperators (eq/notEq/in), no Nullable prefix.
-      assert types =~ "public var title: EnumOperators<String>?"
-    end
-
-    test "a nullable attribute adds isNil via the Nullable operator group", %{files: files} do
+    test "a keyword-named filterable attribute is backtick-escaped", %{files: files} do
       types = files["AshRpcTypes.swift"]
       # `default` is a nullable String → NullableEnumOperators, and the keyword is escaped.
       assert types =~ "public var `default`: NullableEnumOperators<String>?"
       refute types =~ "public var default:"
-    end
-
-    test "excludes composite Ash.Type.Map attributes from the filter", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-
-      filter_struct =
-        Regex.run(~r/public struct TodoFilter: Encodable, Sendable \{.*?\n\}/s, types) |> hd()
-
-      refute filter_struct =~ "metadata"
     end
 
     test "filter struct imports nothing extra — operator generics come from the runtime", %{
@@ -955,11 +702,9 @@ defmodule AshSwift.CodegenTest do
       refute files["AshRpcTypes.swift"] =~ "SummarizeResult"
     end
 
-    test "an array-of-resource return is skipped with a warning, not emitted", %{files: files} do
-      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
-
-      assert log =~ "generic action :summarize_all"
-      assert log =~ "skipping"
+    test "an array-of-resource return is not emitted (warning pinned in reader_test)", %{
+      files: files
+    } do
       refute files["AshRpcFunctions.swift"] =~ "func summarizeAll"
     end
 
@@ -987,21 +732,16 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "try container.encode(`default`, forKey: .`default`)"
     end
 
-    test "a map-typed argument maps to [String: AshJSON]", %{files: files} do
-      # Ash.Type.Map has a populated module, so a map argument resolves through
-      # generic_swift_type to the JSON dict (not skipped like a module-less array).
-      assert files["AshRpcTypes.swift"] =~ "public var options: [String: AshJSON]?"
-    end
-
-    test "an array-of-scalar argument maps to a [Scalar] input field", %{files: files} do
+    test "an array-argument generic action renders an input-taking function and input struct", %{
+      files: files
+    } do
       functions = files["AshRpcFunctions.swift"]
       types = files["AshRpcTypes.swift"]
 
-      # `broadcast` takes a `{:array, :string}` argument — now mapped element-wise to
-      # `[String]` rather than skipped. (Optional argument → Optional field.)
+      # The element-wise [Scalar] mapping is covered in reader_test.exs
+      # ("generic-action array arguments").
       assert functions =~ "public func broadcast(input: BroadcastInput) async throws {"
       assert types =~ "public struct BroadcastInput: Encodable, Sendable {"
-      assert types =~ "public var tags: [String]?"
     end
 
     test "an array-of-record argument generates a typed nested input struct", %{files: files} do
@@ -1013,41 +753,16 @@ defmodule AshSwift.CodegenTest do
       assert functions =~ "public func bulkCreate(input: BulkCreateInput) async throws"
 
       assert types =~ "public struct BulkCreateInput: Encodable, Sendable {"
-      assert types =~ "public var rows: [BulkCreateRowsItem]"
 
       # The generated element struct, with field optionality from allow_nil?.
       assert types =~ "public struct BulkCreateRowsItem: Encodable, Sendable {"
-      assert types =~ "public var label: String\n"
-      assert types =~ "public var priority: Int?"
       assert types =~ "try container.encode(label, forKey: .label)"
       assert types =~ "try container.encodeIfPresent(priority, forKey: .priority)"
     end
 
-    test "an unconstrained array-of-map argument maps to [[String: AshJSON]]", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-      types = files["AshRpcTypes.swift"]
-
-      # `bulk_raw` takes a `{:array, :map}` with no field constraints — the element
-      # is a plain map, so it falls through to `[[String: AshJSON]]` rather than a
-      # generated struct.
-      assert functions =~ "public func bulkRaw(input: BulkRawInput) async throws"
-      assert types =~ "public var rows: [[String: AshJSON]]"
-    end
-
-    test "a nested-array argument (unmappable element) is still skipped with a warning", %{
-      files: files
-    } do
-      # `deep_broadcast` takes `{:array, {:array, :string}}` — the element is itself
-      # an array, which maps to no Swift type. The input gate must skip the whole
-      # action (symmetric with the return-type gate), not emit a wrong-typed input.
-      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
-
-      assert log =~ "generic action :deep_broadcast"
-      assert log =~ "argument :matrix"
-      assert log =~ "skipping"
-
-      refute files["AshRpcFunctions.swift"] =~ "func deepBroadcast"
-      refute files["AshRpcTypes.swift"] =~ "DeepBroadcastInput"
+    test "an array-of-map argument action renders an input-taking function", %{files: files} do
+      assert files["AshRpcFunctions.swift"] =~
+               "public func bulkRaw(input: BulkRawInput) async throws"
     end
   end
 
@@ -1062,45 +777,20 @@ defmodule AshSwift.CodegenTest do
       rest |> String.split("\n}\n", parts: 2) |> hd()
     end
 
-    test "a create action's arguments become input-struct fields alongside its accepted attributes",
+    test "a create action's init takes its arguments alongside its accepted attributes",
          %{files: files} do
       body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput")
-
-      # accepted attribute (required on create)
-      assert body =~ "    public var title: String\n"
-      # scalar argument, required (allow_nil?: false) → non-optional
-      assert body =~ "    public var note: String\n"
-      # map argument → same mapping as a generic-action map argument
-      assert body =~ "    public var extras: [String: AshJSON]?\n"
-      # array-of-record argument → nested typed struct, like a generic action's
-      assert body =~ "    public var checklist: [CreateTodoWithArgsChecklistItem]?\n"
 
       assert body =~
                "public init(note: String, title: String, checklist: [CreateTodoWithArgsChecklistItem]? = nil, extras: [String: AshJSON]? = nil, score: String? = nil)"
     end
 
-    test "an array-of-record argument generates its nested struct", %{files: files} do
-      body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsChecklistItem")
-
-      assert body =~ "    public var label: String\n"
-      assert body =~ "    public var done: Bool?\n"
-    end
-
-    test "an argument named like an attribute takes the argument's type", %{files: files} do
-      # `score` is an integer attribute but a String argument on this action.
-      body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput")
-
-      assert body =~ "    public var score: String?\n"
-      refute body =~ "score: Int"
-    end
-
-    test "an argument of an unmappable type is omitted with a warning, not String-guessed", %{
+    test "an unmappable argument is warned about and the rest of the action is still emitted", %{
       files: files
     } do
       log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
 
       assert log =~ "argument :grid of action :create_with_args"
-      refute struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput") =~ "grid"
       # The rest of the action is still emitted.
       assert files["AshRpcFunctions.swift"] =~
                "public func createTodoWithArgs(input: CreateTodoWithArgsInput, fields: [FieldSelection]) async throws -> Todo {"
@@ -1110,7 +800,6 @@ defmodule AshSwift.CodegenTest do
          %{files: files} do
       body = struct_body(files["AshRpcTypes.swift"], "RetitleTodoInput")
 
-      assert body =~ "    public var newTitle: String\n"
       assert body =~ "public init(newTitle: String)"
 
       assert files["AshRpcFunctions.swift"] =~
@@ -1135,15 +824,9 @@ defmodule AshSwift.CodegenTest do
     } do
       types = files["AshRpcTypes.swift"]
 
-      assert types =~
-               ~r/public struct SetTodoDueDateInput: Encodable, Sendable \{\n    public var dueDate: String\n/
-
       # Scoped to this struct: CheckTodoDueDateInput emits the identical init.
       assert types =~
                ~r/public struct SetTodoDueDateInput: Encodable, Sendable \{[^}]*public init\(dueDate: String\)/
-
-      refute types =~
-               ~r/public struct SetTodoDueDateInput: Encodable, Sendable \{\n    public init\(\) \{\}/
 
       assert files["AshRpcFunctions.swift"] =~
                "public func setTodoDueDate(id: String, input: SetTodoDueDateInput, fields: [FieldSelection]) async throws -> Todo {"
@@ -1154,22 +837,12 @@ defmodule AshSwift.CodegenTest do
     } do
       types = files["AshRpcTypes.swift"]
 
-      assert types =~
-               ~r/public struct CheckTodoDueDateInput: Encodable, Sendable \{\n    public var dueDate: String\n/
-
       # Scoped to this struct: SetTodoDueDateInput emits the identical init.
       assert types =~
                ~r/public struct CheckTodoDueDateInput: Encodable, Sendable \{[^}]*public init\(dueDate: String\)/
 
       assert files["AshRpcFunctions.swift"] =~
                "public func checkTodoDueDate(input: CheckTodoDueDateInput) async throws -> Bool {"
-    end
-
-    test "the private attribute itself stays out of the model struct", %{files: files} do
-      [_, todo] =
-        String.split(files["AshRpcTypes.swift"], "public struct Todo: Codable", parts: 2)
-
-      refute todo |> String.split("\n}\n", parts: 2) |> hd() =~ "dueDate"
     end
 
     test "no omission warning is logged for either action" do
@@ -1387,52 +1060,6 @@ defmodule AshSwift.CodegenTest do
 
       assert files["AshRpcTypes.swift"] =~
                "public struct Publisher: Codable, Sendable, Equatable {"
-    end
-  end
-
-  describe "2-hop relationship guard" do
-    setup do
-      %{files: Codegen.build_files([AshSwift.Test.TagDomain])}
-    end
-
-    test "emits the 1-hop related resource struct", %{files: files} do
-      assert files["AshRpcTypes.swift"] =~
-               "public struct Category: Codable, Sendable, Equatable {"
-    end
-
-    test "does not emit a 2-hop resource struct", %{files: files} do
-      refute files["AshRpcTypes.swift"] =~
-               "public struct Publisher: Codable, Sendable, Equatable {"
-    end
-
-    test "drops relationship fields referencing 2-hop types from related structs", %{files: files} do
-      refute files["AshRpcTypes.swift"] =~ "public var publisher: Publisher?"
-    end
-
-    test "preserves scalar fields on related resource structs", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      assert types =~ "public var name: String?"
-      assert types =~ "public var publisherId: String?"
-    end
-
-    test "the 1-hop relationship field is still emitted on the primary resource struct", %{
-      files: files
-    } do
-      assert files["AshRpcTypes.swift"] =~ "public var category: Category?"
-    end
-
-    test "keeps an array-of-optional-elements field on a related struct (#78)", %{files: files} do
-      category =
-        Regex.run(
-          ~r/public struct Category: Codable, Sendable, Equatable \{.*?\n\}/s,
-          files["AshRpcTypes.swift"]
-        )
-        |> hd()
-
-      # The safety check strips one bracket layer to reach the element type; unless
-      # it also drops the element's own `?`, `[String?]` resolves to the unknown
-      # "String?" and the field disappears from the generated struct entirely.
-      assert category =~ "public var aliases: [String?]?"
     end
   end
 
