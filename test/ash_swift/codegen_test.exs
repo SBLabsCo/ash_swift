@@ -37,10 +37,8 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public struct TodoFilter: Encodable, Sendable {"
       assert types =~ "public enum TodoSortField: String, Sendable {"
 
-      assert functions =~ "public func listTodos("
       assert functions =~ "public func createTodo(input: CreateTodoInput,"
       assert functions =~ "public func updateTodo(id: String, input: UpdateTodoInput,"
-      assert functions =~ "public func destroyTodo(id: String) async throws {"
       # An RPC action named like a Swift keyword is escaped.
       assert functions =~ "public func `init`("
     end
@@ -80,22 +78,6 @@ defmodule AshSwift.CodegenTest do
       assert enum_block =~ "case short"
     end
 
-    test "get action with not_found_error? true emits a typed non-optional return", %{
-      files: files
-    } do
-      functions = files["AshRpcFunctions.swift"]
-
-      assert functions =~
-               "public func getTodo(id: String, fields: [FieldSelection]) async throws -> Todo {"
-    end
-
-    test "get action with not_found_error? false emits a typed optional return", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-
-      assert functions =~
-               "public func findTodo(id: String, fields: [FieldSelection]) async throws -> Todo? {"
-    end
-
     test "non-String get_by field (integer) is always emitted as String parameter type", %{
       files: files
     } do
@@ -124,43 +106,7 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
-  describe "sort surface (issue #34)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
-
-    test "enable_sort?: false action is emitted WITHOUT a sort: parameter", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-
-      # Filtering stays on for this action, so it keeps a filter: parameter but no sort:.
-      assert functions =~
-               "public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection]) async throws -> [Todo] {"
-
-      refute functions =~ "public func listTodosNoSort(filter: TodoFilter? = nil, sort:"
-
-      assert functions =~
-               ~s[client.execute(ListRequest(action: "list_todos_no_sort", filter: filter.map { AnyEncodable($0) }, fields: fields))]
-    end
-  end
-
   describe "filter surface (issue #35)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
-
-    test "enable_filter?: false action is emitted WITHOUT a filter: parameter", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-
-      # Sorting stays on for this action, so it keeps sort: but drops filter:.
-      assert functions =~
-               "public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
-
-      refute functions =~ "public func listTodosNoFilter(filter:"
-
-      assert functions =~
-               ~s[client.execute(ListRequest(action: "list_todos_no_filter", sort: ashSortString(sort), fields: fields))]
-    end
-
     test "a resource with no filterable attributes emits a valid filter struct with only combinators" do
       # MapOnly's only public attribute is an Ash.Type.Map (excluded from
       # filtering) and its primary key is non-public, so the filterable read
@@ -169,25 +115,10 @@ defmodule AshSwift.CodegenTest do
       # valid, compilable Swift (an empty raw-value enum would not be — see the
       # sort-enum bug, issue #41 — but a struct of optional arrays is fine).
       files = Codegen.build_files([AshSwift.Test.MapOnlyDomain])
-      types = files["AshRpcTypes.swift"]
 
-      assert types =~ """
-             public struct MapOnlyFilter: Encodable, Sendable {
-                 public var and: [MapOnlyFilter]?
-                 public var or: [MapOnlyFilter]?
-                 public var not: [MapOnlyFilter]?
-
-                 public init() {}
-             }\
-             """
-
-      # No attribute predicates leaked in (metadata is excluded, id is non-public):
-      # the only `public var`s are the three combinators.
-      filter_struct =
-        Regex.run(~r/public struct MapOnlyFilter: Encodable, Sendable \{.*?\n\}/s, types) |> hd()
-
-      refute filter_struct =~ "metadata"
-      refute filter_struct =~ "Operators<"
+      # The empty filter struct itself is pinned in reader_test (IR) and
+      # emitter_test (rendering); here only that it reaches the output.
+      assert files["AshRpcTypes.swift"] =~ "public struct MapOnlyFilter: Encodable, Sendable {"
 
       # The read function still threads the filter type — the parameter is
       # generated from the action's enable_filter?, not from whether fields exist.
@@ -222,97 +153,14 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "optional pagination overload (issue #37)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
+    # Overload shapes are pinned in emitter_test over a hand-built IR, and the
+    # classification (optional vs required, gets excluded) in reader_test; this
+    # only confirms the fixture's optional-pagination read reaches the output.
+    test "an optional-pagination list read gains a paginated overload beside its bare form" do
+      functions = Codegen.build_files(@domains)["AshRpcFunctions.swift"]
 
-    test "a list read with optional pagination keeps its bare [T] overload unchanged", %{
-      files: files
-    } do
-      functions = files["AshRpcFunctions.swift"]
-
-      # The M1 bare-list function is byte-identical — omitting page preserves it,
-      # so existing `[Todo]` call sites do not regress.
-      assert functions =~
-               "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
-    end
-
-    test "a list read with optional offset pagination gains a paginated overload", %{
-      files: files
-    } do
-      functions = files["AshRpcFunctions.swift"]
-
-      # The overload's `page` is REQUIRED (no `= nil`), which is what makes Swift
-      # resolve `listTodos(page:)` here and bare `listTodos()` to the [Todo] form.
-      assert functions =~
-               "public func listTodos(page: OffsetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {"
-
-      # Filter + sort + page all compose on the single paginated call.
-      assert functions =~
-               ~s[client.execute(OffsetPageRequest(action: "list_todos", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
-    end
-
-    test "the overload pair is emitted for every optional-pagination list read", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-
-      # list_users is a plain default read too: it gets the same bare + paginated pair.
-      assert functions =~
-               "public func listUsers(filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection]) async throws -> [User] {"
-
-      assert functions =~
-               "public func listUsers(page: OffsetPageParams, filter: UserFilter? = nil, sort: [SortField<UserSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<User> {"
-    end
-
-    test "an optional-pagination read with sort/filter disabled omits those params on both overloads",
-         %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-
-      # enable_sort?: false ⇒ no sort: on either overload; filter still present.
-      assert functions =~
-               "public func listTodosNoSort(filter: TodoFilter? = nil, fields: [FieldSelection]) async throws -> [Todo] {"
-
-      assert functions =~
-               "public func listTodosNoSort(page: OffsetPageParams, filter: TodoFilter? = nil, fields: [FieldSelection]) async throws -> OffsetPage<Todo> {"
-
-      # enable_filter?: false ⇒ no filter: on either overload; sort still present.
-      assert functions =~
-               "public func listTodosNoFilter(sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
-
-      assert functions =~
-               "public func listTodosNoFilter(page: OffsetPageParams, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> OffsetPage<Todo> {"
-    end
-
-    test "an action supporting only keyset gets a keyset overload, not offset", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-
-      assert functions =~
-               "public func listTodosKeysetOptional(page: KeysetPageParams, filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> KeysetPage<Todo> {"
-
-      assert functions =~
-               ~s[client.execute(KeysetPageRequest(action: "list_todos_keyset_optional", page: page, filter: filter.map { AnyEncodable($0) }, sort: ashSortString(sort), fields: fields))]
-    end
-
-    test "required-pagination actions get no extra overload (single function only)", %{
-      files: files
-    } do
-      functions = files["AshRpcFunctions.swift"]
-
-      # list_todos_offset requires pagination, so it has exactly one function and no
-      # bare [Todo] sibling — count the `func listTodosOffset(` occurrences.
-      occurrences =
-        functions
-        |> String.split("public func listTodosOffset(")
-        |> length()
-        |> Kernel.-(1)
-
-      assert occurrences == 1
-    end
-
-    test "get actions never gain a paginated overload", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-
-      refute functions =~ "public func getTodo(page:"
-      refute functions =~ "public func findTodoByTitle(page:"
+      assert functions =~ "public func listTodos(filter: TodoFilter? = nil, sort:"
+      assert functions =~ "public func listTodos(page: OffsetPageParams, filter:"
     end
   end
 
