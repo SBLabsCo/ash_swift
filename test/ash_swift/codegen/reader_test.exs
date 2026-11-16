@@ -16,6 +16,13 @@ defmodule AshSwift.Codegen.ReaderTest do
 
   defp attr_type(res, name), do: Enum.find(res.fields, &(&1.name == name)).swift_type
 
+  defp input_struct(name) do
+    todo = resource(Reader.read(@domains), "Todo")
+    Enum.find(todo.input_structs, &(&1.struct_name == name))
+  end
+
+  defp input_field(struct, name), do: Enum.find(struct.fields, &(&1.name == name))
+
   describe "read/1 shape" do
     test "returns primary and all resource lists of plain maps" do
       ir = Reader.read(@domains)
@@ -392,12 +399,10 @@ defmodule AshSwift.Codegen.ReaderTest do
 
   describe "generic-action map arguments" do
     test "a map-typed argument maps to the AshJSON dictionary" do
-      todo = resource(Reader.read(@domains), "Todo")
+      struct = input_struct("EchoConfigInput")
 
       assert %{swift_type: "[String: AshJSON]", required?: false} =
-               todo.input_structs
-               |> Enum.flat_map(& &1.fields)
-               |> Enum.find(&(&1.name == "options"))
+               input_field(struct, "options")
     end
 
     test "an unconstrained array-of-map argument maps to [[String: AshJSON]]" do
@@ -578,13 +583,6 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "create/update action arguments (#83)" do
-    defp input_struct(name) do
-      todo = resource(Reader.read(@domains), "Todo")
-      Enum.find(todo.input_structs, &(&1.struct_name == name))
-    end
-
-    defp input_field(struct, name), do: Enum.find(struct.fields, &(&1.name == name))
-
     test "a create action's arguments become input fields alongside its accepted attributes" do
       struct = input_struct("CreateTodoWithArgsInput")
 

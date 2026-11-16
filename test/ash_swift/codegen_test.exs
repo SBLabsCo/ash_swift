@@ -745,6 +745,11 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "try container.encodeIfPresent(priority, forKey: .priority)"
     end
 
+    test "an array-of-map argument action renders an input-taking function", %{files: files} do
+      assert files["AshRpcFunctions.swift"] =~
+               "public func bulkRaw(input: BulkRawInput) async throws"
+    end
+
     test "a nested-array argument (unmappable element) is still skipped with a warning" do
       # `deep_broadcast` takes `{:array, {:array, :string}}` — the element is itself
       # an array, which maps to no Swift type. The input gate must skip the whole
