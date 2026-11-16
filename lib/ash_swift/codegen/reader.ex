@@ -902,9 +902,10 @@ defmodule AshSwift.Codegen.Reader do
   # Returns a tuple {fields, enums} for the resource.
   #
   # fields: sorted list of %{name, swift_type} for public scalar attributes and
-  # public relationships whose destination passes model_struct_target/2. Field names go through the same formatter AshTypescript
-  # uses for output. Enum attributes produce a generated Swift enum type name
-  # instead of the default "String" fallback.
+  # public relationships whose destination passes model_struct_target/2. Field
+  # names go through the same formatter AshTypescript uses for output. Enum
+  # attributes produce a generated Swift enum type name instead of the default
+  # "String" fallback.
   #
   # enums: sorted list of %{enum_name, cases} for each attribute whose Ash type
   # is an enum (Ash.Type.Atom with one_of constraint, or Ash.Type.Enum subtype).
