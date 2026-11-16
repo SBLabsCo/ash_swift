@@ -689,6 +689,27 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
+  describe "type-name collisions between different resource modules (#156)" do
+    test "a related destination sharing a primary's type name is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/same Swift type name: "Clash" \(AshSwift\.Test\.ClashPrimary, AshSwift\.Test\.ClashRelated\)/,
+                   fn -> Reader.read([AshSwift.Test.TypeNameClashPrimaryDomain]) end
+    end
+
+    test "two related destinations sharing a type name are a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/same Swift type name: "ClashDup" \(AshSwift\.Test\.ClashRelatedA, AshSwift\.Test\.ClashRelatedB\)/,
+                   fn -> Reader.read([AshSwift.Test.TypeNameClashRelatedDomain]) end
+    end
+
+    test "one module reached by several relationships is emitted once, not an error" do
+      ir = Reader.read([AshSwift.Test.Domain])
+      type_names = Enum.map(ir.all_resources, & &1.type_name)
+
+      assert type_names == Enum.uniq(type_names)
+    end
+  end
+
   describe "create/update action arguments (#83)" do
     test "a create action's arguments become input fields alongside its accepted attributes", %{
       ir: ir
