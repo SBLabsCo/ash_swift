@@ -509,7 +509,7 @@ defmodule AshSwift.CodegenTest do
 
   describe "reserved built-in type names" do
     setup do
-      {ir, _log} = ExUnit.CaptureLog.with_log(fn -> Reader.read([AshSwift.Test.Domain]) end)
+      {ir, _log} = ExUnit.CaptureLog.with_log(fn -> Reader.read(@domains) end)
       %{ir: ir}
     end
 
