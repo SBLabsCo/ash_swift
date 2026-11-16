@@ -522,7 +522,7 @@ defmodule AshSwift.Codegen.Emitter do
 
   defp method_spec(%{rpc_name: rpc_name, action_type: :read, get: get} = action, _type_name)
        when not is_nil(get) do
-    raise "get action #{inspect(rpc_name)} has sortable?: #{inspect(action.sortable?)}, " <>
+    raise "AshSwift: get action #{inspect(rpc_name)} has sortable?: #{inspect(action.sortable?)}, " <>
             "filterable?: #{inspect(action.filterable?)}; the Reader must set both false for gets"
   end
 
