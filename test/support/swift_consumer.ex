@@ -11,11 +11,16 @@ defmodule AshSwift.Test.SwiftConsumer do
   `ExUnit.after_suite/1` in `test_helper.exs`).
 
   `run_swift_test!/2` writes a test's Swift file into the shared test target and
-  removes it again when the test exits, so the target only ever holds the running
-  test's file and one test's compile error can never fail another. The generated
-  client is compiled once (`swift build`, memoized after the first success); if
-  that fails the message says the *shared generated client* failed to compile,
-  not the test.
+  removes it again when the test exits, so the target holds only the shared harness
+  (`StubTransport.swift`) plus the running test's file, and one test's compile error
+  can never fail another. It also clears `captured_bodies/` before each run. The
+  generated client is compiled once (`swift build`, memoized after the first
+  success); if that fails the message says the *shared generated client* failed to
+  compile, not the test.
+
+  Swift tests build an `AshRpc` with `stubRpc(...)` (canned response) or capture
+  request bodies with `capturingRpc(name, response)`; the Elixir side replays the
+  captured bodies with `replay/1`.
 
   Tests that need different generated output (the sort-less resource check) use
   `fresh_package/2` and own their build.
@@ -47,6 +52,12 @@ defmodule AshSwift.Test.SwiftConsumer do
           File.cp!(
             Path.join(File.cwd!(), "test/support/swift/ConsumerCheck.swift"),
             Path.join(sources, "ConsumerCheck.swift")
+          )
+
+          # The capture half of the capture-and-replay harness (see `replay/1`).
+          File.cp!(
+            Path.join(File.cwd!(), "test/support/swift/StubTransport.swift"),
+            Path.join(tests_dir(tmp), "StubTransport.swift")
           )
         catch
           kind, reason ->
@@ -136,6 +147,7 @@ defmodule AshSwift.Test.SwiftConsumer do
     tmp = shared_package()
     file = Path.join(tests_dir(tmp), "#{class}.swift")
     File.write!(file, swift_source)
+    File.rm_rf!(Path.join(tmp, "captured_bodies"))
     on_exit(fn -> File.rm(file) end)
 
     assert_client_built!(tmp, class)
@@ -144,6 +156,23 @@ defmodule AshSwift.Test.SwiftConsumer do
       System.cmd("swift", ["test", "--filter", class], cd: tmp, stderr_to_stdout: true)
 
     assert status == 0, "swift test #{class} failed:\n#{output}"
+  end
+
+  @doc """
+  Replays a request body captured by the Swift `capturingRpc(name, response)`
+  factory (`test/support/swift/StubTransport.swift`) through the real RPC
+  pipeline. Returns `{decoded_body, result}`.
+  """
+  def replay(name) do
+    body =
+      shared_package()
+      |> Path.join("captured_bodies")
+      |> Path.join("#{name}.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+    {body, AshTypescript.Rpc.run_action(:ash_swift, conn, body)}
   end
 
   # The library target cannot change after `shared_package/0`, so a successful
