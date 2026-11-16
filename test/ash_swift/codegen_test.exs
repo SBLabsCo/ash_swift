@@ -505,16 +505,6 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
-  describe "enum/struct type name collision detection" do
-    test "error message names the colliding type and suggests a rename" do
-      assert_raise Mix.Error,
-                   ~r/enum type name\(s\) "CollisionItemPriority" conflict.*rename/s,
-                   fn ->
-                     Codegen.build_files([AshSwift.Test.CollisionDomain])
-                   end
-    end
-  end
-
   describe "generate/2 and stale_files/2 against a temp dir" do
     setup do
       dir =

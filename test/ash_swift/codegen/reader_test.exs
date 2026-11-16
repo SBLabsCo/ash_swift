@@ -82,10 +82,21 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert %{sortable?: true, filterable?: false} = action_ir(ir, "Todo", :list_todos_no_filter)
     end
 
-    test "a get is never sortable or filterable, and never has an optional pagination overload",
+    test "a get is never sortable, filterable or paginated, and never has an optional pagination overload",
          %{ir: ir} do
-      for name <- [:get_todo, :find_todo, :fetch_todo, :find_todo_by_title] do
-        assert %{sortable?: false, filterable?: false, optional_pagination_type: :none} =
+      for name <- [
+            :get_todo,
+            :find_todo,
+            :fetch_todo,
+            :find_todo_by_title,
+            :find_todo_offset_by_title
+          ] do
+        assert %{
+                 sortable?: false,
+                 filterable?: false,
+                 pagination_type: :none,
+                 optional_pagination_type: :none
+               } =
                  action_ir(ir, "Todo", name)
       end
     end
@@ -690,16 +701,58 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
-  describe "type-name collisions between different resource modules (#156)" do
+  describe "one generated Swift name, one owner (#156, #164)" do
+    test "an enum named like a resource struct is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "CollisionItemPriority" \(AshSwift\.Test\.CollisionItem enum, AshSwift\.Test\.CollisionItemPriority struct\).*rename/s,
+                   fn -> Reader.read([AshSwift.Test.CollisionDomain]) end
+    end
+
+    test "a resource named like another's derived filter struct is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "WidgetFilter" \(AshSwift\.Test\.Widget filter, AshSwift\.Test\.WidgetFilterResource struct\)/,
+                   fn -> Reader.read([AshSwift.Test.FilterNameClashDomain]) end
+    end
+
+    test "an enum named like the resource's derived sort-field enum is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "GadgetSortField" \(AshSwift\.Test\.Gadget enum, AshSwift\.Test\.Gadget sort field\)/,
+                   fn -> Reader.read([AshSwift.Test.SortFieldEnumClashDomain]) end
+    end
+
+    test "a resource named like another's derived input struct is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "CreateGizmoInput" \(AshSwift\.Test\.CreateGizmoInputResource struct, AshSwift\.Test\.Gizmo input struct\)/,
+                   fn -> Reader.read([AshSwift.Test.InputStructClashDomain]) end
+    end
+
+    test "two declarations of one input struct name inside one resource are a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "UploadStartClipsItem" \(AshSwift\.Test\.Uploader input struct, AshSwift\.Test\.Uploader input struct\)/,
+                   fn -> Reader.read([AshSwift.Test.SameResourceInputClashDomain]) end
+    end
+
+    test "a resource named like another's derived result struct is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "BuildReportResult" \(AshSwift\.Test\.BuildReportResultResource struct, AshSwift\.Test\.ReportBuilder result struct\)/,
+                   fn -> Reader.read([AshSwift.Test.ResultStructClashDomain]) end
+    end
+
+    test "a resource named like the generated client struct is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "AshRpc" \(AshSwift generated client, AshSwift\.Test\.ClientNameResource struct\)/,
+                   fn -> Reader.read([AshSwift.Test.ClientNameClashDomain]) end
+    end
+
     test "a related destination sharing a primary's type name is a codegen error" do
       assert_raise Mix.Error,
-                   ~r/same Swift type name: "Clash" \(AshSwift\.Test\.ClashPrimary, AshSwift\.Test\.ClashRelated\)/,
+                   ~r/not unique: "Clash" \(AshSwift\.Test\.ClashPrimary struct, AshSwift\.Test\.ClashRelated struct\)/,
                    fn -> Reader.read([AshSwift.Test.TypeNameClashPrimaryDomain]) end
     end
 
     test "two related destinations sharing a type name are a codegen error" do
       assert_raise Mix.Error,
-                   ~r/same Swift type name: "ClashDup" \(AshSwift\.Test\.ClashRelatedA, AshSwift\.Test\.ClashRelatedB\)/,
+                   ~r/not unique: "ClashDup" \(AshSwift\.Test\.ClashRelatedA struct, AshSwift\.Test\.ClashRelatedB struct\)/,
                    fn -> Reader.read([AshSwift.Test.TypeNameClashRelatedDomain]) end
     end
 

@@ -420,11 +420,16 @@ defmodule AshSwift.Codegen.EmitterTest do
                ~s|getBy: ["title": title]|
     end
 
-    test "a get whose IR claims sortable? or filterable? raises instead of being re-decided" do
-      for flag <- [:sortable?, :filterable?] do
-        assert_raise RuntimeError, ~r/the Reader must set both false for gets/, fn ->
+    test "a get whose IR claims sortable?, filterable? or a pagination type raises instead of being re-decided" do
+      for {flag, value} <- [
+            sortable?: true,
+            filterable?: true,
+            pagination_type: :offset,
+            optional_pagination_type: :keyset
+          ] do
+        assert_raise RuntimeError, ~r/the Reader must set sortable\?\/filterable\? false/, fn ->
           functions([
-            ActionIRKeys.crud_action([{:rpc_name, :get_todo}, {:get, :pure}, {flag, true}])
+            ActionIRKeys.crud_action([{:rpc_name, :get_todo}, {:get, :pure}, {flag, value}])
           ])
         end
       end

@@ -558,10 +558,10 @@ defmodule AshSwift.Codegen.ContractTest do
       assert action.filterable == true
     end
 
-    # Mirrors the raise/no-regression pair in AshSwift.CodegenTest ("enum/struct
-    # type name collision detection", ~line 1141): `dedupe_by_name!/2` is the
-    # same naming-collision guard, exercised here directly against hand-built IR
-    # rather than a real (and harder to construct) colliding Ash resource pair.
+    # Mirrors the Reader's "one generated Swift name, one owner" check
+    # (reader_test.exs): `dedupe_by_name!/2` is the same naming-collision
+    # guard, exercised here directly against hand-built IR rather than a real
+    # (and harder to construct) colliding Ash resource pair.
     test "two same-named resources with different fields raise a Mix.Error naming collision" do
       widget_a = base_resource(%{fields: [%{name: "name", swift_type: "String"}]})
       widget_b = base_resource(%{fields: [%{name: "name", swift_type: "Int"}]})

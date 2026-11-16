@@ -22,7 +22,7 @@ defmodule AshSwift.Codegen.Reader do
         resource_module: module | nil,        # nil for a related-only entry
         domain:          module | nil,        # nil for a related-only entry (ADR-0009: read
                                               # straight off the IR, not Ash.Resource.Info.domain/1)
-        type_name:       "Todo",                # validated plain Swift identifier, unique per resource module across all_resources (Reader raises otherwise)
+        type_name:       "Todo",                # validated plain Swift identifier; see the uniqueness invariant below
         fields:          [field],                 # attributes + relationships + derived; see Field below
         enums:           [%{enum_name, cases: [%{name, raw}]}],  # raw: wire string, nil when equal to name
         actions:         [action],                # [] for a related-only entry
@@ -30,6 +30,13 @@ defmodule AshSwift.Codegen.Reader do
         sort_field:      %{type_name, fields} | nil,   # fields: [name_string]; nil when no sortable surface
         filter_struct:   %{type_name, fields} | nil    # fields: [%{name, swift_type}]; nil when no filterable surface
       }
+
+  **Uniqueness invariant.** Every top-level Swift name the entries declare
+  (`type_name`, each `enum_name`, each input/result `struct_name`,
+  `sort_field.type_name`, `filter_struct.type_name`, plus the Emitter's fixed
+  client struct `client_struct_name/0`, `AshRpc`) has exactly one owner across
+  `all_resources`; `assert_unique_swift_names!/1` raises otherwise. Consumers
+  (the Emitter, `Contract`) may rely on it.
 
   ### Field
 
@@ -69,8 +76,8 @@ defmodule AshSwift.Codegen.Reader do
                                                # accepted attribute a soft destroy lists in `require_attributes`); false otherwise
         primary_key_params: [%{name, swift_type}],  # update/destroy: the resource's PK params; [] for create/read/generic.
                                                # The identity that addresses the record; the emitter sends it as `identity`
-        pagination_type: :offset | :keyset | :none,           # required pagination => paginated return
-        optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload
+        pagination_type: :offset | :keyset | :none,           # required pagination => paginated return; :none for gets (Emitter raises otherwise)
+        optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload; :none for gets (Emitter raises otherwise)
         sortable?:       boolean,              # list reads only (false for gets; Emitter raises otherwise)
         filterable?:     boolean,              # list reads only (false for gets; Emitter raises otherwise)
         generic_return:  :void | {:typed, swift_type} | {:typed_record, swift_type}  # [generic only]; a resource return's swift_type is the model type ("Todo"), "Todo?" when the action has allow_nil? true
@@ -428,8 +435,12 @@ defmodule AshSwift.Codegen.Reader do
         build_get_info(maction, rpc_action, resource, formatter, ash_facts.get_by)
       end
 
+    list_read? = maction.type == :read and is_nil(get)
+
+    # A get returns a single record, so it is never paginated: `:none` for gets
+    # (the Emitter's get clause asserts this rather than re-deciding it).
     pagination_type =
-      if maction.type == :read do
+      if list_read? do
         action_pagination_type(maction)
       else
         :none
@@ -440,7 +451,7 @@ defmodule AshSwift.Codegen.Reader do
     # *overloaded* paginated function (see method_specs/2). Get actions and
     # required-pagination actions are excluded — :none means "no overload".
     optional_pagination_type =
-      if maction.type == :read and is_nil(get) do
+      if list_read? do
         optional_action_pagination_type(maction)
       else
         :none
@@ -457,15 +468,13 @@ defmodule AshSwift.Codegen.Reader do
     # drops the sort: parameter so a forbidden sort is a compile error.
     # Also requires the resource to actually have sortable fields — a sort
     # over an empty SortField enum is meaningless and won't compile (#41).
-    sortable? =
-      maction.type == :read and is_nil(get) and sort_enabled?(rpc_action) and
-        has_sortable_fields?
+    sortable? = list_read? and sort_enabled?(rpc_action) and has_sortable_fields?
 
     # Filtering is offered on the same surface as sorting — list (non-get)
     # read actions whose RPC action leaves `enable_filter?` at its default
     # of true. A false flag drops the filter: parameter so a forbidden
     # filter is a compile error, not a silently-ignored argument.
-    filterable? = maction.type == :read and is_nil(get) and filter_enabled?(rpc_action)
+    filterable? = list_read? and filter_enabled?(rpc_action)
 
     # A create addresses no existing record, so it has no identity params. A
     # primary key the caller supplies arrives through the accepted input fields
@@ -1100,28 +1109,61 @@ defmodule AshSwift.Codegen.Reader do
     end
   end
 
-  # Two different resource modules mapping to one Swift type name would share a
-  # single struct (the second silently aliased to the first), so it is a codegen
-  # error (#156). Related destinations are keyed by module, not type name.
-  defp assert_unique_type_names!(pairs) do
+  # The Emitter's fixed top-level client struct; it owns this name like any resource.
+  @client_struct_name "AshRpc"
+
+  @doc false
+  def client_struct_name, do: @client_struct_name
+
+  # The single "one generated Swift name, one owner" rule (#156, #164). Collects
+  # every top-level Swift name the IR will make the Emitter declare — resource
+  # structs, enums, `{Type}Filter` structs, `{Type}SortField` enums and input /
+  # result structs — each paired with what owns it (a resource module and the
+  # kind of declaration), and raises on any name with more than one owner. Two
+  # declarations of one name would otherwise not compile (or, for two resource
+  # modules sharing a type name, silently share one struct). Entries are the
+  # primary resources plus the related ones, which only carry a model struct and
+  # enums; each module appears once (`expand_with_related/2` keys related
+  # entries by module), so a name that occurs twice is a real collision, even
+  # when both occurrences come from the same resource (two actions or fields
+  # deriving the same struct name). The Emitter's fixed `client_struct_name/0`
+  # (`AshRpc`) is seeded as one more owner, so no resource may declare it.
+  defp assert_unique_swift_names!(resources) do
     collisions =
-      pairs
-      |> Enum.uniq()
+      [
+        {@client_struct_name, "AshSwift generated client"}
+        | Enum.flat_map(resources, &swift_name_owners/1)
+      ]
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-      |> Enum.filter(fn {_name, modules} -> length(modules) > 1 end)
+      |> Enum.filter(fn {_name, owners} -> length(owners) > 1 end)
       |> Enum.sort()
 
     unless collisions == [] do
       detail =
-        Enum.map_join(collisions, "; ", fn {name, modules} ->
-          "\"#{name}\" (#{modules |> Enum.map(&inspect/1) |> Enum.sort() |> Enum.join(", ")})"
+        Enum.map_join(collisions, "; ", fn {name, owners} ->
+          "\"#{name}\" (#{Enum.join(Enum.sort(owners), ", ")})"
         end)
 
       Mix.raise(
-        "AshSwift codegen: different resources map to the same Swift type name: #{detail} — " <>
-          "give each resource a distinct `type_name` in its `typescript do ... end` block."
+        "AshSwift codegen: generated Swift type names are not unique: #{detail} — " <>
+          "give each resource a distinct `type_name` in its `typescript do ... end` block, " <>
+          "or rename the field or action that generates the clashing name."
       )
     end
+  end
+
+  # `{name, owner}` for every top-level Swift name one resource entry declares.
+  defp swift_name_owners(%{resource_module: module, type_name: type_name} = resource) do
+    owner = fn kind -> "#{inspect(module)} #{kind}" end
+
+    [{type_name, owner.("struct")}] ++
+      Enum.map(Map.get(resource, :enums, []), &{&1.enum_name, owner.("enum")}) ++
+      Enum.map(Map.get(resource, :input_structs, []), fn struct ->
+        {struct.struct_name,
+         owner.(if Map.get(struct, :decodable?, false), do: "result struct", else: "input struct")}
+      end) ++
+      for(%{type_name: name} <- [resource[:sort_field]], do: {name, owner.("sort field")}) ++
+      for(%{type_name: name} <- [resource[:filter_struct]], do: {name, owner.("filter")})
   end
 
   # `FieldFormatter.format_field_for_client/3` with the identifier check applied.
@@ -1303,7 +1345,6 @@ defmodule AshSwift.Codegen.Reader do
   # relationship field against the set of emitted modules, not the rendered Swift
   # type; every other field (scalar, enum) is always safe.
   defp expand_with_related(primary_resources, manifest) do
-    primary_type_names = MapSet.new(primary_resources, & &1.type_name)
     primary_modules = MapSet.new(primary_resources, & &1.resource_module)
 
     related_candidates =
@@ -1337,13 +1378,6 @@ defmodule AshSwift.Codegen.Reader do
       end)
       |> Enum.uniq_by(& &1.resource_module)
 
-    # Primary modules are dropped only after the type-name collision check, so a
-    # different module sharing a primary's type name is caught rather than aliased.
-    assert_unique_type_names!(
-      Enum.map(primary_resources, &{&1.type_name, &1.resource_module}) ++
-        Enum.map(related_candidates, &{&1.type_name, &1.resource_module})
-    )
-
     related_raw =
       related_candidates
       |> Enum.reject(&MapSet.member?(primary_modules, &1.resource_module))
@@ -1352,30 +1386,10 @@ defmodule AshSwift.Codegen.Reader do
         %{resource_module: module, type_name: type_name, fields: fields, enums: enums}
       end)
 
-    all_type_names =
-      MapSet.union(primary_type_names, MapSet.new(related_raw, & &1.type_name))
-
     emitted_modules =
       MapSet.union(primary_modules, MapSet.new(related_raw, & &1.resource_module))
 
-    # Enum type names are checked only for collisions with resource struct names.
-    # `related_raw` entries use the slim %{resource_module, type_name, fields, enums} shape, so only
-    # :enums is accessed here.
-    all_enum_type_names =
-      (primary_resources ++ related_raw)
-      |> Enum.flat_map(& &1.enums)
-      |> MapSet.new(& &1.enum_name)
-
-    collision = MapSet.intersection(all_type_names, all_enum_type_names)
-
-    unless Enum.empty?(collision) do
-      names = collision |> MapSet.to_list() |> Enum.sort() |> Enum.map_join(", ", &"\"#{&1}\"")
-
-      Mix.raise(
-        "AshSwift codegen: enum type name(s) #{names} conflict with resource struct name(s) — " <>
-          "rename the field that generates this enum or rename the resource."
-      )
-    end
+    assert_unique_swift_names!(primary_resources ++ related_raw)
 
     related =
       Enum.map(related_raw, fn %{type_name: type_name, fields: fields, enums: enums} ->
