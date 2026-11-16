@@ -262,12 +262,12 @@ defmodule AshSwift.Codegen.Reader do
   # Tuples and unions fall in that group, not this one: Ash's `TypeResolver` sets
   # `module: Ash.Type.Tuple` / `module: Ash.Type.Union`, so they take the
   # module-bearing branch below and are still emitted as `String`.
-  defp attribute_swift_type(attr, formatted_name, type_name) do
+  defp attribute_swift_type(attr, formatted_name, type_name, resource) do
     element =
       case TypeMap.extract_enum_cases(attr) do
         {:ok, cases} ->
           enum_name = enum_type_name(type_name, formatted_name)
-          {:ok, enum_name, %{enum_name: enum_name, cases: check_enum_cases!(cases, type_name)}}
+          {:ok, enum_name, %{enum_name: enum_name, cases: check_enum_cases!(cases, resource)}}
 
         :not_enum ->
           case attr.value_type do
@@ -896,7 +896,7 @@ defmodule AshSwift.Codegen.Reader do
       if attr.array? do
         {:exclude, nil}
       else
-        case attribute_swift_type(attr, name, type_name) do
+        case attribute_swift_type(attr, name, type_name, resource) do
           {:ok, swift_type, nil} -> {TypeMap.scalar_filter_group(attr.ash_type), swift_type}
           {:ok, enum_name, _enum} -> {:enum, enum_name}
           :unsupported -> {:exclude, nil}
@@ -932,7 +932,7 @@ defmodule AshSwift.Codegen.Reader do
       |> Enum.reduce({[], []}, fn attr, {fields_acc, enums_acc} ->
         formatted_name = format_name!(attr.name, resource, formatter)
 
-        case attribute_swift_type(attr, formatted_name, type_name) do
+        case attribute_swift_type(attr, formatted_name, type_name, resource) do
           {:ok, swift_type, nil} ->
             {[%{name: formatted_name, swift_type: swift_type} | fields_acc], enums_acc}
 
@@ -1101,12 +1101,12 @@ defmodule AshSwift.Codegen.Reader do
   # Enum cases are emitted as `case <lowerCamel(value)>`, so the lower-camelled
   # value must itself be an identifier (the raw value is emitted via
   # `Emitter.swift_string/1`, which escapes it).
-  defp check_enum_cases!(cases, type_name) do
+  defp check_enum_cases!(cases, resource) do
     Enum.each(cases, fn c ->
       c
       |> to_string()
       |> Naming.lower_camel()
-      |> assert_swift_identifier!("enum value", type_name)
+      |> assert_swift_identifier!("enum value", resource)
     end)
 
     cases
@@ -1505,7 +1505,7 @@ defmodule AshSwift.Codegen.Reader do
             # `required?` case below) still yields an input struct that compiles, and
             # the action then fails server-side at run time rather than at build time.
             # Tracked in issue #79.
-            case attribute_swift_type(attr, formatted_name, type_name) do
+            case attribute_swift_type(attr, formatted_name, type_name, resource) do
               {:ok, swift_type, _enum} ->
                 required? =
                   case maction.type do

@@ -153,7 +153,7 @@ defmodule AshSwift.Codegen.Emitter do
       |> Enum.sort_by(&to_string/1)
       |> Enum.map_join("\n", fn c ->
         str = to_string(c)
-        swift_case = lower_camel(str)
+        swift_case = Naming.lower_camel(str)
 
         safe_name = escape_swift_keyword(swift_case)
 
@@ -348,7 +348,7 @@ defmodule AshSwift.Codegen.Emitter do
 
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "#{label}-paginated list of `#{type_name}` records",
       params:
         input_params ++
@@ -389,7 +389,7 @@ defmodule AshSwift.Codegen.Emitter do
 
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "offset-paginated list of `#{type_name}` records",
       params:
         input_params ++
@@ -422,7 +422,7 @@ defmodule AshSwift.Codegen.Emitter do
 
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "keyset-paginated list of `#{type_name}` records",
       params:
         input_params ++
@@ -454,7 +454,7 @@ defmodule AshSwift.Codegen.Emitter do
 
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "list `#{type_name}` records",
       params: input_params ++ filter_params ++ sort_params ++ [fields_param()],
       return_type: "[#{type_name}]",
@@ -507,7 +507,7 @@ defmodule AshSwift.Codegen.Emitter do
 
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "get `#{type_name}` record",
       params: Enum.map(get_by_params, &field_param/1) ++ input_params ++ [fields_param()],
       return_type: return_type,
@@ -525,7 +525,7 @@ defmodule AshSwift.Codegen.Emitter do
        ) do
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "create `#{type_name}` record",
       params: [%{name: "input", type: struct_name, default: nil}, fields_param()],
       return_type: type_name,
@@ -548,7 +548,7 @@ defmodule AshSwift.Codegen.Emitter do
        ) do
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "update `#{type_name}` record",
       params:
         Enum.map(pk_params, &field_param/1) ++
@@ -575,7 +575,7 @@ defmodule AshSwift.Codegen.Emitter do
 
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "destroy record",
       params: Enum.map(pk_params, &field_param/1) ++ input_params,
       return_type: nil,
@@ -646,7 +646,7 @@ defmodule AshSwift.Codegen.Emitter do
 
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "generic action",
       params: params ++ fields_params,
       return_type: return_type,
@@ -659,7 +659,7 @@ defmodule AshSwift.Codegen.Emitter do
   defp method_spec(%{rpc_name: rpc_name, action: action}, type_name) do
     %{
       rpc_name: rpc_name,
-      func_name: lower_camel(rpc_name),
+      func_name: Naming.lower_camel(rpc_name),
       doc: "`#{action}` on `#{type_name}`",
       params: [],
       return_type: nil,
@@ -791,9 +791,6 @@ defmodule AshSwift.Codegen.Emitter do
       line -> "    " <> line
     end)
   end
-
-  # snake_case atom/string -> lowerCamelCase, the Swift idiom for functions and fields.
-  defp lower_camel(name), do: Naming.lower_camel(name)
 
   # Dispatches a generated struct to the right renderer. A struct tagged
   # `decodable?: true` is a generic-action typed-`:map` return (issue #70) and

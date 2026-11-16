@@ -6,6 +6,7 @@ defmodule AshSwift.Codegen.InjectionTest do
   use ExUnit.Case, async: true
 
   alias AshSwift.Codegen.Emitter
+  alias AshSwift.Codegen
   alias AshSwift.Codegen.Reader
 
   describe "Emitter.swift_string/1" do
@@ -55,10 +56,23 @@ defmodule AshSwift.Codegen.InjectionTest do
       end
     end
 
+    test "rejects an enum value on a calculation (derived field) that is not a Swift identifier" do
+      assert_raise Mix.Error, ~r/enum value .* is not a valid Swift identifier/s, fn ->
+        Reader.read([AshSwift.Test.BadCalcEnumValueDomain])
+      end
+    end
+
     test "rejects a nested struct name derived from a hostile raw typed-map return field (array-of-map arguments share the helper)" do
       assert_raise Mix.Error, ~r/struct name .* is not a valid Swift identifier/s, fn ->
         Reader.read([AshSwift.Test.BadStructNameReturnDomain])
       end
+    end
+  end
+
+  describe "Swift keyword escaping" do
+    test "a get_by lookup field named like a Swift keyword is backtick-escaped in the input dictionary" do
+      files = Codegen.build_files([AshSwift.Test.KeywordGetByDomain])
+      assert files["AshRpcFunctions.swift"] =~ ~S|"default": `default`|
     end
   end
 end

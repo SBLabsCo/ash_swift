@@ -137,9 +137,9 @@ end
 
 defmodule AshSwift.Test.BadStructNameReturn do
   @moduledoc """
-  Fixture resource (#142): a hostile raw field name that `field_names` maps to a
-  clean client name, reused as an array-of-map return field. The nested struct name
-  is derived from the raw atom, so it must be validated on its own.
+  Fixture resource (#142): a hostile raw argument name that `argument_names` maps
+  to a clean client name, used as an array-of-map argument. The nested input struct
+  name is derived from the raw atom, so it must be validated on its own.
   """
 
   use Ash.Resource,
@@ -149,7 +149,7 @@ defmodule AshSwift.Test.BadStructNameReturn do
 
   typescript do
     type_name("BadStructNameReturn")
-    field_names [{:"x {}\nstruct Evil { static let pwned = 1 }\nstruct Z?", "clips"}]
+    argument_names up_it: [{:"x {}\nstruct Evil { static let pwned = 1 }\nstruct Z?", :clips}]
   end
 
   ets do
@@ -158,21 +158,19 @@ defmodule AshSwift.Test.BadStructNameReturn do
 
   attributes do
     uuid_primary_key :id, public?: true
-    attribute :"x {}\nstruct Evil { static let pwned = 1 }\nstruct Z?", :string, public?: true
   end
 
   actions do
     defaults [:read]
 
-    action :up_it, :map do
-      constraints fields: [
-                    "x {}\nstruct Evil { static let pwned = 1 }\nstruct Z?": [
-                      type: {:array, :map},
-                      constraints: [items: [fields: [a: [type: :string, allow_nil?: false]]]]
-                    ]
-                  ]
+    action :up_it, :boolean do
+      argument :"x {}\nstruct Evil { static let pwned = 1 }\nstruct Z?", {:array, :map} do
+        allow_nil? false
+        public? true
+        constraints items: [fields: [a: [type: :string, allow_nil?: false]]]
+      end
 
-      run fn _input, _ctx -> {:ok, %{}} end
+      run fn _input, _ctx -> {:ok, true} end
     end
   end
 end
@@ -193,5 +191,166 @@ defmodule AshSwift.Test.BadStructNameReturnDomain do
 
   resources do
     resource AshSwift.Test.BadStructNameReturn
+  end
+end
+
+defmodule AshSwift.Test.BadTypeName do
+  @moduledoc """
+  Fixture resource whose `type_name` is not a Swift identifier (#142). Codegen
+  must reject it at Reader time rather than splice it into a Swift type position.
+  Not part of `AshSwift.Test.Domain`.
+  """
+
+  use Ash.Resource,
+    domain: AshSwift.Test.BadTypeNameDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("Bad {\n}\nstruct Injected")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id, public?: true
+  end
+
+  actions do
+    defaults [:read]
+  end
+end
+
+defmodule AshSwift.Test.BadTypeNameDomain do
+  @moduledoc "Fixture domain exposing `AshSwift.Test.BadTypeName` (#142)."
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.BadTypeName do
+      rpc_action(:list_bad, :read)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.BadTypeName
+  end
+end
+
+defmodule AshSwift.Test.KeywordGetBy do
+  @moduledoc """
+  Fixture resource (#142): a get_by lookup field whose name is a Swift keyword. The
+  generated `input:` dictionary value must be backtick-escaped to compile.
+  """
+
+  use Ash.Resource,
+    domain: AshSwift.Test.KeywordGetByDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("KeywordGetBy")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id, public?: true
+    attribute :default, :string, public?: true, allow_nil?: false
+  end
+
+  actions do
+    defaults [:read]
+
+    read :get_by_default do
+      get_by :default
+    end
+  end
+end
+
+defmodule AshSwift.Test.KeywordGetByDomain do
+  @moduledoc "Fixture domain exposing `AshSwift.Test.KeywordGetBy` (#142)."
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.KeywordGetBy do
+      rpc_action(:get_keyword, :get_by_default)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.KeywordGetBy
+  end
+end
+
+defmodule AshSwift.Test.BadCalcEnumValue.Calc do
+  @moduledoc false
+  use Ash.Resource.Calculation
+
+  @impl true
+  def calculate(records, _opts, _ctx), do: Enum.map(records, fn _ -> :ok end)
+end
+
+defmodule AshSwift.Test.BadCalcEnumValue do
+  @moduledoc """
+  Fixture resource (#142): an enum-typed calculation with a hostile value, covering
+  the derived-field (calculation/aggregate) enum path in the Reader.
+  """
+
+  use Ash.Resource,
+    domain: AshSwift.Test.BadCalcEnumValueDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("BadCalcEnumValue")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id, public?: true
+  end
+
+  calculations do
+    calculate :kind, :atom, AshSwift.Test.BadCalcEnumValue.Calc,
+      constraints: [one_of: [:"x\"y"]],
+      public?: true
+  end
+
+  actions do
+    defaults [:read]
+  end
+end
+
+defmodule AshSwift.Test.BadCalcEnumValueDomain do
+  @moduledoc "Fixture domain exposing `AshSwift.Test.BadCalcEnumValue` (#142)."
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.BadCalcEnumValue do
+      rpc_action(:list_bad_calc, :read)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.BadCalcEnumValue
   end
 end
