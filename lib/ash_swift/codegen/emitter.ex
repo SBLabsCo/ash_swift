@@ -729,8 +729,24 @@ defmodule AshSwift.Codegen.Emitter do
   # A lookup/primary-key field as a required Swift parameter.
   defp field_param(%{name: n, swift_type: t}), do: %{name: n, type: t, default: nil}
 
-  # A string literal as it appears in emitted Swift source (quoted).
-  defp swift_string(s), do: ~s("#{s}")
+  # A string literal as it appears in emitted Swift source (quoted), with the
+  # characters that would end or alter the literal escaped (#142). The backslash
+  # goes first so later escapes aren't doubled; escaping it also neutralises `\(`
+  # interpolation.
+  @doc false
+  def swift_string(s) do
+    escaped =
+      s
+      |> to_string()
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
+      |> String.replace("\n", "\\n")
+      |> String.replace("\r", "\\r")
+      |> String.replace("\t", "\\t")
+      |> String.replace("\0", "\\0")
+
+    ~s("#{escaped}")
+  end
 
   # The primary-key field name used as the `identity` argument for update and
   # destroy. Warns on composite keys (only the first field is used until multi-PK

@@ -1,0 +1,43 @@
+defmodule AshSwift.Codegen.InjectionTest do
+  @moduledoc """
+  Pins the #142 hardening: Swift string literals are escaped, and names spliced
+  into identifier positions must be plain Swift identifiers.
+  """
+  use ExUnit.Case, async: true
+
+  alias AshSwift.Codegen
+  alias AshSwift.Codegen.Emitter
+
+  describe "Emitter.swift_string/1" do
+    test "wraps plain text in quotes unchanged" do
+      assert Emitter.swift_string("list_todos") == ~s("list_todos")
+    end
+
+    test "escapes quotes, backslashes, interpolation and control characters" do
+      assert Emitter.swift_string(~S|a"b|) == ~S|"a\"b"|
+      assert Emitter.swift_string(~S|a\b|) == ~S|"a\\b"|
+      assert Emitter.swift_string(~S|\(x)|) == ~S|"\\(x)"|
+      assert Emitter.swift_string("a\nb\rc\td\0e") == ~S|"a\nb\rc\td\0e"|
+    end
+
+    test "a literal-terminating payload stays inside one literal" do
+      assert Emitter.swift_string(~S|x") + evil("y|) == ~S|"x\") + evil(\"y"|
+    end
+
+    test "accepts atoms" do
+      assert Emitter.swift_string(:list_todos) == ~s("list_todos")
+    end
+  end
+
+  describe "identifier validation in the Reader" do
+    test "rejects a resource type_name that is not a Swift identifier" do
+      assert_raise Mix.Error, ~r/type_name .* is not a valid Swift identifier/s, fn ->
+        Codegen.build_files([AshSwift.Test.BadTypeNameDomain])
+      end
+    end
+
+    test "valid fixture domains still generate" do
+      assert %{"AshRpcTypes.swift" => _} = Codegen.build_files([AshSwift.Test.Domain])
+    end
+  end
+end

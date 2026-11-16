@@ -334,7 +334,11 @@ defmodule AshSwift.Codegen.Reader do
       |> Enum.map(&{domain, &1})
     end)
     |> Enum.map(fn {domain, %{resource: resource, rpc_actions: rpc_actions}} ->
-      type_name = ResourceInfo.typescript_type_name!(resource)
+      type_name =
+        resource
+        |> ResourceInfo.typescript_type_name!()
+        |> assert_swift_identifier!("type_name", resource)
+
       mres = Map.fetch!(manifest.resources, resource)
       {fields, enums} = collect_fields(mres, type_name, manifest.types)
       formatter = AshTypescript.output_field_formatter() || :camel_case
@@ -352,6 +356,7 @@ defmodule AshSwift.Codegen.Reader do
       {actions_unsorted, input_structs_unsorted} =
         Enum.reduce(rpc_actions, {[], []}, fn rpc_action, {actions_acc, structs_acc} ->
           maction = Map.fetch!(manifest.actions, {resource, rpc_action.action})
+          assert_swift_identifier!(to_string(rpc_action.name), "rpc_action name", resource)
 
           # Generic (`:action`-type) actions are shaped differently from CRUD —
           # their inputs are action *arguments* (not attributes) and their return
@@ -944,7 +949,7 @@ defmodule AshSwift.Codegen.Reader do
       mres
       |> ManifestResource.all_relationships()
       |> Enum.flat_map(fn rel ->
-        case ResourceInfo.typescript_type_name(rel.destination) do
+        case checked_type_name(rel.destination) do
           {:ok, dest_type} ->
             swift_type =
               case rel.cardinality do
@@ -1055,11 +1060,37 @@ defmodule AshSwift.Codegen.Reader do
     end
   end
 
+  # Names that flow into Swift identifier / type positions unquoted (resource
+  # `type_name`, rpc action names) must be plain identifiers, or a hostile value
+  # (`}`, a newline, a quote) could inject Swift declarations into the generated
+  # client (#142). Checked here, at Reader time, so the Emitter can trust them.
+  @swift_identifier ~r/\A[A-Za-z_][A-Za-z0-9_]*\z/
+
+  defp assert_swift_identifier!(name, what, resource) do
+    if Regex.match?(@swift_identifier, name) do
+      name
+    else
+      Mix.raise(
+        "AshSwift codegen: #{what} #{inspect(name)} on #{inspect(resource)} is not a valid " <>
+          "Swift identifier (must match #{inspect(@swift_identifier.source)}). " <>
+          "Rename it so the generated client compiles."
+      )
+    end
+  end
+
+  # `ResourceInfo.typescript_type_name/1` with the identifier check applied.
+  defp checked_type_name(module) do
+    case ResourceInfo.typescript_type_name(module) do
+      {:ok, name} -> {:ok, assert_swift_identifier!(name, "type_name", module)}
+      other -> other
+    end
+  end
+
   # A resource's model struct is emitted only when it has a Swift type name and is
   # present in the manifest. Shared by the generic-return gate and
   # expand_with_related/2 so the two can't drift.
   defp model_struct_target(module, manifest_resources) do
-    with {:ok, type_name} <- ResourceInfo.typescript_type_name(module),
+    with {:ok, type_name} <- checked_type_name(module),
          true <- Map.has_key?(manifest_resources, module) do
       {:ok, type_name}
     else
