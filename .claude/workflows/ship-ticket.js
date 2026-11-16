@@ -71,7 +71,7 @@ const LENSES = {
 }
 // The one run-record shape; ship() fills it and the freshness guard refuses with it.
 const newRecord = n => ({
-  v: 1, issue: n, outcome: null, reason: null,
+  v: 2, issue: n, outcome: null, reason: null,
   verdicts: {}, findings: [], fixed: [], declined: [], followups: [], blocked: [], rounds: [], action_verdicts: [],
 })
 // What bin/orchestration-fresh's run (the runner's result, or null if it died) means for the whole run:
@@ -124,8 +124,9 @@ const FINDINGS = {
           problem: { type: 'string' },
           fix: { type: 'string' },
           verified: { type: 'boolean' },
+          category: { type: 'string', description: 'kebab-case slug naming the KIND of mistake, from docs/agents/finding-categories.md (coin a new one only when none fits). Read by bin/findings-retro.' },
         },
-        required: ['severity', 'where', 'problem', 'fix'],
+        required: ['severity', 'where', 'problem', 'fix', 'category'],
       },
     },
     probed_clean: { type: 'array', items: { type: 'string' }, description: 'what you checked and found sound' },
@@ -318,8 +319,15 @@ async function drive(n, rec, done) {
 
 // ---------------------------------------------------------------------------
 
+// A lens's category as the kebab-case slug the record contract requires (bin/pr-record refuses anything else,
+// which would lose the whole record): lowercased, runs of anything else collapsed to one hyphen.
+const categorySlug = c => String(c || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'uncategorized'
+// A finding's problem as one line: whitespace collapsed, clipped.
+const oneLine = (t, max) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, max)
+
 // The durable form of a run record: no agent prose beyond a short rationale, no worktree paths.
-// Whatever stats (and bin/after-merge) read later is in here; the full finding text lives in the workflow's own result.
+// Whatever bin/findings-retro (and bin/after-merge) read later is in here; each finding keeps a one-line problem
+// and its category, while the full problem and fix text live only in the workflow's own result.
 function durable(rec) {
   const clip = t => (t == null ? t : String(t).slice(0, 400))
   const declinedIds = new Set(rec.declined.map(d => d.id).filter(id => id !== undefined))
@@ -328,6 +336,7 @@ function durable(rec) {
     ...rest,
     findings: rec.findings.map(f => ({
       id: f.id, source: f.source, severity: f.severity, where: f.where,
+      category: categorySlug(f.category), problem: oneLine(f.problem, 240),
       outcome: rec.fixed.includes(f.id) ? 'fixed' : declinedIds.has(f.id) ? 'declined' : 'open',
     })),
     declined: rec.declined.map(d => ({ ...d, finding: clip(d.finding), rationale: clip(d.rationale) })),

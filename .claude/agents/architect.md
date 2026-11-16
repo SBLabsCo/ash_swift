@@ -168,6 +168,13 @@ The `ship-ticket` workflow asks for structured output (its `FINDINGS` schema,
   concrete change — the right name, the owning module, the IR key, the
   glossary wording), and `verified` (true only if verified; otherwise
   PLAUSIBLE).
+- `category` on every finding — a kebab-case slug naming the *kind* of
+  mistake, not the feature (`stale-doc-comment`, `ir-decision-split`,
+  `duplicated-test-harness`). Use a slug from
+  `docs/agents/finding-categories.md`; coin a new one only when none
+  fits, general enough that the same mistake elsewhere gets the same slug.
+  `bin/findings-retro` groups findings by it across PRs and turns the ones
+  that recur into implementer guidance.
 - `followups` — wider design problems, each `{title, body}`.
 - `probed_clean` — what you checked and found sound.
 - `verdict`: **READY**, **READY AFTER FIXES**, or **NEEDS REWORK** (the

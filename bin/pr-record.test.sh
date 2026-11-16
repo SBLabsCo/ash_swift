@@ -17,12 +17,22 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/pr-record-lib.sh"
 
 echo "record validation"
-expect yes "a v1 record about this PR is valid" pr_record_valid 7 '{"v":1,"issue":543,"pr":7}'
-expect no "another PR's record is refused" pr_record_valid 7 '{"v":1,"issue":543,"pr":8}'
+V2='{"v":2,"issue":543,"pr":7,"findings":[{"id":0,"source":"reviewer","severity":"nit","where":"a.ex:1","outcome":"fixed","problem":"a stale comment","category":"stale-doc-comment"}]}'
+expect yes "a v1 record about this PR is valid (older PRs carry them)" pr_record_valid 7 '{"v":1,"issue":543,"pr":7}'
+expect yes "a v1 finding needs no problem or category" pr_record_valid 7 '{"v":1,"issue":543,"pr":7,"findings":[{"id":0,"where":"a"}]}'
+expect yes "a v2 record whose findings carry a problem and a category is valid" pr_record_valid 7 "$V2"
+expect yes "a v2 record with no findings is valid" pr_record_valid 7 '{"v":2,"issue":543,"pr":7,"findings":[]}'
+expect no "a v2 finding without a category is refused" pr_record_valid 7 "$(jq -c 'del(.findings[0].category)' <<<"$V2")"
+expect no "a v2 finding without a problem is refused" pr_record_valid 7 "$(jq -c 'del(.findings[0].problem)' <<<"$V2")"
+expect no "a category that is not kebab-case is refused" pr_record_valid 7 "$(jq -c '.findings[0].category = "Stale Doc"' <<<"$V2")"
+expect no "a category with a doubled hyphen is refused" pr_record_valid 7 "$(jq -c '.findings[0].category = "stale--doc"' <<<"$V2")"
+expect no "a version this parser does not know is refused" pr_record_valid 7 '{"v":3,"issue":543,"pr":7}'
+expect no "another PR's record is refused" pr_record_valid 7 '{"v":2,"issue":543,"pr":8}'
 expect no "an unversioned record is refused" pr_record_valid 7 '{"issue":543,"pr":7}'
-expect no "a v2 record is refused (this tool writes v1)" pr_record_valid 7 '{"v":2,"issue":543,"pr":7}'
-expect no "a record without an issue is refused" pr_record_valid 7 '{"v":1,"pr":7}'
+expect no "a record without an issue is refused" pr_record_valid 7 '{"v":2,"pr":7}'
 expect no "a non-object is refused" pr_record_valid 7 '[1]'
+expect yes "the writer writes v2" pr_record_writable 7 "$V2"
+expect no "...and not v1, which it only reads" pr_record_writable 7 '{"v":1,"issue":543,"pr":7}'
 
 echo
 echo "comment body"
@@ -38,19 +48,22 @@ echo "picking records out of comments"
 COMMENTS="$(jq -cn --arg a '<!-- ash-swift-run-record: {"v":1,"issue":543,"pr":7,"n":1} -->' \
                    --arg b '<!-- ash-swift-run-record: {"v":1,"issue":543,"pr":7,"n":2} -->' \
                    --arg c 'see <!-- ash-swift-run-record: {"v":1,"issue":543,"pr":7,"n":3} --> quoted' \
-                   --arg d '<!-- ash-swift-run-record: {"v":2,"issue":543,"pr":7,"n":4} -->' \
+                   --arg d '<!-- ash-swift-run-record: {"v":3,"issue":543,"pr":7,"n":4} -->' \
+                   --arg f '<!-- ash-swift-run-record: {"v":2,"issue":543,"pr":7,"n":5,"findings":[]} -->' \
                    --arg e '<!-- ash-swift-run-record: {"v":1,"issue":543,"pr":8,"n":6} -->' '[
   {id:1,body:$a,user:{login:"scott"},author_association:"OWNER"},
   {id:2,body:$b,user:{login:"drive-by"},author_association:"NONE"},
   {id:3,body:$c,user:{login:"scott"},author_association:"OWNER"},
   {id:4,body:$d,user:{login:"scott"},author_association:"OWNER"},
   {id:5,body:"unrelated",user:{login:"scott"},author_association:"OWNER"},
-  {id:6,body:$e,user:{login:"scott"},author_association:"OWNER"}]')"
+  {id:6,body:$e,user:{login:"scott"},author_association:"OWNER"},
+  {id:7,body:$f,user:{login:"scott"},author_association:"OWNER"}]')"
 MATCHING="$(pr_record_matching "$COMMENTS" 7)"
-eq '[1,2]' "only whole-body v1 records for this PR count (quoted, v2, other-PR and unrelated comments do not)" "$(jq -c 'map(.id)' <<<"$MATCHING")"
-eq '1' "the caller's own record is found by login" "$(pr_record_latest_own "$MATCHING" scott | jq '.id')"
+eq '[1,2,7]' "only whole-body v1/v2 records for this PR count (quoted, unknown-version, other-PR and unrelated comments do not)" "$(jq -c 'map(.id)' <<<"$MATCHING")"
+eq '7' "the caller's own latest record is found by login" "$(pr_record_latest_own "$MATCHING" scott | jq '.id')"
 eq 'null' "no own record is null" "$(pr_record_latest_own "$MATCHING" nobody)"
-eq '1' "a reader trusts the OWNER's record, not the drive-by's later one" "$(pr_record_latest_trusted "$MATCHING" | jq '.id')"
+eq '1' "a reader trusts the OWNER's record, not the drive-by's later one" "$(pr_record_latest_trusted "$(jq -c '.[0:2]' <<<"$MATCHING")" | jq '.id')"
+eq '7' "...and a later v2 record replaces an earlier v1 one" "$(pr_record_latest_trusted "$MATCHING" | jq '.id')"
 eq 'null' "no records is null" "$(pr_record_latest_trusted '[]')"
 
 echo
@@ -82,29 +95,29 @@ expect_run() {
 }
 
 RECORD="$TEST_WORKDIR/record.json"
-echo '{"v":1,"issue":543,"pr":7,"outcome":"merge-ready"}' > "$RECORD"
+echo '{"v":2,"issue":543,"pr":7,"outcome":"merge-ready"}' > "$RECORD"
 export FAKE_GH_FAIL_ON=""
 export FAKE_COMMENTS='[[]]'
 
 expect_run "a PR with no record gets a new comment" 0 "" 7 --file "$RECORD"
 eq '{"ok":true,"pr":7,"comment_id":900,"action":"created"}' "  ...created" "$(jq -c . <<<"$OUT")"
 eq "1 0" "  ...one POST, no PATCH" "$(test_calls_count 'POST') $(test_calls_count 'PATCH')"
-test_called yes "  ...the body is the hidden one-line comment" 'body=<!-- ash-swift-run-record: {"v":1,"issue":543,"pr":7,"outcome":"merge-ready"} -->'
+test_called yes "  ...the body is the hidden one-line comment" 'body=<!-- ash-swift-run-record: {"v":2,"issue":543,"pr":7,"outcome":"merge-ready"} -->'
 
-export FAKE_COMMENTS="$(jq -cn --arg b '<!-- ash-swift-run-record: {"v":1,"issue":543,"pr":7,"outcome":"escalated"} -->' \
+export FAKE_COMMENTS="$(jq -cn --arg b '<!-- ash-swift-run-record: {"v":2,"issue":543,"pr":7,"outcome":"escalated"} -->' \
   '[[{id:55,body:$b,user:{login:"scott"},author_association:"OWNER"}]]')"
 expect_run "a re-run updates the caller's own record in place" 0 "" 7 --file "$RECORD"
 eq '{"ok":true,"pr":7,"comment_id":55,"action":"updated"}' "  ...updated comment 55" "$(jq -c . <<<"$OUT")"
 eq "0" "  ...nothing new was posted" "$(test_calls_count 'POST')"
 
-echo '{"v":1,"issue":543,"pr":7,"outcome":"escalated"}' > "$RECORD"
+echo '{"v":2,"issue":543,"pr":7,"outcome":"escalated"}' > "$RECORD"
 expect_run "an unchanged record is left alone" 0 "" 7 --file "$RECORD"
 eq '{"ok":true,"pr":7,"comment_id":55,"action":"unchanged"}' "  ...unchanged" "$(jq -c . <<<"$OUT")"
 eq "0 0" "  ...no write at all" "$(test_calls_count 'POST') $(test_calls_count 'PATCH')"
 
 export FAKE_COMMENTS="$(jq -cn --arg b '<!-- ash-swift-run-record: {"v":1,"issue":543,"pr":7,"n":1} -->' \
   '[[{id:56,body:$b,user:{login:"someone-else"},author_association:"MEMBER"}]]')"
-echo '{"v":1,"issue":543,"pr":7,"n":2}' > "$RECORD"
+echo '{"v":2,"issue":543,"pr":7,"n":2}' > "$RECORD"
 expect_run "another author's record is not overwritten; the caller posts its own" 0 "" 7 --file "$RECORD"
 eq "created" "  ...created" "$(jq -r .action <<<"$OUT")"
 
@@ -115,12 +128,17 @@ export FAKE_COMMENTS='[[]]'
 expect_run "--read on a PR with no record is a domain no" 1 "no run record" 7 --read
 eq "no_record" "  ...with the reason on stdout" "$(jq -r .reason <<<"$OUT")"
 
-echo '{"v":1,"issue":543,"pr":8}' > "$RECORD"
+echo '{"v":2,"issue":543,"pr":8}' > "$RECORD"
 expect_run "a record naming another PR is refused before anything is posted" 1 "pr == 7" 7 --file "$RECORD"
 eq "0" "  ...nothing was written" "$(test_calls_count 'POST')"
+echo '{"v":1,"issue":543,"pr":7}' > "$RECORD"
+expect_run "a v1 record is no longer written" 1 "v == 2" 7 --file "$RECORD"
+echo '{"v":2,"issue":543,"pr":7,"findings":[{"id":0,"problem":"p"}]}' > "$RECORD"
+expect_run "a v2 finding without a category is refused" 1 "category" 7 --file "$RECORD"
+eq "invalid_record" "  ...with the reason on stdout" "$(jq -r .reason <<<"$OUT")"
 echo 'not json' > "$RECORD"
 expect_run "a record that is not JSON is refused" 1 "not JSON" 7 --file "$RECORD"
-jq -cn '{v:1,issue:543,pr:7,blob:("x" * 61000)}' > "$RECORD"
+jq -cn '{v:2,issue:543,pr:7,blob:("x" * 61000)}' > "$RECORD"
 expect_run "a record too large for a comment is refused" 1 "trim the record" 7 --file "$RECORD"
 eq "too_large" "  ...with the reason on stdout" "$(jq -r .reason <<<"$OUT")"
 
@@ -134,7 +152,7 @@ expect_run "--help prints the header" 0 "" --help
 header_ok() { [[ "$OUT" == *"persist and read"* && "$OUT" == *"Exit codes"* ]]; }
 expect yes "  ...through the exit codes" header_ok
 
-echo '{"v":1,"issue":543,"pr":7}' > "$RECORD"
+echo '{"v":2,"issue":543,"pr":7}' > "$RECORD"
 FAKE_GH_FAIL_ON="issues/7/comments" expect_run "a failing comments read exits 3 with the failure object" 3 "gh api" 7 --file "$RECORD"
 eq "gh_failed" "  ...reason on stdout" "$(jq -r .reason <<<"$OUT")"
 

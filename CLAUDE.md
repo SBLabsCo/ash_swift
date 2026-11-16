@@ -24,6 +24,10 @@ GitHub Actions run CI (Elixir + Swift) and Claude-driven review, triage, and iss
 
 The saved `ship-ticket` workflow (`.claude/workflows/ship-ticket.js`; run by name with `{issues: [...]}`) drives `ready-for-agent` issues to merge-ready PRs locally: implementer → pre-PR review lenses (`.claude/agents/`) → `bin/pr-open` → `bin/pr-wait` loop. It never merges. See `docs/agents/ship-ticket.md`.
 
+### Findings retro
+
+On demand (after a batch of tickets or a milestone, never scheduled), the `findings-retro` skill reads the ship-ticket run records with `bin/findings-retro` and turns review-finding categories that recur across merged PRs into guidance the implementer reads, as one `Findings retro: <window>` PR. No other PR title may start with `Findings retro`. Categories come from `docs/agents/finding-categories.md`. See `docs/agents/ship-ticket.md`.
+
 ### Lessons from earlier runs
 
 Non-obvious patterns earlier implement / address-review runs got wrong are captured in `docs/agents/lessons.md`. Implement and `/address-review` prompts read it as context. Append to it only when you've hit a non-obvious, recurring pattern that isn't already there.

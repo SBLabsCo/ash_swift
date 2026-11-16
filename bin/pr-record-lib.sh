@@ -6,20 +6,38 @@
 # The comment format is a contract (docs/agents/ship-ticket.md, next to the review verdict
 # footer); change it only with a `v` bump:
 #
-#     <!-- ash-swift-run-record: {"v":1,"issue":543,"pr":561,...} -->
+#     <!-- ash-swift-run-record: {"v":2,"issue":543,"pr":561,...} -->
+#
+# v2 (the findings retro) adds a one-line `problem` and a kebab-case `category` to every
+# finding. Readers accept v1 and v2; the writer writes only the current version.
 
 PR_RECORD_PREFIX='<!-- ash-swift-run-record: '
 PR_RECORD_SUFFIX=' -->'
 # GitHub caps a comment at 65536 characters; stay well under it.
 PR_RECORD_MAX_CHARS=60000
 
-# jq predicate (input: a decoded record; needs `--argjson pr`): a version-1 record about
-# exactly this PR. The ONE definition of "valid" — the writer and the reader both splice it.
-PR_RECORD_VALID_JQ='type == "object" and .v == 1 and (.issue | type == "number") and .pr == $pr'
+# The version bin/pr-record writes. Readers also accept every older version still on PRs.
+PR_RECORD_VERSION=2
 
-# pr_record_valid <pr> <json> — <json> satisfies PR_RECORD_VALID_JQ for <pr>.
+# The shape of a finding's `category`: a kebab-case slug (docs/agents/finding-categories.md).
+PR_RECORD_CATEGORY_RE='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+# jq predicate (input: a decoded record; needs `--argjson pr`): a v1 or v2 record about
+# exactly this PR; a v2 record's findings each carry a string `problem` and a slug
+# `category`. The ONE definition of "valid" — the writer and the reader both splice it.
+PR_RECORD_VALID_JQ='type == "object" and (.issue | type == "number") and .pr == $pr
+  and (.v == 1 or (.v == 2 and ((.findings // []) | type == "array" and all(
+    type == "object" and (.problem | type == "string")
+    and (.category | type == "string" and test("'"$PR_RECORD_CATEGORY_RE"'"))))))'
+
+# pr_record_valid <pr> <json> — <json> satisfies PR_RECORD_VALID_JQ for <pr> (any version).
 pr_record_valid() {
   jq -e --argjson pr "$1" "$PR_RECORD_VALID_JQ" <<<"$2" >/dev/null 2>&1
+}
+
+# pr_record_writable <pr> <json> — valid, and of the version bin/pr-record writes.
+pr_record_writable() {
+  jq -e --argjson pr "$1" --argjson v "$PR_RECORD_VERSION" "($PR_RECORD_VALID_JQ) and .v == \$v" <<<"$2" >/dev/null 2>&1
 }
 
 # pr_record_line <json> — the one-line comment body. `>` is escaped to > so no string
@@ -28,7 +46,7 @@ pr_record_line() {
   printf '%s%s%s' "$PR_RECORD_PREFIX" "$(jq -c . <<<"$1" | sed 's/>/\\u003e/g')" "$PR_RECORD_SUFFIX"
 }
 
-# jq program: a PR's issue comments (one array) -> the comments carrying a valid v1 run
+# jq program: a PR's issue comments (one array) -> the comments carrying a valid run
 # record, in comment order: [{id, login, association, record}]. A comment counts only if
 # the record is the WHOLE body, so a quoted or pasted record inside prose never does.
 PR_RECORD_COMMENTS_JQ='

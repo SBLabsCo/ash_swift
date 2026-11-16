@@ -149,6 +149,13 @@ The `ship-ticket` workflow asks for structured output (its `FINDINGS` schema,
   the escape, the validation, the redaction — **and the test that pins
   it**), and `verified` (true only if you demonstrated it, e.g. with a
   throwaway fixture; otherwise false, i.e. PLAUSIBLE).
+- `category` on every finding — a kebab-case slug naming the *kind* of
+  mistake, not the feature (`stale-doc-comment`, `ir-decision-split`,
+  `duplicated-test-harness`). Use a slug from
+  `docs/agents/finding-categories.md`; coin a new one only when none
+  fits, general enough that the same mistake elsewhere gets the same slug.
+  `bin/findings-retro` groups findings by it across PRs and turns the ones
+  that recur into implementer guidance.
 - `probed_clean` — each surface you attacked and found sound, with how.
   Load-bearing: it tells the maintainer what was actually checked.
 - `followups` — pre-existing weaknesses the diff exposed but didn't cause,
