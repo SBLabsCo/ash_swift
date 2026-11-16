@@ -1,5 +1,5 @@
 # Fixtures for Swift type-name collisions between different resource modules
-# (#156). Two domains:
+# (#156). Three domains:
 #
 #   * TypeNameClashPrimaryDomain: primary `ClashPrimary` (type_name "Clash") has a
 #     relationship to the unexposed `ClashRelated`, whose type_name is also "Clash".
