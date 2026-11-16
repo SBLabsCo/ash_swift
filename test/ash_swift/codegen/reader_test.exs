@@ -577,7 +577,7 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
-  describe "create/update action arguments (#83, #84)" do
+  describe "create/update action arguments (#83)" do
     defp input_struct(name) do
       todo = resource(Reader.read(@domains), "Todo")
       Enum.find(todo.input_structs, &(&1.struct_name == name))
@@ -621,7 +621,9 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert [%{name: "newTitle", swift_type: "String", required?: true}] =
                input_struct("RetitleTodoInput").fields
     end
+  end
 
+  describe "arguments named like a private attribute (#84)" do
     test "an update keeps an argument whose same-named attribute is private (#84)" do
       assert [%{name: "dueDate", swift_type: "String", required?: true}] =
                input_struct("SetTodoDueDateInput").fields
