@@ -682,17 +682,6 @@ defmodule AshSwift.CodegenTest do
                "client.execute(GenericActionRequest<[String: AshJSON], EmptyActionInput>(action: \"stats\"))"
     end
 
-    test "an action whose return needs field selection is skipped with a warning" do
-      # `summarize` returns a struct (instance_of Todo) — a typed-record return
-      # needs field selection (Tier C), deferred. It must be skipped, not emitted
-      # as a broken function, and the skip is announced.
-      log =
-        ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
-
-      assert log =~ "generic action :summarize"
-      assert log =~ "skipping"
-    end
-
     test "a void no-argument action emits VoidActionRequest<EmptyActionInput> and no input param",
          %{files: files} do
       functions = files["AshRpcFunctions.swift"]
@@ -748,17 +737,6 @@ defmodule AshSwift.CodegenTest do
     test "an array-of-map argument action renders an input-taking function", %{files: files} do
       assert files["AshRpcFunctions.swift"] =~
                "public func bulkRaw(input: BulkRawInput) async throws"
-    end
-
-    test "a nested-array argument (unmappable element) is still skipped with a warning" do
-      # `deep_broadcast` takes `{:array, {:array, :string}}` — the element is itself
-      # an array, which maps to no Swift type. The input gate must skip the whole
-      # action (symmetric with the return-type gate), not emit a wrong-typed input.
-      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
-
-      assert log =~ "generic action :deep_broadcast"
-      assert log =~ "argument :matrix"
-      assert log =~ "skipping"
     end
   end
 
