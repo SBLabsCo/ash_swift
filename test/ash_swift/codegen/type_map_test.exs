@@ -76,6 +76,7 @@ defmodule AshSwift.Codegen.TypeMapTest do
       assert TypeMap.scalar_filter_group(Ash.Type.Boolean) == :equatable
       assert TypeMap.scalar_filter_group(Ash.Type.Map) == :exclude
       assert TypeMap.scalar_filter_group(Ash.Type.String) == :enum
+      assert TypeMap.scalar_filter_group(Ash.Type.CiString) == :ci_string
       assert TypeMap.scalar_filter_group(Ash.Type.UUID) == :enum
       assert TypeMap.scalar_filter_group(Ash.Type.Atom) == :enum
     end
@@ -87,6 +88,8 @@ defmodule AshSwift.Codegen.TypeMapTest do
       assert TypeMap.operator_generic_name(:equatable, true) == "NullableEquatableOperators"
       assert TypeMap.operator_generic_name(:enum, false) == "EnumOperators"
       assert TypeMap.operator_generic_name(:enum, true) == "NullableEnumOperators"
+      assert TypeMap.operator_generic_name(:ci_string, false) == "CiStringOperators"
+      assert TypeMap.operator_generic_name(:ci_string, true) == "NullableCiStringOperators"
       assert TypeMap.operator_generic_name(:comparable, false) == "ComparableOperators"
       assert TypeMap.operator_generic_name(:comparable, true) == "NullableComparableOperators"
     end

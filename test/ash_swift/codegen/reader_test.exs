@@ -149,6 +149,8 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert groups["id"] == "EnumOperators<String>"
       # enum, nullable → membership over the generated enum type
       assert groups["priority"] == "NullableEnumOperators<TodoPriority>"
+      # ci_string, nullable → case-insensitive-aware group
+      assert groups["username"] == "NullableCiStringOperators<String>"
     end
   end
 
