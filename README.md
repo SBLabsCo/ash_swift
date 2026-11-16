@@ -93,9 +93,9 @@ and a TypeScript client stay wire-identical by construction.
   [UploadStartResultClipsItem] }` instead of an untyped `[String: AshJSON]` (an
   *unconstrained* map stays the untyped dict). A generic action *returning* a
   resource (or a `:struct` that is an instance of one) takes a required
-  `fields:` selection and returns the resource's generated model type as an
-  non-optional (`summarize(fields:) -> Todo`), or **optional** (`Todo?`) when the
-  action sets `allow_nil? true`. Embedded-resource and array-of-resource returns
+  `fields:` selection and returns the resource's generated model type as a
+  non-optional (`summarize(fields:) -> Todo`), or **optional** (`Todo?`) when
+  the action sets `allow_nil? true`. Embedded-resource and array-of-resource returns
   are skipped with a warning.
 - **Ad-hoc field selection** — request only the fields a screen needs, including
   fields on nested relationships. Every model field is `Optional`, so unselected

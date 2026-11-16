@@ -138,6 +138,12 @@ enum ConsumerCheck {
         let _: String? = manifest.caption            // nullable-default → optional
         let _: [String: AshJSON]? = manifest.metadata
         let _: String? = manifest.clips?.first?.uploadUrl
+
+        // Generic actions returning a resource (issue #56): optional when the
+        // action allows nil, non-optional otherwise; `fields:` is required.
+        let summary: Todo? = try await rpc.summarize(fields: ["id", "title"])
+        let summaryRequired: Todo = try await rpc.summarizeRequired(fields: ["id"])
+        _ = (summary, summaryRequired)
     }
 
     // Generated models are all-Optional Codable structs. Absent JSON keys
