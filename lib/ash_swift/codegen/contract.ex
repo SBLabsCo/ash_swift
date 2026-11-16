@@ -127,6 +127,12 @@ defmodule AshSwift.Codegen.Contract do
   rendered Swift: a test can hand this a small resource map, then a copy with
   one field added or one action removed, without compiling a real Ash resource
   for every case.
+
+  Precondition: every generated Swift type and enum name in `all_resources` has
+  one owner, the invariant `Reader.read/1` enforces with
+  `assert_unique_swift_names!/1`. Hand-built IR must keep it too; this function
+  does not re-check it, so a duplicate name yields a duplicate `types` / `enums`
+  entry rather than an error.
   """
   @spec build_from_ir(%{primary_resources: [map()], all_resources: [map()]}) :: map()
   def build_from_ir(%{primary_resources: primary, all_resources: all}) do
@@ -333,7 +339,6 @@ defmodule AshSwift.Codegen.Contract do
       end)
 
     (resource_types ++ struct_types ++ filter_types)
-    |> dedupe_by_name!("type")
     |> Enum.sort_by(& &1.name)
   end
 
@@ -413,7 +418,6 @@ defmodule AshSwift.Codegen.Contract do
       end)
 
     (domain_enums ++ sort_field_enums)
-    |> dedupe_by_name!("enum")
     |> Enum.sort_by(& &1.name)
   end
 
@@ -435,35 +439,6 @@ defmodule AshSwift.Codegen.Contract do
 
   defp module_name(nil), do: nil
   defp module_name(module), do: module |> to_string() |> String.trim_leading("Elixir.")
-
-  # Groups entries by `name` and raises if any group holds more than one
-  # distinct entry — a same-named type/enum with different content is exactly
-  # the collision `AshSwift.Codegen.build_files/1` (via
-  # `Reader.expand_with_related/2`) already raises on for the emitted Swift
-  # itself; silently keeping whichever entry `Enum.uniq_by/2` happened to see
-  # first would hide the same defect here instead of surfacing it.
-  defp dedupe_by_name!(entries, kind) do
-    entries
-    |> Enum.group_by(& &1.name)
-    |> Enum.map(fn
-      {_name, [entry]} ->
-        entry
-
-      {name, duplicates} ->
-        case Enum.uniq(duplicates) do
-          [entry] ->
-            entry
-
-          _distinct ->
-            Mix.raise(
-              "AshSwift.Codegen.Contract: #{kind} name #{inspect(name)} maps to multiple, " <>
-                "different definitions — #{inspect(duplicates)}. This is the same naming " <>
-                "collision codegen itself would refuse to emit; rename the colliding " <>
-                "resource/attribute/field."
-            )
-        end
-    end)
-  end
 
   # --- deterministic JSON ------------------------------------------------
 
