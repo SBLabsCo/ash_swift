@@ -77,7 +77,7 @@ defmodule AshSwift.Codegen.Reader do
         primary_key_params: [%{name, swift_type}],  # update/destroy: the resource's PK params; [] for create/read/generic.
                                                # The identity that addresses the record; the emitter sends it as `identity`
         pagination_type: :offset | :keyset | :none,           # required pagination => paginated return; :none for gets (Emitter raises otherwise)
-        optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload; :none for gets (Emitter raises otherwise)
+        optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload; :none for gets (Emitter raises otherwise; Contract.optional_pagination/2 relies on it)
         sortable?:       boolean,              # list reads only (false for gets; Emitter raises otherwise)
         filterable?:     boolean,              # list reads only (false for gets; Emitter raises otherwise)
         generic_return:  :void | {:typed, swift_type} | {:typed_record, swift_type}  # [generic only]; a resource return's swift_type is the model type ("Todo"), "Todo?" when the action has allow_nil? true
@@ -449,7 +449,8 @@ defmodule AshSwift.Codegen.Reader do
     # Optional pagination (required?: false but offset?/keyset? supported) on a
     # list read. These don't change the bare `[T]` function; they gain a second,
     # *overloaded* paginated function (see method_specs/2). Get actions and
-    # required-pagination actions are excluded — :none means "no overload".
+    # required-pagination actions are excluded — :none means "no overload"
+    # (`Contract.optional_pagination/2` relies on :none for gets).
     optional_pagination_type =
       if list_read? do
         optional_action_pagination_type(maction)
