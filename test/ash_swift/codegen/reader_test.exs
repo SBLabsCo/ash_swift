@@ -659,10 +659,32 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert attr_type(category, "publisherId") == "String"
     end
 
+    test "relationship fields record their destination module; other fields do not (#147)", %{
+      ir: ir
+    } do
+      tag = resource(ir, "Tag")
+
+      assert %{destination: AshSwift.Test.Category} =
+               Enum.find(tag.fields, &(&1.name == "category"))
+
+      category = resource(ir, "Category")
+
+      assert %{destination: nil} = Enum.find(category.fields, &(&1.name == "name"))
+    end
+
+    test "a related struct keeps a relationship field whose destination is emitted", %{ir: ir} do
+      category = resource(ir, "Category")
+
+      assert attr_type(category, "tags") == "[Tag]"
+
+      assert %{destination: AshSwift.Test.Tag} =
+               Enum.find(category.fields, &(&1.name == "tags"))
+    end
+
     test "an array-of-optional-elements field on a related struct is kept (#78)", %{ir: ir} do
-      # The safety check strips one bracket layer to reach the element type; unless
-      # it also drops the element's own `?`, `[String?]` resolves to the unknown
-      # "String?" and the field disappears.
+      # The 2-hop guard filters only relationship fields (by their recorded
+      # `destination:`); a non-relationship field like this one is kept
+      # whatever the shape of its Swift type.
       assert attr_type(resource(ir, "Category"), "aliases") == "[String?]"
     end
   end
