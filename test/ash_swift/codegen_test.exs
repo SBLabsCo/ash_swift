@@ -937,17 +937,20 @@ defmodule AshSwift.CodegenTest do
                "client.execute(GenericActionRequest<[String: AshJSON], EmptyActionInput>(action: \"stats\"))"
     end
 
-    test "an action whose return needs field selection is skipped with a warning", %{files: files} do
-      # `summarize` returns a struct (instance_of Todo) — a typed-record return
-      # needs field selection (Tier C), deferred. It must be skipped, not emitted
-      # as a broken function, and the skip is announced.
-      log =
-        ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
+    test "a struct return of a resource emits a field-selected optional model return (#56)",
+         %{files: files} do
+      # `summarize` returns a struct (instance_of Todo): the pipeline requires
+      # `fields:`, and the action may return nil, so the function returns `Todo?`.
+      functions = files["AshRpcFunctions.swift"]
 
-      assert log =~ "generic action :summarize"
-      assert log =~ "skipping"
+      assert functions =~
+               "public func summarize(fields: [FieldSelection]) async throws -> Todo? {"
 
-      refute files["AshRpcFunctions.swift"] =~ "func summarize"
+      assert functions =~
+               ~s[client.execute(GenericActionRequest<Todo?, EmptyActionInput>(action: "summarize", fields: fields))]
+
+      # The target model struct is emitted by the existing model path — no result struct.
+      refute files["AshRpcTypes.swift"] =~ "SummarizeResult"
     end
 
     test "a void no-argument action emits VoidActionRequest<EmptyActionInput> and no input param",
@@ -1363,6 +1366,18 @@ defmodule AshSwift.CodegenTest do
       # untyped dict — only a *constrained* map gets a generated struct.
       assert functions =~ "public func stats() async throws -> [String: AshJSON] {"
       refute files["AshRpcTypes.swift"] =~ "StatsResult"
+    end
+  end
+
+  describe "generic action returning an unexposed, unrelated resource (#56)" do
+    test "emits the target's model struct and an optional field-selected return" do
+      files = Codegen.build_files([AshSwift.Test.ReturnOnlyDomain])
+
+      assert files["AshRpcTypes.swift"] =~
+               "public struct Publisher: Codable, Sendable, Equatable {"
+
+      assert files["AshRpcFunctions.swift"] =~
+               "public func latestPublisher(fields: [FieldSelection]) async throws -> Publisher? {"
     end
   end
 

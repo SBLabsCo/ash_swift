@@ -24,7 +24,8 @@ defmodule AshSwift.DeterminismTest do
   @matrix %{
     "domain" => [AshSwift.Test.Domain],
     "map_only_domain" => [AshSwift.Test.MapOnlyDomain],
-    "tag_domain" => [AshSwift.Test.TagDomain]
+    "tag_domain" => [AshSwift.Test.TagDomain],
+    "return_only_domain" => [AshSwift.Test.ReturnOnlyDomain]
   }
 
   for {label, domains} <- @matrix do

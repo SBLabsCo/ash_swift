@@ -218,9 +218,11 @@ destroy. A scalar/map return is the usual `{"data": <value>}` `DataEnvelope`
 unwrap. The catch: a **typed-record return** (a generic action returning a
 struct/resource, e.g. `returns :struct, constraints: [instance_of: __MODULE__]`)
 **requires** `fields` — the pipeline rejects it with `missing_required_parameter:
-fields`. That's why field-selection-bearing returns (Tier C) are deferred and
-skipped, not emitted: wiring them needs the `FieldSelection` machinery in the
-generic-action body. Re-probe before building Tier C.
+fields`. Field-selected returns therefore carry `fields` in the generic-action
+body (#73, #56). A resource/struct return is emitted as the model type
+**optional** (`Todo?`): the manifest carries no action-level nullability and a
+generic action may return `nil` (`"data": null`), which a non-optional `T` would
+fail to decode.
 
 ### A *constrained* `:map` return is camelCase-formatted on the wire; an unconstrained one is passed through verbatim
 

@@ -37,7 +37,8 @@ defmodule AshSwift.Codegen.ReaderTest do
 
     @generic_keys ~w(rpc_name action action_type get
                      not_found_error? input_struct_name primary_key_params pagination_type
-                     optional_pagination_type sortable? filterable? generic_return)a
+                     optional_pagination_type sortable? filterable? generic_return
+                     generic_return_resource)a
                   |> MapSet.new()
 
     test "CRUD actions carry exactly the documented keys; generic actions their own set" do
@@ -200,13 +201,15 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "generic-action gating (#54)" do
-    test "generic actions whose shape needs field selection are dropped; supported ones kept" do
+    test "unmappable generic actions are dropped; supported ones kept" do
       todo = resource(Reader.read(@domains), "Todo")
       rpc_names = Enum.map(todo.actions, & &1.rpc_name)
 
-      # :summarize (a resource return) needs field selection the generic-action
-      # slice doesn't emit yet (#56).
-      refute :summarize in rpc_names
+      # :summarize (a struct return of a resource) is classified as an optional
+      # field-selected model return, carrying its target resource (#56).
+      summarize = Enum.find(todo.actions, &(&1.rpc_name == :summarize))
+      assert summarize.generic_return == {:typed_record, "Todo?"}
+      assert summarize.generic_return_resource == AshSwift.Test.Todo
 
       # Void and scalar/map generic actions are supported and kept — including the
       # void branch of generic_action_return/1 (nil -> :void), exercised by :ping_void.

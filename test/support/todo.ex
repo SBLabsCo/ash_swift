@@ -291,12 +291,11 @@ defmodule AshSwift.Test.Todo do
       run fn _input, _ctx -> {:ok, %{"count" => 0}} end
     end
 
-    # Struct return — a typed record return needs field selection (Tier C), which
-    # this slice defers. Codegen must warn-and-skip it rather than emit a broken
-    # function. Regression guard for the skip path.
+    # Struct return of this resource — a field-selected typed-record return (#56).
+    # Codegen emits `summarize(fields:) -> Todo?`; it may return nil (no rows).
     action :summarize, :struct do
       constraints instance_of: __MODULE__
-      run fn _input, _ctx -> {:ok, nil} end
+      run fn _input, _ctx -> Ash.read_first(__MODULE__) end
     end
 
     # Void return, no arguments — exercises the void no-input codegen path

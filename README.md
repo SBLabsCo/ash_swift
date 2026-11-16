@@ -92,8 +92,11 @@ and a TypeScript client stay wire-identical by construction.
   `Decodable` struct — `uploadStart` returns `UploadStartResult { videoId, clips:
   [UploadStartResultClipsItem] }` instead of an untyped `[String: AshJSON]` (an
   *unconstrained* map stays the untyped dict). A generic action *returning* a
-  resource/struct that needs field selection is not generated yet
-  ([#56](https://github.com/SBLabsCo/ash_swift/issues/56)).
+  resource (or a `:struct` that is an instance of one) takes a required
+  `fields:` selection and returns the resource's generated model type as an
+  **optional** — `summarize(fields:) -> Todo?` — since a generic action may
+  return `nil`. Embedded-resource and array-of-resource returns are skipped with
+  a warning.
 - **Ad-hoc field selection** — request only the fields a screen needs, including
   fields on nested relationships. Every model field is `Optional`, so unselected
   fields safely decode as `nil`.
