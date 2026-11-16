@@ -22,9 +22,9 @@ defmodule AshSwift.Codegen.Reader do
         resource_module: module | nil,        # nil for a related-only entry
         domain:          module | nil,        # nil for a related-only entry (ADR-0009: read
                                               # straight off the IR, not Ash.Resource.Info.domain/1)
-        type_name:       "Todo",
+        type_name:       "Todo",                # validated plain Swift identifier (Reader raises otherwise)
         fields:          [%{name, swift_type}],   # attributes + relationships + derived
-        enums:           [%{enum_name, cases}],
+        enums:           [%{enum_name, cases: [%{name, raw}]}],  # raw: wire string, nil when equal to name
         actions:         [action],                # [] for a related-only entry
         input_structs:   [%{struct_name, fields, decodable?}],  # decodable? true => Decodable result struct, else Encodable input
         sort_field:      %{type_name, fields} | nil,   # fields: [name_string]; nil when no sortable surface
@@ -43,7 +43,7 @@ defmodule AshSwift.Codegen.Reader do
   value is *meaningful* only on reads, not that the key is absent elsewhere.
 
       %{
-        rpc_name:        atom,                 # RPC action name; the Swift method name source
+        rpc_name:        atom,                 # RPC action name; the Swift method name source (its lower-camelled form is validated as a Swift identifier; Reader raises otherwise)
         action:          atom,                 # the underlying Ash action name
         action_type:     :read | :create | :update | :destroy | :action,
         get:             nil | :pure | {:input, [param]} | {:get_by, [param]},  # see below; param is %{name, swift_type}
@@ -98,6 +98,7 @@ defmodule AshSwift.Codegen.Reader do
 
   alias Ash.Info.Manifest
   alias Ash.Info.Manifest.Resource, as: ManifestResource
+  alias AshSwift.Codegen.Naming
   alias AshSwift.Codegen.TypeMap
   alias AshTypescript.FieldFormatter
   alias AshTypescript.Resource.Info, as: ResourceInfo
@@ -261,12 +262,12 @@ defmodule AshSwift.Codegen.Reader do
   # Tuples and unions fall in that group, not this one: Ash's `TypeResolver` sets
   # `module: Ash.Type.Tuple` / `module: Ash.Type.Union`, so they take the
   # module-bearing branch below and are still emitted as `String`.
-  defp attribute_swift_type(attr, formatted_name, type_name) do
+  defp attribute_swift_type(attr, formatted_name, type_name, resource) do
     element =
       case TypeMap.extract_enum_cases(attr) do
         {:ok, cases} ->
           enum_name = enum_type_name(type_name, formatted_name)
-          {:ok, enum_name, %{enum_name: enum_name, cases: cases}}
+          {:ok, enum_name, %{enum_name: enum_name, cases: check_enum_cases!(cases, resource)}}
 
         :not_enum ->
           case attr.value_type do
@@ -334,7 +335,11 @@ defmodule AshSwift.Codegen.Reader do
       |> Enum.map(&{domain, &1})
     end)
     |> Enum.map(fn {domain, %{resource: resource, rpc_actions: rpc_actions}} ->
-      type_name = ResourceInfo.typescript_type_name!(resource)
+      type_name =
+        resource
+        |> ResourceInfo.typescript_type_name!()
+        |> assert_swift_identifier!("type_name", resource)
+
       mres = Map.fetch!(manifest.resources, resource)
       {fields, enums} = collect_fields(mres, type_name, manifest.types, manifest.resources)
       formatter = AshTypescript.output_field_formatter() || :camel_case
@@ -352,6 +357,12 @@ defmodule AshSwift.Codegen.Reader do
       {actions_unsorted, input_structs_unsorted} =
         Enum.reduce(rpc_actions, {[], []}, fn rpc_action, {actions_acc, structs_acc} ->
           maction = Map.fetch!(manifest.actions, {resource, rpc_action.action})
+          # Swift sees the lower-camelled `func` name and the pascal-cased
+          # `{Rpc}Input`/`{Rpc}Result` struct names, both rooted in the same first
+          # non-empty segment, so validating the lower-camel form covers all three.
+          rpc_action.name
+          |> Naming.lower_camel()
+          |> assert_swift_identifier!("rpc_action name", resource)
 
           # Generic (`:action`-type) actions are shaped differently from CRUD —
           # their inputs are action *arguments* (not attributes) and their return
@@ -640,7 +651,7 @@ defmodule AshSwift.Codegen.Reader do
            ) do
         {:ok, swift_type, nested_structs} ->
           field = %{
-            name: FieldFormatter.format_field_for_client(input.name, resource, formatter),
+            name: format_name!(input.name, resource, formatter),
             swift_type: swift_type,
             required?: input.required?
           }
@@ -682,7 +693,15 @@ defmodule AshSwift.Codegen.Reader do
       %{kind: :map, fields: item_fields} when is_list(item_fields) and item_fields != [] ->
         case collect_record_struct_fields(item_fields, resource, formatter) do
           {:ok, struct_fields} ->
-            struct_name = name_prefix <> pascal_case(field_name) <> "Item"
+            # Built from the raw field atom (not the formatted client name), which
+            # `field_names` can map to a clean name while the raw one stays hostile,
+            # so the derived struct name is checked on its own (#142).
+            struct_name =
+              assert_swift_identifier!(
+                name_prefix <> pascal_case(field_name) <> "Item",
+                "struct name",
+                resource
+              )
 
             {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
 
@@ -718,7 +737,7 @@ defmodule AshSwift.Codegen.Reader do
       case TypeMap.generic_swift_type(field.type) do
         {:ok, swift} ->
           struct_field = %{
-            name: FieldFormatter.format_field_for_client(field.name, resource, formatter),
+            name: format_name!(field.name, resource, formatter),
             swift_type: swift,
             required?: field.allow_nil? == false
           }
@@ -796,7 +815,7 @@ defmodule AshSwift.Codegen.Reader do
     |> manifest_attributes(types)
     |> Enum.filter(&sortable_attribute?/1)
     |> Enum.map(fn attr ->
-      FieldFormatter.format_field_for_client(attr.name, mres.module, formatter)
+      format_name!(attr.name, mres.module, formatter)
     end)
     |> Enum.sort()
   end
@@ -876,13 +895,13 @@ defmodule AshSwift.Codegen.Reader do
   # an emitted `EnumOperators<String>` over an `{:array, :string}` would be a
   # request the backend rejects (issue #78).
   defp filter_field(attr, resource, type_name, formatter) do
-    name = FieldFormatter.format_field_for_client(attr.name, resource, formatter)
+    name = format_name!(attr.name, resource, formatter)
 
     {group, value_type} =
       if attr.array? do
         {:exclude, nil}
       else
-        case attribute_swift_type(attr, name, type_name) do
+        case attribute_swift_type(attr, name, type_name, resource) do
           {:ok, swift_type, nil} -> {TypeMap.scalar_filter_group(attr.ash_type), swift_type}
           {:ok, enum_name, _enum} -> {:enum, enum_name}
           :unsupported -> {:exclude, nil}
@@ -917,9 +936,9 @@ defmodule AshSwift.Codegen.Reader do
       mres
       |> manifest_attributes(types)
       |> Enum.reduce({[], []}, fn attr, {fields_acc, enums_acc} ->
-        formatted_name = FieldFormatter.format_field_for_client(attr.name, resource, formatter)
+        formatted_name = format_name!(attr.name, resource, formatter)
 
-        case attribute_swift_type(attr, formatted_name, type_name) do
+        case attribute_swift_type(attr, formatted_name, type_name, resource) do
           {:ok, swift_type, nil} ->
             {[%{name: formatted_name, swift_type: swift_type} | fields_acc], enums_acc}
 
@@ -958,7 +977,7 @@ defmodule AshSwift.Codegen.Reader do
                 :many -> "[#{dest_type}]"
               end
 
-            name = FieldFormatter.format_field_for_client(rel.name, resource, formatter)
+            name = format_name!(rel.name, resource, formatter)
             [%{name: name, swift_type: swift_type}]
 
           :none ->
@@ -1061,6 +1080,62 @@ defmodule AshSwift.Codegen.Reader do
     end
   end
 
+  # Names that flow into Swift identifier / type positions unquoted (resource
+  # `type_name`, rpc action names) must be plain identifiers, or a hostile value
+  # (`}`, a newline, a quote) could inject Swift declarations into the generated
+  # client (#142). Checked here, at Reader time, so the Emitter can trust them.
+  @swift_identifier ~r/\A[A-Za-z_][A-Za-z0-9_]*\z/
+
+  defp assert_swift_identifier!(name, what, resource) do
+    if Regex.match?(@swift_identifier, name) do
+      name
+    else
+      Mix.raise(
+        "AshSwift codegen: #{what} #{inspect(name)} on #{inspect(resource)} is not a valid " <>
+          "Swift identifier (must match #{inspect(@swift_identifier.source)}). " <>
+          "Rename it so the generated client compiles."
+      )
+    end
+  end
+
+  # `FieldFormatter.format_field_for_client/3` with the identifier check applied.
+  # Every client-facing field/argument name the Reader emits goes through here, so
+  # the derived names built from it (enum, struct, filter, sort types) are
+  # identifiers by construction (#142).
+  defp format_name!(name, resource, formatter) do
+    name
+    |> FieldFormatter.format_field_for_client(resource, formatter)
+    |> to_string()
+    |> assert_swift_identifier!("field name", resource)
+  end
+
+  # Enum cases are emitted as `case <lowerCamel(value)>`, so the lower-camelled
+  # value must itself be an identifier (the raw value is emitted via
+  # `Emitter.swift_string/1`, which escapes it).
+  # Returns the IR shape `%{name, raw}`: `name` is the validated Swift case name,
+  # `raw` the wire string, or nil when it equals `name` (no explicit raw value
+  # needed). The Emitter only renders this.
+  defp check_enum_cases!(cases, resource) do
+    Enum.map(cases, fn c ->
+      raw = to_string(c)
+
+      name =
+        raw
+        |> Naming.lower_camel()
+        |> assert_swift_identifier!("enum value", resource)
+
+      %{name: name, raw: if(name == raw, do: nil, else: raw)}
+    end)
+  end
+
+  # `ResourceInfo.typescript_type_name/1` with the identifier check applied.
+  defp checked_type_name(module) do
+    case ResourceInfo.typescript_type_name(module) do
+      {:ok, name} -> {:ok, assert_swift_identifier!(name, "type_name", module)}
+      other -> other
+    end
+  end
+
   # The single predicate for "this resource's model struct can be referenced":
   # it has a Swift type name and is present in the manifest. Returns
   # `{:ok, type_name, manifest_resource}` or `:none`. Shared by the
@@ -1070,7 +1145,7 @@ defmodule AshSwift.Codegen.Reader do
   # deliberately stays a set check over the emitted Swift type names: it answers
   # "is this type emitted in this file", not "can this resource be referenced".
   defp model_struct_target(module, manifest_resources) do
-    with {:ok, type_name} <- ResourceInfo.typescript_type_name(module),
+    with {:ok, type_name} <- checked_type_name(module),
          {:ok, mres} <- Map.fetch(manifest_resources, module) do
       {:ok, type_name, mres}
     else
@@ -1094,7 +1169,7 @@ defmodule AshSwift.Codegen.Reader do
       case generic_field_swift_type(field.type, name_prefix, field.name, resource, formatter) do
         {:ok, swift_type, nested_structs} ->
           struct_field = %{
-            name: FieldFormatter.format_field_for_client(field.name, resource, formatter),
+            name: format_name!(field.name, resource, formatter),
             swift_type: swift_type,
             required?: field.allow_nil? == false
           }
@@ -1156,12 +1231,12 @@ defmodule AshSwift.Codegen.Reader do
   # (see TypeMap.derived_scalar_kinds/0).
   defp emit_derived_fields(fields, type_name, resource, formatter, types) do
     Enum.reduce(fields, {[], []}, fn field, {fields_acc, enums_acc} ->
-      formatted_name = FieldFormatter.format_field_for_client(field.name, resource, formatter)
+      formatted_name = format_name!(field.name, resource, formatter)
 
       case manifest_enum_values(field.type, types) do
         values when is_list(values) ->
           en_name = enum_type_name(type_name, formatted_name)
-          enum = %{enum_name: en_name, cases: values}
+          enum = %{enum_name: en_name, cases: check_enum_cases!(values, resource)}
           {[%{name: formatted_name, swift_type: en_name} | fields_acc], [enum | enums_acc]}
 
         nil ->
@@ -1372,7 +1447,7 @@ defmodule AshSwift.Codegen.Reader do
   # Maps a list of field atoms to the %{name, swift_type} shapes method_spec uses.
   defp build_get_by_params(fields, resource, formatter) do
     Enum.map(fields, fn field ->
-      name = FieldFormatter.format_field_for_client(field, resource, formatter)
+      name = format_name!(field, resource, formatter)
       %{name: name, swift_type: "String"}
     end)
   end
@@ -1411,7 +1486,7 @@ defmodule AshSwift.Codegen.Reader do
 
     {fields, structs} =
       Enum.reduce(maction.inputs, {[], []}, fn input, {fields_acc, structs_acc} ->
-        formatted_name = FieldFormatter.format_field_for_client(input.name, resource, formatter)
+        formatted_name = format_name!(input.name, resource, formatter)
 
         cond do
           MapSet.member?(argument_names, input.name) ->
@@ -1453,7 +1528,7 @@ defmodule AshSwift.Codegen.Reader do
             # `required?` case below) still yields an input struct that compiles, and
             # the action then fails server-side at run time rather than at build time.
             # Tracked in issue #79.
-            case attribute_swift_type(attr, formatted_name, type_name) do
+            case attribute_swift_type(attr, formatted_name, type_name, resource) do
               {:ok, swift_type, _enum} ->
                 required? =
                   case maction.type do

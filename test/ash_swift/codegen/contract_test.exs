@@ -433,13 +433,35 @@ defmodule AshSwift.Codegen.ContractTest do
       widget_with_enum =
         base_resource(%{
           fields: [%{name: "status", swift_type: "WidgetStatus"}],
-          enums: [%{enum_name: "WidgetStatus", cases: [:archived, :active]}]
+          enums: [
+            %{
+              enum_name: "WidgetStatus",
+              cases: [%{name: "archived", raw: nil}, %{name: "active", raw: nil}]
+            }
+          ]
         })
 
       doc = Contract.build_from_ir(ir(widget_with_enum))
 
       assert Enum.find(doc.enums, &(&1.name == "WidgetStatus")) ==
                %{name: "WidgetStatus", values: ["active", "archived"]}
+    end
+
+    test "an enum case with a distinct raw value lists the raw wire string" do
+      widget =
+        base_resource(%{
+          fields: [%{name: "status", swift_type: "WidgetStatus"}],
+          enums: [
+            %{
+              enum_name: "WidgetStatus",
+              cases: [%{name: "inProgress", raw: "in_progress"}, %{name: "done", raw: nil}]
+            }
+          ]
+        })
+
+      doc = Contract.build_from_ir(ir(widget))
+
+      assert Enum.find(doc.enums, &(&1.name == "WidgetStatus")).values == ["done", "in_progress"]
     end
 
     test "a required create input struct field is optional: false in the JSON" do

@@ -61,7 +61,7 @@ Representation decisions:
 
 **Positive**
 
-- Two real test surfaces instead of one. Classification logic is tested against
+- Three real test surfaces instead of one. Classification logic is tested against
   the IR as data (`reader_test`), the emitter is tested over a hand-built IR
   (`emitter_test`), and the type table is tested directly
   (`type_map_test`, `ash_type_to_swift(Ash.Type.UUID) == "String"`), rather than

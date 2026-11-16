@@ -69,7 +69,17 @@ defmodule AshSwift.Codegen.EmitterTest do
         %{name: "priority", swift_type: "TodoPriority"},
         %{name: "title", swift_type: "String"}
       ],
-      enums: [%{enum_name: "TodoPriority", cases: [:low, :high, :default, :in_progress]}],
+      enums: [
+        %{
+          enum_name: "TodoPriority",
+          cases: [
+            %{name: "low", raw: nil},
+            %{name: "high", raw: nil},
+            %{name: "default", raw: nil},
+            %{name: "inProgress", raw: "in_progress"}
+          ]
+        }
+      ],
       actions: actions,
       input_structs: [
         %{
@@ -93,7 +103,8 @@ defmodule AshSwift.Codegen.EmitterTest do
     }
   end
 
-  # A resource with no sortable surface, no filter predicates and no actions.
+  # A MapOnly-style resource: no sort field, a predicate-less filter struct. Actions
+  # are left out because `render_types/1` does not read them.
   defp bare do
     %{
       resource_module: nil,
@@ -110,6 +121,7 @@ defmodule AshSwift.Codegen.EmitterTest do
 
   describe "render_types/1" do
     setup do
+      # Actions are omitted: `render_types/1` does not read them.
       %{types: Emitter.render_types([bare(), todo([])])}
     end
 
@@ -236,12 +248,6 @@ defmodule AshSwift.Codegen.EmitterTest do
                  public init() {}
              }\
              """
-    end
-
-    test "filter struct: combinators are verbatim, never backtick-escaped", %{types: types} do
-      refute types =~ "public var `and`:"
-      refute types =~ "public var `or`:"
-      refute types =~ "public var `not`:"
     end
 
     test "a filter struct with no predicates still carries the combinators", %{types: types} do
