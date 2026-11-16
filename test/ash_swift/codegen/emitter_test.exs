@@ -275,7 +275,7 @@ defmodule AshSwift.Codegen.EmitterTest do
     end
 
     test "a list read with sort and filter disabled has only fields" do
-      out = functions([ActionIRKeys.crud_action([])])
+      out = functions([ActionIRKeys.crud_action()])
 
       assert out =~ "public func listTodos(fields: [FieldSelection]) async throws -> [Todo] {"
       assert out =~ ~s[ListRequest(action: "list_todos", fields: fields)]
