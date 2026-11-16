@@ -61,7 +61,7 @@ An Ash action of type `:action` — a command-style call (an auth bootstrap, an 
 - **Unconstrained map** (`returns :map`, no `fields:` constraints): decoded as `[String: AshJSON]`; keys are the caller's. No `fields`.
 - **Typed-record return** (below): needs a `fields` selection.
 
-The nilability of a resource/struct return comes from the live action's `allow_nil?` (default false), not the manifest. Arrays of resources are unsupported. _Avoid_: "Tier C" (a planning label from the PRD, not a domain term), "custom action" (Ash's "custom" means any non-default action, including reads), "RPC function" for the Swift side (that is the generated function for any **RPC action**).
+The nilability of a resource/struct return comes from the live action's `allow_nil?` (default false), not the manifest. Any other return type (an array of any element, including resources, scalars and maps; a union; a tuple; a non-resource struct) is unsupported, and codegen skips the whole action. _Avoid_: "Tier C" (a planning label from the PRD, not a domain term), "custom action" (Ash's "custom" means any non-default action, including reads), "RPC function" for the Swift side (that is the generated function for any **RPC action**).
 
 **Typed-record return**:
 A **Generic action** return the RPC pipeline requires a `fields` selection for (it rejects the request with `missing_required_parameter: fields` otherwise), so the generated function takes a required `fields:` argument. Two shapes, differing in the Swift type they decode into:
