@@ -73,6 +73,19 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert action.(:discard_todo).input_required? == false
       assert action.(:destroy_todo).input_struct_name == nil
       assert action.(:destroy_todo).input_required? == false
+      assert action.(:remove_titled_todo).input_required? == true
+    end
+
+    test "require_attributes makes accepted update/destroy attributes required (#113)" do
+      todo = resource(Reader.read(@domains), "Todo")
+      struct = fn name -> Enum.find(todo.input_structs, &(&1.struct_name == name)) end
+      field = fn s, name -> Enum.find(s.fields, &(&1.name == name)) end
+
+      rename = struct.("RenameTodoInput")
+      assert %{required?: true} = field.(rename, "title")
+      assert %{required?: false} = field.(rename, "priority")
+
+      assert %{required?: true} = field.(struct.("RemoveTitledTodoInput"), "title")
     end
   end
 

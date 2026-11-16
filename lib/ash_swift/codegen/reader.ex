@@ -54,7 +54,8 @@ defmodule AshSwift.Codegen.Reader do
                                                # destroy) accepts attributes (#102);
                                                # generic: set only when it has inputs
         input_required?: boolean,              # [CRUD only; absent on generic] meaningful only for reads and destroys: whether
-                                               # `input:` must be supplied (some argument is required); false otherwise
+                                               # `input:` must be supplied (some input is required: an argument, or an
+                                               # accepted attribute a soft destroy lists in `require_attributes`); false otherwise
         primary_key_params: [%{name, swift_type}],  # update/destroy: the resource's PK params; [] for create/read/generic.
                                                # The identity that addresses the record; the emitter sends it as `identity`
         pagination_type: :offset | :keyset | :none,           # required pagination => paginated return
@@ -505,7 +506,8 @@ defmodule AshSwift.Codegen.Reader do
       not_found_error?: not_found_error?,
       input_struct_name: input_struct_name,
       # Read and destroy actions: whether the `input:` parameter is required (some
-      # argument must be supplied) or an optional `= nil` (issues #87, #102).
+      # input must be supplied: an argument, or an accepted attribute a soft
+      # destroy lists in `require_attributes`) or an optional `= nil` (issues #87, #102).
       input_required?: input_required?,
       primary_key_params: primary_key_params,
       pagination_type: pagination_type,
@@ -1316,9 +1318,11 @@ defmodule AshSwift.Codegen.Reader do
   #     argument of an unmappable type is omitted with a warning rather than
   #     String-guessed. Arguments are checked first: an argument named like a
   #     public attribute is still an argument on the wire, with the argument's type.
-  #   * an accepted public attribute maps via attribute_swift_type/3. Update and
-  #     destroy attribute fields are optional (a partial operation) unless the
-  #     action lists them in `require_attributes`.
+  #   * an accepted public attribute maps via attribute_swift_type/3. Create
+  #     optionality derives from the attribute; update and destroy fields are
+  #     optional (a partial operation) unless the manifest's `input.required?`
+  #     says otherwise — it reflects the action's `require_attributes` and
+  #     `allow_nil_input`.
   #   * anything else (an accepted non-public attribute) is omitted with a warning.
   defp collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types) do
     resource = mres.module
@@ -1329,7 +1333,6 @@ defmodule AshSwift.Codegen.Reader do
       |> Map.new(fn attr -> {attr.name, attr} end)
 
     argument_names = action_argument_names(resource, maction.name)
-    required_attributes = action_required_attributes(resource, maction)
 
     {fields, structs} =
       Enum.reduce(maction.inputs, {[], []}, fn input, {fields_acc, structs_acc} ->
@@ -1377,7 +1380,7 @@ defmodule AshSwift.Codegen.Reader do
                 required? =
                   case maction.type do
                     :create -> not attr.allow_nil? and not attr.has_default?
-                    _update_or_destroy -> MapSet.member?(required_attributes, input.name)
+                    _update_or_destroy -> input.required? == true
                   end
 
                 field = %{name: formatted_name, swift_type: swift_type, required?: required?}
@@ -1428,23 +1431,6 @@ defmodule AshSwift.Codegen.Reader do
                 inspect(other)
     end
   end
-
-  # The accepted attributes an update or destroy action lists in
-  # `require_attributes` — they must be supplied even though the action is
-  # otherwise partial (ash_typescript: `optional = field_name not in
-  # action.require_attributes`). The manifest's per-input `allow_nil?` can't
-  # carry this (an update leaves a non-nullable attribute optional), so — like
-  # action_argument_names/2, and under the same ADR-0009 deviation — it is read
-  # from the action. Creates derive requiredness from the attribute instead.
-  defp action_required_attributes(resource, %{type: type, name: name})
-       when type in [:update, :destroy] do
-    case Ash.Resource.Info.action(resource, name) do
-      %{require_attributes: names} -> MapSet.new(names)
-      _ -> MapSet.new()
-    end
-  end
-
-  defp action_required_attributes(_resource, _maction), do: MapSet.new()
 
   # snake_case to PascalCase (e.g. create_todo → CreateTodo).
   defp pascal_case(name) do

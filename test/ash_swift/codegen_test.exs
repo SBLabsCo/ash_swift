@@ -293,27 +293,6 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "title: String? = nil"
     end
 
-    test "update input marks require_attributes non-optional and leaves the rest optional", %{
-      files: files
-    } do
-      types = files["AshRpcTypes.swift"]
-
-      [rename] = Regex.run(~r/public struct RenameTodoInput: .*?\n\}\n/s, types)
-
-      assert rename =~ "    public var title: String\n"
-      assert rename =~ "    public var priority: TodoPriority?\n"
-      assert rename =~ "public init(title: String, priority: TodoPriority? = nil)"
-    end
-
-    test "destroy input marks require_attributes non-optional", %{files: files} do
-      types = files["AshRpcTypes.swift"]
-
-      [rm] = Regex.run(~r/public struct RemoveTitledTodoInput: .*?\n\}\n/s, types)
-
-      assert rm =~ "    public var title: String\n"
-      assert rm =~ "public init(title: String)"
-    end
-
     test "backtick-escapes Swift reserved keywords in input struct property and init", %{
       files: files
     } do

@@ -4,6 +4,12 @@
 
 ### Breaking
 
+- Update and soft-destroy input structs now make the attributes listed in the
+  action's `require_attributes` non-optional, with no default in the init,
+  matching ash_typescript. Callers must pass those fields when building the
+  input: `RenameTodoInput(priority: .high)` becomes
+  `RenameTodoInput(title: "x", priority: .high)`. (#113)
+
 - Generated functions for a pure `get?` read (a `get?` action with no native or
   RPC-level `get_by`) no longer take a primary-key lookup parameter and no longer
   send `identity`: the RPC pipeline never reads `identity` for a read, so the
