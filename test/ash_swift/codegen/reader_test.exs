@@ -75,35 +75,43 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert action.(:destroy_todo).input_required? == false
       assert action.(:remove_titled_todo).input_required? == true
     end
+  end
 
-    test "require_attributes makes accepted update/destroy attributes required (#113)" do
+  describe "accepted-attribute input optionality (#113, #124)" do
+    setup do
       todo = resource(Reader.read(@domains), "Todo")
       struct = fn name -> Enum.find(todo.input_structs, &(&1.struct_name == name)) end
       field = fn s, name -> Enum.find(s.fields, &(&1.name == name)) end
+      %{struct: struct, field: field}
+    end
 
+    test "require_attributes makes accepted update/destroy attributes required (#113)", %{
+      struct: struct,
+      field: field
+    } do
       rename = struct.("RenameTodoInput")
       assert %{required?: true} = field.(rename, "title")
       assert %{required?: false} = field.(rename, "priority")
 
       assert %{required?: true} = field.(struct.("RemoveTitledTodoInput"), "title")
     end
-  end
 
-  describe "create input optionality (#124)" do
-    test "allow_nil_input, nullable and defaulted attributes stay optional" do
-      todo = resource(Reader.read(@domains), "Todo")
-      input = Enum.find(todo.input_structs, &(&1.struct_name == "CreateLenientTodoInput"))
-      required = Map.new(input.fields, &{&1.name, &1.required?})
+    test "allow_nil_input, nullable and defaulted attributes stay optional; a plain allow_nil?: false one is required (#124)",
+         %{
+           struct: struct,
+           field: field
+         } do
+      input = struct.("CreateLenientTodoInput")
 
       # allow_nil?: false, but in allow_nil_input
-      assert required["title"] == false
+      assert %{required?: false} = field.(input, "title")
       # nullable, in require_attributes: manifest says required, parity says optional
-      assert required["score"] == false
+      assert %{required?: false} = field.(input, "score")
       # has a default, in require_attributes
-      assert required["completed"] == false
+      assert %{required?: false} = field.(input, "completed")
 
-      create = Enum.find(todo.input_structs, &(&1.struct_name == "CreateTodoInput"))
-      assert %{required?: true} = Enum.find(create.fields, &(&1.name == "title"))
+      # control: allow_nil?: false, no default, not in allow_nil_input
+      assert %{required?: true} = field.(struct.("CreateTodoInput"), "title")
     end
   end
 
