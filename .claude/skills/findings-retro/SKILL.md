@@ -39,7 +39,7 @@ Read every `problem` in the category before writing. If the problems disagree ab
    | A lens catching it unevenly (one lens on some PRs, a different lens on others) | that lens's own checklist in `.claude/agents/<lens>.md`, in addition to the implementer edit |
 
    `docs/agents/lessons.md` is not a retro target. It holds narrative wire-shape and codegen traps under its own bar, and a checklist line belongs in a checklist.
-3. **Write one checkable line**: an imperative an implementer can tick or fail, naming the API or file involved. For example: "When you change what the Reader puts in an IR key, grep `reader.ex`'s moduledoc, `README.md` and `docs/agents/lessons.md` for the key and fix each claim." Write no essay and no history. Follow the `writing-for-agents` skill.
+3. **Write one checkable line**: an imperative an implementer can tick or fail, naming the API or file involved. For example: "When you change what the Reader puts in an IR key, grep `reader.ex`'s moduledoc, `README.md` and `docs/agents/lessons.md` for the key and fix each claim." Write no essay and no history: short sentences, one idea per line, the same terms the file already uses.
 4. **Skip a category** whose findings don't share a preventable cause, such as two unrelated `unhandled-edge-case`s. List it as skipped in the PR body with the reason. A category is a hint, not an order.
 
 ## 3. Fold in the open follow-ups

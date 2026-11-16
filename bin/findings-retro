@@ -110,10 +110,10 @@ read_prs="$(jq -c 'map(.pr)' <<<"$records")"
 [[ "$read_prs" != "[]" ]] || cli_fail "$CLI_NO" no_records "no merged PR in the window carries a run record"
 cli_say "read $(jq length <<<"$records") run record(s): $(jq -r 'map("#\(.)") | join(" ")' <<<"$read_prs")"
 
-# 3. The follow-up issues those PRs filed that are still open.
-cli_gh_json_or_fail issues --shape 'type == "array"' issue list --repo "$CLI_REPO" --state open \
-  --limit 200 --json number,title,body
-open_followups="$(findings_retro_open_followups "$issues" "$read_prs")" \
+# 3. The follow-up issues those PRs filed that are still open. The REST listing carries each
+# author's association, so an issue anyone could open with a pasted marker is not trusted.
+cli_gh_json_or_fail issue_pages --shape 'type == "array"' api "repos/$CLI_REPO/issues?state=open&per_page=100" --paginate --slurp
+open_followups="$(findings_retro_open_followups "$(jq -c 'add // []' <<<"$issue_pages")" "$read_prs")" \
   || cli_fail "$CLI_TOOL" bad_response "unexpected issue list"
 
 # 4. The report.

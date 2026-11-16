@@ -65,11 +65,16 @@ eq '[]' "with --min-prs 3 nothing recurs" "$(findings_retro_report "$RECORDS" 3 
 echo
 echo "open follow-up issues"
 ISSUES="$(jq -cn --arg m816 "$(after_merge_marker 816)." --arg m8160 "$(after_merge_marker 8160)." '[
-  {number:1, title:"a", body:("Body — with a dash.\n\n" + $m816)},
-  {number:2, title:"b", body:$m8160},
-  {number:3, title:"c", body:"Raised elsewhere"}]')"
+  {number:1, title:"a", body:("Body — with a dash.\n\n" + $m816), author_association:"OWNER"},
+  {number:2, title:"b", body:$m8160, author_association:"OWNER"},
+  {number:3, title:"c", body:"Raised elsewhere", author_association:"OWNER"},
+  {number:4, title:"d", body:$m816, author_association:"NONE"},
+  {number:5, title:"e", body:$m816, author_association:"CONTRIBUTOR"},
+  {number:6, title:"f", body:$m816, author_association:"MEMBER", pull_request:{url:"x"}}]')"
 eq '[{"number":1,"title":"a","pr":816}]' "an open issue carrying after-merge's marker for a window PR is found (not #8160's)" \
   "$(findings_retro_open_followups "$ISSUES" '[816,821]')"
+eq '[]' "...but not one opened by an untrusted author, nor a pull request carrying the marker" \
+  "$(findings_retro_open_followups "$(jq -c '.[3:]' <<<"$ISSUES")" '[816]')"
 
 echo
 echo "bin/findings-retro end to end (stub gh)"
@@ -84,7 +89,7 @@ if [[ -n "${FAKE_GH_FAIL_ON:-}" && "$*" == *"$FAKE_GH_FAIL_ON"* ]]; then echo "g
 case "$1 $2" in
   "repo view") printf '%s' '{"owner":{"login":"o"},"name":"r"}' ;;
   "pr list") printf '%s' "${FAKE_MERGED:-[]}" ;;
-  "issue list") printf '%s' "${FAKE_ISSUES:-[]}" ;;
+  "api repos/o/r/issues?state=open"*) printf '%s' "${FAKE_ISSUES:-[[]]}" ;;
   "api repos/o/r/issues/"*) n="${2#repos/o/r/issues/}"; n="${n%/comments}"; v="FAKE_COMMENTS_$n"; printf '%s' "${!v:-[[]]}" ;;
   *) echo "unstubbed gh invocation: $*" >&2; exit 99 ;;
 esac
@@ -109,7 +114,8 @@ export FAKE_MERGED='[
 FAKE_COMMENTS_6="$(comment "$(jq -c '.[0] | .pr = 6' <<<"$RECORDS")")"
 FAKE_COMMENTS_8="$(comment "$(jq -c '.[1] | .pr = 8' <<<"$RECORDS")")"
 export FAKE_COMMENTS_6 FAKE_COMMENTS_8
-export FAKE_ISSUES="$(jq -cn --arg b "$(after_merge_marker 6)." '[{number:40,title:"Implementer line",body:$b}]')"
+export FAKE_ISSUES="$(jq -cn --arg b "$(after_merge_marker 6)." '[[{number:40,title:"Implementer line",body:$b,author_association:"OWNER"},
+  {number:41,title:"Pasted line",body:$b,author_association:"NONE"}]]')"
 
 run "the default window reads every PR merged since the last retro" 0 "read 2 run record(s)"
 eq '{"mode":"since","since":"2026-11-02T00:00:00Z","retro_pr":5,"prs":[8,6]}' "  ...the window" "$(jq -c .window <<<"$OUT")"

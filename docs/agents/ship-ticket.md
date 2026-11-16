@@ -73,7 +73,7 @@ stay in the workflow's own result. `bin/pr-record <pr> --file` posts the record,
   an old shape. A field an old reader can do without arrives additively, with no bump. A field a reader must be able to
   rely on (as the retro relies on `category`) needs a bump, and the parser (`pr_record_matching` in `bin/pr-record-lib.sh`)
   keeps accepting the old version.
-- **Backfill.** The records on #93–#119 were written as `v` 1 and rewritten to `v` 2 in place on 2026-11-15, from the
+- **Backfill.** All 14 records on #93–#121 were written as `v` 1 and rewritten to `v` 2 in place on 2026-11-15, from the
   workflow's local run results (the only place the finding text survived), so the first retro had data.
 
 ## The findings retro

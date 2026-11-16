@@ -72,11 +72,16 @@ findings_retro_report() {
 }
 
 # findings_retro_open_followups <issues-json> <prs-json-array> — the open issues (from
-# `gh issue list --json number,title,body`) that bin/after-merge filed from these PRs'
-# follow-ups, recognised by its marker line: [{number, title, pr}].
+# `gh api repos/<repo>/issues?state=open`, flattened) that bin/after-merge filed from these
+# PRs' follow-ups, recognised by its marker line: [{number, title, pr}]. Only an issue opened
+# by an OWNER, MEMBER or COLLABORATOR counts (the trust rule bin/pr-record reads records by):
+# the retro turns these into guidance edits, so a pasted marker from anyone else must not
+# reach them. Pull requests in the listing are ignored.
 findings_retro_open_followups() {
   jq -c --argjson prs "$2" --arg pre "$(after_merge_marker '')" '
     [ .[] as $i
+      | select($i.pull_request == null)
+      | select($i.author_association == "OWNER" or $i.author_association == "MEMBER" or $i.author_association == "COLLABORATOR")
       | ($i.body // "") as $b
       | $prs[] as $pr
       | select($b | test(($pre | gsub("(?<c>[^A-Za-z0-9 ])"; "\\\(.c)")) + ($pr | tostring) + "(?![0-9])"))
