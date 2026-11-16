@@ -60,8 +60,9 @@ defmodule AshSwift.Test.User do
   # without an args-bearing selection shape, which is deferred to M3.
   #   display_name → zero-argument scalar :string → emitted (String?)
   #   name_size    → zero-argument :atom with one_of → emitted as a per-resource
-  #                  Swift enum (UserNameSize), exercising the Reader's
-  #                  derived-field classifier's enum branch from the *calculation* path (not just aggregates)
+  #                  Swift enum (UserNameSize), exercising the
+  #                  enum branch of the Reader's derived-field classifier, from the
+  #                  *calculation* path (not just aggregates)
   #   greeting     → one *optional* arg (has a default) → SKIPPED. The PRD assumed
   #                  optional args were zero-arg-selectable; the live pipeline
   #                  rejects them with "Calculation requires arguments", so this is
@@ -105,8 +106,9 @@ defmodule AshSwift.Test.User.NameSize do
   @moduledoc """
   A zero-argument enum-returning calculation (issue #52): its `:atom` type with a
   `one_of` constraint resolves to an enum, so codegen emits a per-resource Swift
-  enum (`UserNameSize`) — proving the Reader's derived-field classifier's enum branch is reached
-  from the calculation path, not only from the aggregate path.
+  enum (`UserNameSize`) — proving the enum branch of the Reader's derived-field
+  classifier is reached from the calculation path, not only from the aggregate
+  path.
   """
   use Ash.Resource.Calculation
 
