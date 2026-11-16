@@ -109,7 +109,10 @@ What this repo holds you to (ADRs 0001–0010):
 3. **Lessons, sparingly.** Append to `docs/agents/lessons.md` only under its
    own bar: non-obvious, recurring, not already there, two paragraphs max,
    linking the issue. Most tickets add nothing.
-4. **Run every CI gate locally** (`.github/workflows/ci.yml`), in order, all
+4. **Walk `CLAUDE.md`'s "Checklist before committing"** against your diff:
+   docs that match the code, one decision in one place, reusing the test
+   harness, tests that can fail. The pre-PR review keeps catching these.
+5. **Run every CI gate locally** (`.github/workflows/ci.yml`), in order, all
    green:
 
    ```sh
@@ -122,7 +125,7 @@ What this repo holds you to (ADRs 0001–0010):
 
    A fresh worktree has no `deps/` or `_build/`: run `mix deps.get` first.
    Run `mix format` to fix formatting, then re-check.
-5. With everything green and committed, **stop and return the structured
+6. With everything green and committed, **stop and return the structured
    report**: `status: READY`, your worktree path
    (`git rev-parse --show-toplevel`), and a `summary` for reviewers — what
    changed and why, as PR-body paragraphs. Say plainly whether the public
