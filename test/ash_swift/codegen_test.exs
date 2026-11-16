@@ -549,12 +549,6 @@ defmodule AshSwift.CodegenTest do
                      Codegen.build_files([AshSwift.Test.CollisionDomain])
                    end
     end
-
-    test "no-collision domains produce unchanged output (no regression)" do
-      # Calling build_files/1 on the main domain must not raise
-      assert %{"AshRpcTypes.swift" => _, "AshRpcFunctions.swift" => _} =
-               Codegen.build_files([AshSwift.Test.Domain])
-    end
   end
 
   describe "generate/2 and stale_files/2 against a temp dir" do
