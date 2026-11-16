@@ -10,7 +10,6 @@ defmodule AshSwift.Codegen.ReaderTest do
 
   import ExUnit.CaptureLog
 
-  alias AshSwift.Codegen.Emitter
   alias AshSwift.Codegen.Reader
   alias AshSwift.Test.ActionIRKeys
 
