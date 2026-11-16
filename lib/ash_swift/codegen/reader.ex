@@ -612,7 +612,7 @@ defmodule AshSwift.Codegen.Reader do
   defp warn_skip_generic(maction, reason) do
     Logger.warning(
       "AshSwift: generic action #{inspect(maction.name)} #{reason}; skipping. Unmapped " <>
-        "generic-action shapes (embedded-resource and array-of-resource returns, " <>
+        "generic-action shapes (array-of-resource returns, " <>
         "unmappable arguments) are out of scope for the generic-action slices (#54, #56)."
     )
   end
@@ -993,8 +993,8 @@ defmodule AshSwift.Codegen.Reader do
   #     model_struct_target/2), else the model struct would never be emitted —
   #     then :unsupported. The third element is the target module, so
   #     expand_with_related/2 can emit its model struct.
-  #   * anything else               -> :unsupported (embedded-resource and
-  #     array-of-resource returns included: embedded resources have no model struct)
+  #   * anything else               -> :unsupported (array-of-resource returns
+  #     included)
   #
   # Every supported clause returns {gen_return, result_structs, target_module | nil}.
   defp generic_action_return(nil, _rpc_name, _resource, _formatter, _manifest_resources, _nil?),
@@ -1173,8 +1173,8 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # Augments the primary resource list with any related resources referenced by
-  # their relationships, or by a generic action's resource return (#56), that aren't already in the primary set. The related
-  # resource's struct must be in the types file so the nested field decodes
+  # their relationships, or by a generic action's resource return (#56), that
+  # aren't already in the primary set. The related resource's struct must be in the types file so the nested field decodes
   # correctly. Only one hop of relationship expansion is performed for M1.
   #
   # Related entries share the same map shape as primary entries (resource_module:
@@ -1204,12 +1204,12 @@ defmodule AshSwift.Codegen.Reader do
           actions |> Enum.map(& &1[:generic_return_resource]) |> Enum.reject(&is_nil/1)
 
         Enum.flat_map(relationship_destinations ++ return_targets, fn destination ->
-          # Skip when the destination has no Swift type name, is already a primary
-          # resource, or isn't present in the manifest (e.g. not reachable as a
-          # full resource entry). Each case yields no extra related struct.
+          # Skip when the destination has no Swift type name (or isn't in the
+          # manifest; model_struct_target/2 checks both) or is already a primary
+          # resource. Each case yields no extra related struct.
           with {:ok, type_name} <- model_struct_target(destination, manifest.resources),
-               false <- MapSet.member?(primary_type_names, type_name),
-               %{} = dest_mres <- Map.get(manifest.resources, destination) do
+               false <- MapSet.member?(primary_type_names, type_name) do
+            dest_mres = Map.fetch!(manifest.resources, destination)
             {fields, enums} = collect_fields(dest_mres, type_name, manifest.types)
             [%{type_name: type_name, fields: fields, enums: enums}]
           else

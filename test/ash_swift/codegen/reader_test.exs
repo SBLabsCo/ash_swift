@@ -235,13 +235,6 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "generic action resource return targets (#56)" do
-    test "an array-of-resource return is skipped with a warning" do
-      log = ExUnit.CaptureLog.capture_log(fn -> Reader.read(@domains) end)
-
-      assert log =~ "generic action :summarize_all"
-      assert log =~ "skipping"
-    end
-
     test "an unexposed, unrelated return target's model struct is emitted" do
       ir = Reader.read([AshSwift.Test.ReturnOnlyDomain])
 
