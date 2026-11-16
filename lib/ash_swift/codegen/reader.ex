@@ -699,8 +699,10 @@ defmodule AshSwift.Codegen.Reader do
     # An array of a constrained map = a typed record list. Generate a named nested
     # struct (e.g. `UploadStartClipsItem` / `UploadStartResultClipsItem`) so the
     # element is compiler-checked rather than an untyped `[[String: AshJSON]]`.
-    case collect_record_struct_fields(item_fields, resource, formatter) do
-      {:ok, struct_fields} ->
+    case map_constraint_fields(item_fields, name_prefix, resource, formatter,
+           allow_nested?: false
+         ) do
+      {:ok, struct_fields, []} ->
         # Built from the raw field atom (not the formatted client name), which
         # `field_names` can map to a clean name while the raw one stays hostile,
         # so the derived struct name is checked on its own (#142).
@@ -742,34 +744,52 @@ defmodule AshSwift.Codegen.Reader do
 
   defp element_swift_type(type), do: TypeMap.generic_swift_type(type)
 
-  # The fields of a generated nested record struct: the element of an array-of-map
-  # argument (input side) or of an array-of-map field in a typed `:map` return
-  # (output side). Each field maps via element_swift_type/1, so an array of a
-  # scalar (`student_names: {:array, :string}`) becomes `[String]`; a field is
-  # required only when `allow_nil?` is explicitly `false` — map-constraint fields
-  # are nullable by default, so an unset (`nil`) `allow_nil?` is an optional Swift
-  # property, not a required one. An array-of-record field would need a doubly
-  # nested struct, and any unmappable field type likewise makes the whole element
-  # — and so the action — unsupported.
-  defp collect_record_struct_fields(fields, resource, formatter) do
+  # The fields of a map-constraint struct, the one place that decides how a
+  # constrained-map field becomes a struct field: its name is format_name!/3, its
+  # type is the field's Swift type, and it is required only when `allow_nil?` is
+  # explicitly `false` — map-constraint fields are nullable by default, so an unset
+  # (`nil`) `allow_nil?` is an optional Swift property. Used for the element of an
+  # array-of-map argument or field (item structs) and for a typed `:map` return's
+  # fields (result structs). Returns {:ok, fields_sorted_by_name, nested_structs}
+  # or :unsupported when any field's type maps to no Swift type, which makes the
+  # whole struct — and so the action — unsupported.
+  #
+  # With `allow_nested?: true` each field maps via generic_field_swift_type/5, so an
+  # array-of-record field becomes `[<name_prefix><Field>Item]` plus a nested struct
+  # (returned in `nested_structs`, named from `name_prefix`). With `false` it maps
+  # via element_swift_type/1, where an array-of-record field is unsupported (no
+  # doubly nested item structs yet) and `nested_structs` is always `[]`.
+  defp map_constraint_fields(fields, name_prefix, resource, formatter,
+         allow_nested?: allow_nested?
+       ) do
     fields
-    |> Enum.reduce_while({:ok, []}, fn field, {:ok, acc} ->
-      case element_swift_type(field.type) do
-        {:ok, swift} ->
+    |> Enum.reduce_while({:ok, [], []}, fn field, {:ok, fields_acc, structs_acc} ->
+      case map_constraint_field_type(field, name_prefix, resource, formatter, allow_nested?) do
+        {:ok, swift_type, nested_structs} ->
           struct_field = %{
             name: format_name!(field.name, resource, formatter),
-            swift_type: swift,
+            swift_type: swift_type,
             required?: field.allow_nil? == false
           }
 
-          {:cont, {:ok, [struct_field | acc]}}
+          {:cont, {:ok, [struct_field | fields_acc], nested_structs ++ structs_acc}}
 
         :unsupported ->
           {:halt, :unsupported}
       end
     end)
     |> case do
-      {:ok, struct_fields} -> {:ok, Enum.sort_by(struct_fields, & &1.name)}
+      {:ok, struct_fields, structs} -> {:ok, Enum.sort_by(struct_fields, & &1.name), structs}
+      :unsupported -> :unsupported
+    end
+  end
+
+  defp map_constraint_field_type(field, name_prefix, resource, formatter, true),
+    do: generic_field_swift_type(field.type, name_prefix, field.name, resource, formatter)
+
+  defp map_constraint_field_type(field, _name_prefix, _resource, _formatter, false) do
+    case element_swift_type(field.type) do
+      {:ok, swift} -> {:ok, swift, []}
       :unsupported -> :unsupported
     end
   end
@@ -1277,36 +1297,19 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # The fields of a typed-`:map` return struct, plus any nested structs an
-  # `{:array, :map}` field generated. Symmetric with collect_generic_action_inputs/4
-  # but for the return side: each field maps via generic_field_swift_type/5 (so an
-  # array-of-constrained-map field becomes `[<Result><Field>Item]` + a nested
-  # struct, an array-of-scalar `[Scalar]`, a plain map `[String: AshJSON]`), and a
-  # field's optionality is its `allow_nil?` — required only when explicitly `false`,
-  # matching the map-constraint nullable-by-default rule (collect_record_struct_fields).
+  # `{:array, :map}` field generated: map_constraint_fields/5 with nested structs
+  # allowed (an array-of-constrained-map field becomes `[<Result><Field>Item]` + a
+  # nested struct, an array-of-scalar `[Scalar]`, a plain map `[String: AshJSON]`).
   # The generated structs are tagged `decodable?: true` so the emitter renders them
   # as Decodable result structs, not Encodable input structs. Any unmappable field
   # makes the whole return — and so the action — unsupported.
   defp collect_result_struct_fields(fields, name_prefix, resource, formatter) do
-    fields
-    |> Enum.reduce_while({:ok, [], []}, fn field, {:ok, fields_acc, structs_acc} ->
-      case generic_field_swift_type(field.type, name_prefix, field.name, resource, formatter) do
-        {:ok, swift_type, nested_structs} ->
-          struct_field = %{
-            name: format_name!(field.name, resource, formatter),
-            swift_type: swift_type,
-            required?: field.allow_nil? == false
-          }
+    case map_constraint_fields(fields, name_prefix, resource, formatter, allow_nested?: true) do
+      {:ok, struct_fields, structs} ->
+        {:ok, struct_fields, Enum.map(structs, &Map.put(&1, :decodable?, true))}
 
-          decodable = Enum.map(nested_structs, &Map.put(&1, :decodable?, true))
-          {:cont, {:ok, [struct_field | fields_acc], decodable ++ structs_acc}}
-
-        :unsupported ->
-          {:halt, :unsupported}
-      end
-    end)
-    |> case do
-      {:ok, struct_fields, structs} -> {:ok, Enum.sort_by(struct_fields, & &1.name), structs}
-      :unsupported -> :unsupported
+      :unsupported ->
+        :unsupported
     end
   end
 
