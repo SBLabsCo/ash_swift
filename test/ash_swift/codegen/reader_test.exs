@@ -567,6 +567,10 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       assert %{swift_type: "String", required?: true} =
                Enum.find(item.fields, &(&1.name == "uploadUrl"))
+
+      # An array-of-scalar field inside the item (#172) maps like a top-level one.
+      assert %{swift_type: "[String]", required?: true} =
+               Enum.find(item.fields, &(&1.name == "studentNames"))
     end
   end
 

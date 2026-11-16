@@ -1993,6 +1993,11 @@
           "type": "Int"
         },
         {
+          "name": "studentNames",
+          "optional": false,
+          "type": "[String]"
+        },
+        {
           "name": "uploadUrl",
           "optional": false,
           "type": "String"

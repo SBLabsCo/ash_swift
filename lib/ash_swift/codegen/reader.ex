@@ -736,7 +736,8 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # The fields of a generated nested record struct (an array-of-map argument's
-  # element). Each field maps via TypeMap.generic_swift_type/1; a field is required
+  # element). Each field maps via generic_field_swift_type/5, so an array of a
+  # scalar (`student_names: {:array, :string}`) becomes `[String]`; a field is required
   # only when `allow_nil?` is explicitly `false` — map-constraint fields are
   # nullable by default, so an unset (`nil`) `allow_nil?` is an optional Swift
   # property, not a required one. Any unmappable field type makes the whole element
@@ -744,8 +745,10 @@ defmodule AshSwift.Codegen.Reader do
   defp collect_record_struct_fields(fields, resource, formatter) do
     fields
     |> Enum.reduce_while({:ok, []}, fn field, {:ok, acc} ->
-      case TypeMap.generic_swift_type(field.type) do
-        {:ok, swift} ->
+      # name_prefix is only used to name a nested struct, which an item field
+      # never generates (see the `{:ok, _, [_ | _]}` clause), so it is empty.
+      case generic_field_swift_type(field.type, "", field.name, resource, formatter) do
+        {:ok, swift, []} ->
           struct_field = %{
             name: format_name!(field.name, resource, formatter),
             swift_type: swift,
@@ -753,6 +756,11 @@ defmodule AshSwift.Codegen.Reader do
           }
 
           {:cont, {:ok, [struct_field | acc]}}
+
+        # An array-of-record field inside an item would need a doubly nested
+        # struct; out of scope, so the action is skipped as before.
+        {:ok, _swift, [_ | _]} ->
+          {:halt, :unsupported}
 
         :unsupported ->
           {:halt, :unsupported}
