@@ -359,7 +359,8 @@ defmodule AshSwift.Test.Todo do
           items: [
             fields: [
               label: [type: :string, allow_nil?: false],
-              priority: [type: :integer, allow_nil?: true]
+              priority: [type: :integer, allow_nil?: true],
+              tags: [type: {:array, :string}, allow_nil?: false]
             ]
           ]
         ]
@@ -372,6 +373,26 @@ defmodule AshSwift.Test.Todo do
     # skipped. Regression guard that the input-skip path survives array support.
     action :deep_broadcast do
       argument :matrix, {:array, {:array, :string}}, allow_nil?: true
+      run fn _input, _ctx -> :ok end
+    end
+
+    # An array-of-record field inside an array-of-map argument's item would need a
+    # doubly nested struct, so the whole action is skipped (#172).
+    action :nested_records do
+      argument :rows, {:array, :map},
+        allow_nil?: false,
+        constraints: [
+          items: [
+            fields: [
+              label: [type: :string, allow_nil?: false],
+              parts: [
+                type: {:array, :map},
+                constraints: [items: [fields: [name: [type: :string]]]]
+              ]
+            ]
+          ]
+        ]
+
       run fn _input, _ctx -> :ok end
     end
 
@@ -391,6 +412,7 @@ defmodule AshSwift.Test.Todo do
     # scalar (`video_id`), an optional scalar (`caption`, nullable by default), a
     # plain (unconstrained) map field (`metadata` → `[String: AshJSON]`), and the
     # nested typed-record array — the return-side mirror of `bulk_create`'s argument.
+    # The clip item carries an array-of-scalar field (`student_names`, issue #172).
     action :upload_start, :map do
       argument :filename, :string, allow_nil?: false
 
@@ -405,7 +427,8 @@ defmodule AshSwift.Test.Todo do
                           fields: [
                             clip_id: [type: :string, allow_nil?: false],
                             order_index: [type: :integer, allow_nil?: false],
-                            upload_url: [type: :string, allow_nil?: false]
+                            upload_url: [type: :string, allow_nil?: false],
+                            student_names: [type: {:array, :string}, allow_nil?: false]
                           ]
                         ]
                       ]

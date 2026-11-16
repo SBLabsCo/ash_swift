@@ -685,66 +685,76 @@ defmodule AshSwift.Codegen.Reader do
   # generates. `name_prefix` is the already-pascal-cased struct-name root
   # (`UploadStart` for an argument, `UploadStartResult` for a return field), which
   # keeps an argument's and a return's nested struct names distinct even when both
-  # carry a `clips` array (no `UploadStartClipsItem` collision). Arrays map their
-  # element type; everything else defers to TypeMap.generic_swift_type/1 (scalar →
-  # its Swift type, map → `[String: AshJSON]`).
+  # carry a `clips` array (no `UploadStartClipsItem` collision). An array of a
+  # constrained map generates a nested struct; everything else maps via
+  # element_swift_type/1 (array of a scalar → `[Scalar]`, scalar → its Swift type,
+  # map → `[String: AshJSON]`).
   defp generic_field_swift_type(
-         %{kind: :array, item_type: item},
+         %{kind: :array, item_type: %{kind: :map, fields: [_ | _] = item_fields}},
          name_prefix,
          field_name,
          resource,
          formatter
-       )
-       when not is_nil(item) do
-    case item do
-      # An array of a constrained map = a typed record list. Generate a named nested
-      # struct (e.g. `UploadStartClipsItem` / `UploadStartResultClipsItem`) so the
-      # element is compiler-checked rather than an untyped `[[String: AshJSON]]`.
-      %{kind: :map, fields: item_fields} when is_list(item_fields) and item_fields != [] ->
-        case collect_record_struct_fields(item_fields, resource, formatter) do
-          {:ok, struct_fields} ->
-            # Built from the raw field atom (not the formatted client name), which
-            # `field_names` can map to a clean name while the raw one stays hostile,
-            # so the derived struct name is checked on its own (#142).
-            struct_name =
-              assert_swift_identifier!(
-                name_prefix <> pascal_case(field_name) <> "Item",
-                "struct name",
-                resource
-              )
+       ) do
+    # An array of a constrained map = a typed record list. Generate a named nested
+    # struct (e.g. `UploadStartClipsItem` / `UploadStartResultClipsItem`) so the
+    # element is compiler-checked rather than an untyped `[[String: AshJSON]]`.
+    case collect_record_struct_fields(item_fields, resource, formatter) do
+      {:ok, struct_fields} ->
+        # Built from the raw field atom (not the formatted client name), which
+        # `field_names` can map to a clean name while the raw one stays hostile,
+        # so the derived struct name is checked on its own (#142).
+        struct_name =
+          assert_swift_identifier!(
+            name_prefix <> pascal_case(field_name) <> "Item",
+            "struct name",
+            resource
+          )
 
-            {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
+        {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
 
-          :unsupported ->
-            :unsupported
-        end
-
-      # An array of a scalar (or an unconstrained map) maps element-wise.
-      element ->
-        case TypeMap.generic_swift_type(element) do
-          {:ok, swift} -> {:ok, "[#{swift}]", []}
-          :unsupported -> :unsupported
-        end
+      :unsupported ->
+        :unsupported
     end
   end
 
   defp generic_field_swift_type(type, _name_prefix, _field_name, _resource, _formatter) do
-    case TypeMap.generic_swift_type(type) do
+    case element_swift_type(type) do
       {:ok, swift} -> {:ok, swift, []}
       :unsupported -> :unsupported
     end
   end
 
-  # The fields of a generated nested record struct (an array-of-map argument's
-  # element). Each field maps via TypeMap.generic_swift_type/1; a field is required
-  # only when `allow_nil?` is explicitly `false` — map-constraint fields are
-  # nullable by default, so an unset (`nil`) `allow_nil?` is an optional Swift
-  # property, not a required one. Any unmappable field type makes the whole element
+  # The Swift type of a field that generates no nested struct: an array of a scalar
+  # (or an unconstrained map) maps element-wise, anything else defers to
+  # TypeMap.generic_swift_type/1. An array of a typed record needs a generated
+  # struct that only generic_field_swift_type/5 builds, so a doubly nested one is
+  # unsupported here.
+  defp element_swift_type(%{kind: :array, item_type: %{kind: :map, fields: [_ | _]}}),
+    do: :unsupported
+
+  defp element_swift_type(%{kind: :array, item_type: item}) when not is_nil(item) do
+    case TypeMap.generic_swift_type(item) do
+      {:ok, swift} -> {:ok, "[#{swift}]"}
+      :unsupported -> :unsupported
+    end
+  end
+
+  defp element_swift_type(type), do: TypeMap.generic_swift_type(type)
+
+  # The fields of a generated nested record struct: the element of an array-of-map
+  # argument (input side) or of an array-of-map field in a typed `:map` return
+  # (output side). Each field maps via element_swift_type/1, so an array of a
+  # scalar (`student_names: {:array, :string}`) becomes `[String]`; a field is
+  # required only when `allow_nil?` is explicitly `false` — map-constraint fields
+  # are nullable by default, so an unset (`nil`) `allow_nil?` is an optional Swift
+  # property, not a required one. An array-of-record field would need a doubly
+  # nested struct, and any unmappable field type likewise makes the whole element
   # — and so the action — unsupported.
   defp collect_record_struct_fields(fields, resource, formatter) do
     fields
     |> Enum.reduce_while({:ok, []}, fn field, {:ok, acc} ->
-      case TypeMap.generic_swift_type(field.type) do
+      case element_swift_type(field.type) do
         {:ok, swift} ->
           struct_field = %{
             name: format_name!(field.name, resource, formatter),

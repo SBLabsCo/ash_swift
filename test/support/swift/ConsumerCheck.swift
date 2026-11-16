@@ -132,12 +132,13 @@ enum ConsumerCheck {
         // RPC pipeline requires (issue #73) — including the nested relationship form.
         let manifest: UploadStartResult = try await rpc.uploadStart(
             input: UploadStartInput(filename: "clip.mov"),
-            fields: ["videoId", .relationship("clips", ["clipId", "orderIndex", "uploadUrl"])]
+            fields: ["videoId", .relationship("clips", ["clipId", "orderIndex", "uploadUrl", "studentNames"])]
         )
         let _: String = manifest.videoId             // required → non-optional
         let _: String? = manifest.caption            // nullable-default → optional
         let _: [String: AshJSON]? = manifest.metadata
         let _: String? = manifest.clips?.first?.uploadUrl
+        let _: [String]? = manifest.clips?.first?.studentNames
 
         // Generic actions returning a resource (issue #56): optional when the
         // action allows nil, non-optional otherwise; `fields:` is required.
@@ -225,12 +226,17 @@ enum ConsumerCheck {
         let uploadManifest = try decoder.decode(
             UploadStartResult.self,
             from: Data(
-                #"{"videoId":"v1","clips":[{"clipId":"c1","orderIndex":0,"uploadUrl":"https://x/1"}]}"#
+                #"{"videoId":"v1","clips":[{"clipId":"c1","orderIndex":0,"uploadUrl":"https://x/1","studentNames":["Ada"]}]}"#
                     .utf8)
         )
         let _: String = uploadManifest.videoId  // required — present
         _ = uploadManifest.caption  // nil — absent from response
         _ = uploadManifest.clips?.first?.clipId  // "c1"
+        let _: [String]? = uploadManifest.clips?.first?.studentNames  // ["Ada"]
+
+        // Array-of-scalar field in an Encodable array-of-map argument item (#172).
+        let bulk = BulkCreateInput(rows: [BulkCreateRowsItem(label: "a", tags: ["x"], priority: nil)])
+        _ = try JSONEncoder().encode(bulk)
     }
 
     // A custom Transport can be injected without depending on AshSwift's default.
