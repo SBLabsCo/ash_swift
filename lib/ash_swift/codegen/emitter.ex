@@ -7,6 +7,8 @@ defmodule AshSwift.Codegen.Emitter do
   manifest or calls back into the reader.
   """
 
+  alias AshSwift.Codegen.Naming
+
   require Logger
 
   # Complete set of Swift reserved keywords (Swift Language Reference §Lexical Structure).
@@ -158,7 +160,7 @@ defmodule AshSwift.Codegen.Emitter do
         if swift_case == str do
           "    case #{safe_name}"
         else
-          "    case #{safe_name} = \"#{str}\""
+          "    case #{safe_name} = #{swift_string(str)}"
         end
       end)
 
@@ -490,7 +492,10 @@ defmodule AshSwift.Codegen.Emitter do
           {[], []}
 
         {location, params} when location in [:input, :get_by] ->
-          dict_entries = Enum.map_join(params, ", ", fn %{name: n} -> ~s("#{n}": #{n}) end)
+          dict_entries =
+            Enum.map_join(params, ", ", fn %{name: n} ->
+              "#{swift_string(n)}: #{escape_swift_keyword(n)}"
+            end)
 
           label = if location == :input, do: "input", else: "getBy"
           {params, [{label, "[#{dict_entries}]"}]}
@@ -744,6 +749,9 @@ defmodule AshSwift.Codegen.Emitter do
       |> String.replace("\r", "\\r")
       |> String.replace("\t", "\\t")
       |> String.replace("\0", "\\0")
+      |> String.replace(~r/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/, fn <<c>> ->
+        "\\u{" <> Integer.to_string(c, 16) <> "}"
+      end)
 
     ~s("#{escaped}")
   end
@@ -785,10 +793,7 @@ defmodule AshSwift.Codegen.Emitter do
   end
 
   # snake_case atom/string -> lowerCamelCase, the Swift idiom for functions and fields.
-  defp lower_camel(name) do
-    [first | rest] = name |> to_string() |> String.split("_", trim: true)
-    Enum.join([String.downcase(first) | Enum.map(rest, &String.capitalize/1)])
-  end
+  defp lower_camel(name), do: Naming.lower_camel(name)
 
   # Dispatches a generated struct to the right renderer. A struct tagged
   # `decodable?: true` is a generic-action typed-`:map` return (issue #70) and
