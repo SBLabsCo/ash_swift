@@ -702,11 +702,11 @@ defmodule AshSwift.Codegen.ReaderTest do
                    fn -> Reader.read([AshSwift.Test.TypeNameClashRelatedDomain]) end
     end
 
-    test "one module reached by several relationships is emitted once, not an error" do
-      ir = Reader.read([AshSwift.Test.Domain])
-      type_names = Enum.map(ir.all_resources, & &1.type_name)
+    test "an unexposed module reached by two relationships is emitted once, not an error" do
+      ir = Reader.read([AshSwift.Test.SharedDestinationDomain])
 
-      assert type_names == Enum.uniq(type_names)
+      assert ir.all_resources |> Enum.map(& &1.type_name) |> Enum.sort() ==
+               ["SharedHolder", "SharedTarget"]
     end
   end
 
