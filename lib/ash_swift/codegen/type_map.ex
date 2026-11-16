@@ -86,8 +86,9 @@ defmodule AshSwift.Codegen.TypeMap do
   # is `kind: :array, module: nil`), so — exactly like the Reader's derived-field
   # classifier (`emit_derived_fields/5`) — this gates on kind/module and refuses
   # to String-guess: a map maps to AshJSON, a mapped scalar to its Swift type,
-  # and anything else (array/tuple/union/struct/enum/resource) is :unsupported. `ash_type_to_swift` would silently return
-  # "String" for a nil module, which is the mis-type this gate exists to prevent.
+  # and anything else (array/tuple/union/struct/enum/resource) is :unsupported.
+  # `ash_type_to_swift` would silently return "String" for a nil module, which
+  # is the mis-type this gate exists to prevent.
   def generic_swift_type(%{kind: :map}), do: {:ok, "[String: AshJSON]"}
 
   def generic_swift_type(%{kind: kind, module: module})

@@ -60,9 +60,9 @@ defmodule AshSwift.Test.User do
   # without an args-bearing selection shape, which is deferred to M3.
   #   display_name → zero-argument scalar :string → emitted (String?)
   #   name_size    → zero-argument :atom with one_of → emitted as a per-resource
-  #                  Swift enum (UserNameSize), exercising the
-  #                  enum branch of the Reader's derived-field classifier, from the
-  #                  *calculation* path (not just aggregates)
+  #                  Swift enum (UserNameSize), exercising the enum branch of
+  #                  the Reader's derived-field classifier (`emit_derived_fields/5`)
+  #                  from the *calculation* path (not just aggregates)
   #   greeting     → one *optional* arg (has a default) → SKIPPED. The PRD assumed
   #                  optional args were zero-arg-selectable; the live pipeline
   #                  rejects them with "Calculation requires arguments", so this is
