@@ -292,6 +292,14 @@ defmodule AshSwift.Codegen.Contract do
   # `result_type/2` above; `optional_pagination_type` is `:none` there by
   # construction, see `Reader.optional_action_pagination_type/1`'s
   # mutual-exclusivity guard).
+  #
+  # This dispatches on `optional_pagination_type` alone and never checks `get`:
+  # it relies on the Reader's IR invariant (see the `pagination_type` /
+  # `optional_pagination_type` lines in `Reader`'s moduledoc) that a get action
+  # always carries `optional_pagination_type: :none` (and `pagination_type:
+  # :none`), so a get yields nil here. `Emitter.method_spec/2`'s get clause
+  # asserts the same invariant; anyone changing how gets are paginated must
+  # update both consumers.
   defp optional_pagination(%{optional_pagination_type: :none}, _type_name), do: nil
 
   defp optional_pagination(%{optional_pagination_type: :offset}, type_name),
