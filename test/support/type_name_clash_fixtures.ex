@@ -261,3 +261,48 @@ defmodule AshSwift.Test.SharedDestinationDomain do
     resource AshSwift.Test.SharedTarget
   end
 end
+
+# A resource whose type_name is the Emitter's fixed client struct name (#164).
+defmodule AshSwift.Test.ClientNameResource do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: AshSwift.Test.ClientNameClashDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("AshRpc")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id
+  end
+
+  actions do
+    defaults [:read]
+  end
+end
+
+defmodule AshSwift.Test.ClientNameClashDomain do
+  @moduledoc false
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.ClientNameResource do
+      rpc_action(:list_client_names, :read)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.ClientNameResource
+  end
+end

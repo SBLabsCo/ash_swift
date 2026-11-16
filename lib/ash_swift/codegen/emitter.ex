@@ -249,7 +249,7 @@ defmodule AshSwift.Codegen.Emitter do
 
     body = """
     /// Type-safe entry point for every RPC action exposed to this client.
-    public struct AshRpc: Sendable {
+    public struct #{AshSwift.Codegen.Reader.client_struct_name()}: Sendable {
         public let client: AshRpcClient
 
         public init(client: AshRpcClient) {
