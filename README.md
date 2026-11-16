@@ -30,8 +30,8 @@ and a TypeScript client stay wire-identical by construction.
 > constrained-map records that become nested input structs) and void/scalar/map
 > returns — a `:map` return carrying `fields:` constraints decodes into a generated
 > typed `Decodable` result struct (with a nested struct per `{:array, :map}` field)
-> rather than an untyped dict; typed-record (resource/struct) *returns* needing
-> field selection are tracked separately.
+> rather than an untyped dict; typed-record (resource/struct) *returns* take a
+> required `fields:` selection and decode into the resource's generated model type.
 > Under the
 > hood, codegen now reads Ash's native API manifest (`Ash.Info.Manifest`) as its
 > sole metadata source rather than walking resource reflection directly — see

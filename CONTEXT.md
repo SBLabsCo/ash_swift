@@ -53,3 +53,19 @@ A read action that returns **at most one** record (Ash `get?: true`, or a `get_b
 - **Pure `get?`** (`read :fetch do get? true end`, neither of the above): no lookup channel at all; the result is narrowed only by the action's own arguments (and filter), and the request sends no lookup key.
 
 _Avoid_: "get by primary key" as the definition, and `identity` as a read's lookup key — the RPC pipeline ignores `identity` for reads; it is only used by update and destroy actions to pick the record to act on.
+
+**Generic action**:
+An Ash action of type `:action` — a command-style call (an auth bootstrap, an upload start) rather than a CRUD operation. Its arguments travel under the top-level `input` key, and its **return class** decides the generated Swift return type and whether the request carries `fields`:
+- **Void** (no `returns`): responds `{"data": {}}`; the generated function returns nothing. No `fields`.
+- **Scalar** (`:string`, `:integer`, …): decoded as the mapped Swift scalar. No `fields`.
+- **Unconstrained map** (`returns :map`, no `fields:` constraints): decoded as `[String: AshJSON]`; keys are the caller's. No `fields`.
+- **Typed-record return** (below): needs a `fields` selection.
+
+The nilability of a resource/struct return comes from the live action's `allow_nil?` (default false), not the manifest. Arrays of resources are unsupported. _Avoid_: "Tier C" (a planning label from the PRD, not a domain term), "custom action" (Ash's "custom" means any non-default action, including reads), "RPC function" for the Swift side (that is the generated function for any **RPC action**).
+
+**Typed-record return**:
+A **Generic action** return the RPC pipeline requires a `fields` selection for (it rejects the request with `missing_required_parameter: fields` otherwise), so the generated function takes a required `fields:` argument. Two shapes, differing in the Swift type they decode into:
+- **Constrained map** (`returns :map` with `fields:` constraints): a result struct generated for that action (`<Rpc>Result`, with nested structs for `{:array, :map}` fields). Not a resource model.
+- **Resource / struct** (`returns :struct, constraints: [instance_of: Resource]`): the resource's own generated model type `T`, or `T?` when the action sets `allow_nil? true`.
+
+_Avoid_: "field-selected return" and "resource/struct return" as names for the whole class (each names only part of it).
