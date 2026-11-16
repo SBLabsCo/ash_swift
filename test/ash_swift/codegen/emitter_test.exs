@@ -9,7 +9,8 @@ defmodule AshSwift.Codegen.EmitterTest do
   resource that has neither a filter predicate nor a sort surface.
 
   Hand-built IR must follow the shape in the Reader's moduledoc (see
-  `generic_action/1` for generic actions).
+  `generic_action/1` for generic actions); the "carries exactly the Reader's key
+  sets" test enforces it for actions.
 
   What the Reader decides (which actions are sortable, how a manifest type maps)
   is *input* here; these tests pin only how the Emitter renders it.
@@ -58,11 +59,6 @@ defmodule AshSwift.Codegen.EmitterTest do
       generic_return_resource: nil
     }
     |> Map.merge(Map.new(overrides))
-  end
-
-  test "hand-built action IR carries exactly the Reader's key sets (#154)" do
-    assert MapSet.new(Map.keys(action([]))) == ActionIRKeys.crud()
-    assert MapSet.new(Map.keys(generic_action([]))) == ActionIRKeys.generic()
   end
 
   defp todo(actions) do
@@ -123,6 +119,11 @@ defmodule AshSwift.Codegen.EmitterTest do
       sort_field: nil,
       filter_struct: %{type_name: "BareFilter", fields: []}
     }
+  end
+
+  test "hand-built action IR carries exactly the Reader's key sets (#154)" do
+    assert MapSet.new(Map.keys(action([]))) == ActionIRKeys.crud()
+    assert MapSet.new(Map.keys(generic_action([]))) == ActionIRKeys.generic()
   end
 
   describe "render_types/1" do
