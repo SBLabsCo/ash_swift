@@ -38,8 +38,7 @@ defmodule AshSwift.Codegen.Reader do
   `all_resources`, and none is a name the generated files already resolve to a
   runtime or built-in type (`reserved_runtime_type_names/0`,
   `reserved_builtin_type_names/0`); `assert_unique_swift_names!/1` raises
-  otherwise. Consumers
-  (the Emitter, `Contract`) may rely on it.
+  otherwise. Consumers (the Emitter, `Contract`) may rely on it.
 
   ### Field
 
