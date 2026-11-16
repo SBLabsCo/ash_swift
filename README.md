@@ -100,7 +100,10 @@ and a TypeScript client stay wire-identical by construction.
 - **Typed filtering** — read actions take an optional, type-safe `{Resource}Filter`
   where each attribute exposes only the operators its type supports (equality for
   booleans, comparisons for numbers and dates, membership for strings and enums),
-  and nullable attributes add `isNil`. Compound predicates compose through typed
+  and nullable attributes add `isNil`. `:ci_string` attributes get
+  `CiStringOperators` / `NullableCiStringOperators` (same operators and wire format
+  as the string group; the backend compares `eq`/`notEq`/`in` case-insensitively and
+  values are sent unmodified). Compound predicates compose through typed
   `and`/`or`/`not` combinators. Filtering an action off (`enable_filter?: false`)
   drops the parameter, so a forbidden filter is a compile error.
 - **Typed sorting** — read actions take a typed sort over a generated

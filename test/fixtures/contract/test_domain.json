@@ -1756,7 +1756,7 @@
         {
           "name": "username",
           "optional": true,
-          "type": "NullableEnumOperators<String>"
+          "type": "NullableCiStringOperators<String>"
         }
       ],
       "kind": "filter",

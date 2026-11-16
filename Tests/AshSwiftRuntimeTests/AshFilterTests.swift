@@ -24,6 +24,26 @@ final class AshFilterTests: XCTestCase {
         XCTAssertEqual(try encoded(EnumOperators(in: ["a", "b"])), #"{"in":["a","b"]}"#)
     }
 
+    func testCiStringOperatorsEncodeIdenticallyToEnumOperators() throws {
+        // Values are sent unmodified (no lowercasing); the backend normalizes case.
+        XCTAssertEqual(
+            try encoded(CiStringOperators(eq: "Coach@Example.com", notEq: "B", in: ["A", "b"])),
+            try encoded(EnumOperators(eq: "Coach@Example.com", notEq: "B", in: ["A", "b"]))
+        )
+        XCTAssertEqual(
+            try encoded(CiStringOperators(eq: "Coach@Example.com")),
+            #"{"eq":"Coach@Example.com"}"#
+        )
+        XCTAssertEqual(
+            try encoded(NullableCiStringOperators(in: ["A"], isNil: false)),
+            try encoded(NullableEnumOperators(in: ["A"], isNil: false))
+        )
+        XCTAssertEqual(
+            try encoded(NullableCiStringOperators<String>(isNil: true)),
+            #"{"isNil":true}"#
+        )
+    }
+
     func testComparableOperatorsSpellsEveryComparisonKey() throws {
         let ops = ComparableOperators(
             lessThan: 1,

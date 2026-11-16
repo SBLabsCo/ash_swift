@@ -33,6 +33,7 @@ public struct AnyEncodable: Encodable, Sendable {
 // The group an attribute gets is driven by its Ash type:
 //   - boolean              → EquatableOperators        (eq, notEq)
 //   - string / enum / uuid → EnumOperators             (eq, notEq, in)
+//   - ci_string            → CiStringOperators         (eq, notEq, in; case-insensitive on the backend)
 //   - numeric / date(time) → ComparableOperators       (the above + comparisons)
 // A nullable attribute gets the matching `Nullable*` variant, which adds `isNil`.
 // The bare variants omit `isNil` so a non-null attribute exposes exactly its
@@ -78,6 +79,40 @@ public struct EnumOperators<T: Encodable & Sendable>: Encodable, Sendable {
 
 /// Equality + membership operators plus `isNil` for a nullable attribute.
 public struct NullableEnumOperators<T: Encodable & Sendable>: Encodable, Sendable {
+    public var eq: T?
+    public var notEq: T?
+    public var `in`: [T]?
+    public var isNil: Bool?
+
+    public init(eq: T? = nil, notEq: T? = nil, in: [T]? = nil, isNil: Bool? = nil) {
+        self.eq = eq
+        self.notEq = notEq
+        self.`in` = `in`
+        self.isNil = isNil
+    }
+}
+
+/// Equality + membership operators for a non-null case-insensitive string
+/// attribute (Ash `:ci_string`). Structurally identical to `EnumOperators` and
+/// encoded identically: values are sent unmodified. The backend compares
+/// `eq` / `notEq` / `in` case-insensitively, so `eq: "Coach@Example.com"`
+/// matches `coach@example.com`. No client-side case normalization is done.
+public struct CiStringOperators<T: Encodable & Sendable>: Encodable, Sendable {
+    public var eq: T?
+    public var notEq: T?
+    public var `in`: [T]?
+
+    public init(eq: T? = nil, notEq: T? = nil, in: [T]? = nil) {
+        self.eq = eq
+        self.notEq = notEq
+        self.`in` = `in`
+    }
+}
+
+/// `CiStringOperators` plus `isNil`, for a nullable case-insensitive string
+/// attribute. Comparisons are case-insensitive on the backend; values are sent
+/// unmodified.
+public struct NullableCiStringOperators<T: Encodable & Sendable>: Encodable, Sendable {
     public var eq: T?
     public var notEq: T?
     public var `in`: [T]?
