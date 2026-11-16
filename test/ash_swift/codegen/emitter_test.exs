@@ -154,9 +154,10 @@ defmodule AshSwift.Codegen.EmitterTest do
              """
     end
 
-    test "renders enums sorted by case, escaping keywords and camelCasing raw values", %{
-      types: types
-    } do
+    test "renders enums sorted by wire value, escaping keywords and emitting explicit raw values",
+         %{
+           types: types
+         } do
       assert types =~ """
              public enum TodoPriority: String, Codable, Sendable, Equatable {
                  case `default`
