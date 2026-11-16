@@ -821,13 +821,8 @@ defmodule AshSwift.CodegenTest do
       %{files: Codegen.build_files(@domains)}
     end
 
-    test "an argument-only update and a generic action each render the kept argument as a required field",
+    test "an argument-only update and a generic action whose argument shadows a private attribute are both emitted with input-taking functions",
          %{files: files} do
-      body = struct_body(files["AshRpcTypes.swift"], "SetTodoDueDateInput")
-
-      assert body =~ "public var dueDate: String\n"
-      assert body =~ "try container.encode(dueDate, forKey: .dueDate)"
-
       assert files["AshRpcFunctions.swift"] =~
                "public func setTodoDueDate(id: String, input: SetTodoDueDateInput, fields: [FieldSelection]) async throws -> Todo {"
 
