@@ -126,6 +126,32 @@ defmodule AshSwift.Codegen.ReaderTest do
       priority = Enum.find(todo.enums, &(&1.enum_name == "TodoPriority"))
       assert priority.cases == [:low, :medium, :high]
     end
+
+    test "an Ash.Type.Enum attribute types its field with the generated enum" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      assert attr_type(todo, "status") == "TodoStatus"
+      status = Enum.find(todo.enums, &(&1.enum_name == "TodoStatus"))
+      assert Enum.sort(status.cases) == [:active, :archived, :case, :default, :pending]
+    end
+  end
+
+  describe "scalar attribute type mapping" do
+    test "each Ash scalar attribute resolves to its Swift wire type in the IR" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      # Decimal serialises as "123.45" on the wire; String is the faithful type.
+      assert attr_type(todo, "amount") == "String"
+      # ISO 8601 date-only.
+      assert attr_type(todo, "deadline") == "String"
+      assert attr_type(todo, "scheduledAt") == "Date"
+      assert attr_type(todo, "dueAt") == "Date"
+      # No timezone in the wire format, so no Date.
+      assert attr_type(todo, "startedAt") == "String"
+      assert attr_type(todo, "metadata") == "[String: AshJSON]"
+      # CiString is explicitly mapped (no unmapped-type fallback).
+      assert attr_type(todo, "username") == "String"
+    end
   end
 
   describe "filter-operator-group selection" do
@@ -142,6 +168,33 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert groups["id"] == "EnumOperators<String>"
       # enum, nullable → membership over the generated enum type
       assert groups["priority"] == "NullableEnumOperators<TodoPriority>"
+      assert groups["status"] == "NullableEnumOperators<TodoStatus>"
+      # string, non-null → eq/notEq/in, no isNil
+      assert groups["title"] == "EnumOperators<String>"
+      # string, nullable → isNil added
+      assert groups["default"] == "NullableEnumOperators<String>"
+      # ci_string joins the equality+membership group like other strings
+      assert groups["username"] == "NullableEnumOperators<String>"
+    end
+
+    test "date/datetime and decimal attributes are comparable, typed by their Swift type" do
+      todo = resource(Reader.read(@domains), "Todo")
+      groups = Map.new(todo.filter_struct.fields, &{&1.name, &1.swift_type})
+
+      assert groups["dueAt"] == "NullableComparableOperators<Date>"
+      # Decimal maps to a Swift String but the Ash type drives the comparable group.
+      assert groups["amount"] == "NullableComparableOperators<String>"
+    end
+
+    test "every filterable resource gets a filter struct; composite maps are excluded" do
+      ir = Reader.read(@domains)
+
+      for type_name <- ["Todo", "User"] do
+        refute is_nil(resource(ir, type_name).filter_struct), "#{type_name} must be filterable"
+      end
+
+      todo = resource(ir, "Todo")
+      refute "metadata" in Enum.map(todo.filter_struct.fields, & &1.name)
     end
   end
 
@@ -152,6 +205,20 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       assert todo.sort_field.type_name == "TodoSortField"
       assert "title" in todo.sort_field.fields
+    end
+
+    test "public comparable attributes are sortable; composite maps are not" do
+      ir = Reader.read(@domains)
+      todo = resource(ir, "Todo")
+
+      for name <- ["completed", "dueAt", "scheduledAt", "title", "amount", "status", "default"] do
+        assert name in todo.sort_field.fields, "#{name} must be sortable"
+      end
+
+      # The backend can't sort by a JSON object.
+      refute "metadata" in todo.sort_field.fields
+
+      assert resource(ir, "User").sort_field.type_name == "UserSortField"
     end
   end
 
@@ -218,6 +285,10 @@ defmodule AshSwift.Codegen.ReaderTest do
       # array (:bulk_create) both generate.
       assert :broadcast in rpc_names
       assert :bulk_create in rpc_names
+
+      # A nested-array argument ({:array, {:array, _}}) has an unmappable element, so
+      # the whole action is skipped rather than emitted with a wrong-typed input.
+      refute :deep_broadcast in rpc_names
     end
   end
 
@@ -316,6 +387,24 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       assert %{swift_type: "Int", required?: false} =
                Enum.find(item.fields, &(&1.name == "priority"))
+    end
+  end
+
+  describe "generic-action map arguments" do
+    test "a map-typed argument maps to the AshJSON dictionary" do
+      todo = resource(Reader.read(@domains), "Todo")
+
+      assert %{swift_type: "[String: AshJSON]", required?: false} =
+               todo.input_structs
+               |> Enum.flat_map(& &1.fields)
+               |> Enum.find(&(&1.name == "options"))
+    end
+
+    test "an unconstrained array-of-map argument maps to [[String: AshJSON]]" do
+      todo = resource(Reader.read(@domains), "Todo")
+      struct = Enum.find(todo.input_structs, &(&1.struct_name == "BulkRawInput"))
+
+      assert %{swift_type: "[[String: AshJSON]]"} = Enum.find(struct.fields, &(&1.name == "rows"))
     end
   end
 
