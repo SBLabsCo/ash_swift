@@ -771,18 +771,30 @@ defmodule AshSwift.CodegenTest do
       %{files: Codegen.build_files(@domains)}
     end
 
-    # The body of one generated struct, up to its closing brace.
+    # The body of one generated struct, up to its closing brace. Classification
+    # (types, required?) is asserted on the IR in reader_test.exs; these tests
+    # pin only how a required and an optional field render.
     defp struct_body(types, name) do
       [_, rest] = String.split(types, "public struct #{name}: Encodable, Sendable {", parts: 2)
       rest |> String.split("\n}\n", parts: 2) |> hd()
     end
 
-    test "a create action's init takes its arguments alongside its accepted attributes",
+    test "a required argument renders without `?` or a default and is encoded unconditionally",
          %{files: files} do
       body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput")
 
-      assert body =~
-               "public init(note: String, title: String, checklist: [CreateTodoWithArgsChecklistItem]? = nil, extras: [String: AshJSON]? = nil, score: String? = nil)"
+      assert body =~ "public var note: String\n"
+      assert body =~ "public init(note: String,"
+      assert body =~ "try container.encode(note, forKey: .note)"
+    end
+
+    test "an optional argument renders as optional with a nil default and is encoded if present",
+         %{files: files} do
+      body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput")
+
+      assert body =~ "public var extras: [String: AshJSON]?\n"
+      assert body =~ "extras: [String: AshJSON]? = nil"
+      assert body =~ "try container.encodeIfPresent(extras, forKey: .extras)"
     end
 
     test "an unmappable argument is warned about and the rest of the action is still emitted", %{
@@ -794,16 +806,6 @@ defmodule AshSwift.CodegenTest do
       # The rest of the action is still emitted.
       assert files["AshRpcFunctions.swift"] =~
                "public func createTodoWithArgs(input: CreateTodoWithArgsInput, fields: [FieldSelection]) async throws -> Todo {"
-    end
-
-    test "an argument-only update (accept []) gets an input struct; a required argument stays required",
-         %{files: files} do
-      body = struct_body(files["AshRpcTypes.swift"], "RetitleTodoInput")
-
-      assert body =~ "public init(newTitle: String)"
-
-      assert files["AshRpcFunctions.swift"] =~
-               "public func retitleTodo(id: String, input: RetitleTodoInput, fields: [FieldSelection]) async throws -> Todo {"
     end
 
     test "the 'arguments are not yet supported' warning is gone" do
@@ -819,27 +821,15 @@ defmodule AshSwift.CodegenTest do
       %{files: Codegen.build_files(@domains)}
     end
 
-    test "an argument-only update keeps an argument whose same-named attribute is private", %{
-      files: files
-    } do
-      types = files["AshRpcTypes.swift"]
+    test "an argument-only update and a generic action each render the kept argument as a required field",
+         %{files: files} do
+      body = struct_body(files["AshRpcTypes.swift"], "SetTodoDueDateInput")
 
-      # Scoped to this struct: CheckTodoDueDateInput emits the identical init.
-      assert types =~
-               ~r/public struct SetTodoDueDateInput: Encodable, Sendable \{[^}]*public init\(dueDate: String\)/
+      assert body =~ "public var dueDate: String\n"
+      assert body =~ "try container.encode(dueDate, forKey: .dueDate)"
 
       assert files["AshRpcFunctions.swift"] =~
                "public func setTodoDueDate(id: String, input: SetTodoDueDateInput, fields: [FieldSelection]) async throws -> Todo {"
-    end
-
-    test "a generic action keeps an argument whose same-named attribute is private", %{
-      files: files
-    } do
-      types = files["AshRpcTypes.swift"]
-
-      # Scoped to this struct: SetTodoDueDateInput emits the identical init.
-      assert types =~
-               ~r/public struct CheckTodoDueDateInput: Encodable, Sendable \{[^}]*public init\(dueDate: String\)/
 
       assert files["AshRpcFunctions.swift"] =~
                "public func checkTodoDueDate(input: CheckTodoDueDateInput) async throws -> Bool {"
