@@ -618,20 +618,26 @@ defmodule AshSwift.Codegen.ReaderTest do
     } do
       tag = resource(ir, "Tag")
 
-      assert %{resource_module: AshSwift.Test.Category} =
+      assert %{destination: AshSwift.Test.Category} =
                Enum.find(tag.fields, &(&1.name == "category"))
 
       category = resource(ir, "Category")
 
-      refute Enum.any?(
-               category.fields,
-               &(&1.name == "name" and Map.has_key?(&1, :resource_module))
-             )
+      assert %{destination: nil} = Enum.find(category.fields, &(&1.name == "name"))
+    end
+
+    test "a related struct keeps a relationship field whose destination is emitted", %{ir: ir} do
+      category = resource(ir, "Category")
+
+      assert attr_type(category, "tags") == "[Tag]"
+
+      assert %{destination: AshSwift.Test.Tag} =
+               Enum.find(category.fields, &(&1.name == "tags"))
     end
 
     test "an array-of-optional-elements field on a related struct is kept (#78)", %{ir: ir} do
       # The 2-hop guard filters only relationship fields (by their recorded
-      # `resource_module:`); a non-relationship field like this one is kept
+      # `destination:`); a non-relationship field like this one is kept
       # whatever the shape of its Swift type.
       assert attr_type(resource(ir, "Category"), "aliases") == "[String?]"
     end
