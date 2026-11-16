@@ -22,7 +22,7 @@ defmodule AshSwift.Codegen.Reader do
         resource_module: module | nil,        # nil for a related-only entry
         domain:          module | nil,        # nil for a related-only entry (ADR-0009: read
                                               # straight off the IR, not Ash.Resource.Info.domain/1)
-        type_name:       "Todo",                # validated plain Swift identifier (Reader raises otherwise)
+        type_name:       "Todo",                # validated plain Swift identifier, unique per resource module across all_resources (Reader raises otherwise)
         fields:          [field],                 # attributes + relationships + derived; see Field below
         enums:           [%{enum_name, cases: [%{name, raw}]}],  # raw: wire string, nil when equal to name
         actions:         [action],                # [] for a related-only entry
@@ -1100,6 +1100,30 @@ defmodule AshSwift.Codegen.Reader do
     end
   end
 
+  # Two different resource modules mapping to one Swift type name would share a
+  # single struct (the second silently aliased to the first), so it is a codegen
+  # error (#156). Related destinations are keyed by module, not type name.
+  defp assert_unique_type_names!(pairs) do
+    collisions =
+      pairs
+      |> Enum.uniq()
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+      |> Enum.filter(fn {_name, modules} -> length(modules) > 1 end)
+      |> Enum.sort()
+
+    unless collisions == [] do
+      detail =
+        Enum.map_join(collisions, "; ", fn {name, modules} ->
+          "\"#{name}\" (#{modules |> Enum.map(&inspect/1) |> Enum.sort() |> Enum.join(", ")})"
+        end)
+
+      Mix.raise(
+        "AshSwift codegen: different resources map to the same Swift type name: #{detail} — " <>
+          "give each resource a distinct `type_name` in its `typescript do ... end` block."
+      )
+    end
+  end
+
   # `FieldFormatter.format_field_for_client/3` with the identifier check applied.
   # Every client-facing field/argument name the Reader emits goes through here, so
   # the derived names built from it (enum, struct, filter, sort types) are
@@ -1280,8 +1304,9 @@ defmodule AshSwift.Codegen.Reader do
   # type; every other field (scalar, enum) is always safe.
   defp expand_with_related(primary_resources, manifest) do
     primary_type_names = MapSet.new(primary_resources, & &1.type_name)
+    primary_modules = MapSet.new(primary_resources, & &1.resource_module)
 
-    related_raw =
+    related_candidates =
       primary_resources
       |> Enum.flat_map(fn %{resource_module: resource, actions: actions} ->
         # One hop out: relationship destinations, plus the target of any generic
@@ -1298,30 +1323,40 @@ defmodule AshSwift.Codegen.Reader do
 
         Enum.flat_map(relationship_destinations ++ return_targets, fn destination ->
           # Skip when the destination has no Swift type name (or isn't in the
-          # manifest; model_struct_target/2 checks both) or is already a primary
-          # resource. Each case yields no extra related struct.
-          with {:ok, type_name, dest_mres} <-
-                 model_struct_target(destination, manifest.resources),
-               false <- MapSet.member?(primary_type_names, type_name) do
-            {fields, enums} =
-              collect_fields(dest_mres, type_name, manifest.types, manifest.resources)
+          # manifest; model_struct_target/2 checks both). This pass is cheap and
+          # side-effect free: fields are collected (and unsupported attributes
+          # warned about) only for the survivors below, once per module.
+          case model_struct_target(destination, manifest.resources) do
+            {:ok, type_name, dest_mres} ->
+              [%{resource_module: destination, type_name: type_name, mres: dest_mres}]
 
-            [%{resource_module: destination, type_name: type_name, fields: fields, enums: enums}]
-          else
-            _ -> []
+            _ ->
+              []
           end
         end)
       end)
-      |> Enum.uniq_by(& &1.type_name)
+      |> Enum.uniq_by(& &1.resource_module)
+
+    # Primary modules are dropped only after the type-name collision check, so a
+    # different module sharing a primary's type name is caught rather than aliased.
+    assert_unique_type_names!(
+      Enum.map(primary_resources, &{&1.type_name, &1.resource_module}) ++
+        Enum.map(related_candidates, &{&1.type_name, &1.resource_module})
+    )
+
+    related_raw =
+      related_candidates
+      |> Enum.reject(&MapSet.member?(primary_modules, &1.resource_module))
+      |> Enum.map(fn %{resource_module: module, type_name: type_name, mres: mres} ->
+        {fields, enums} = collect_fields(mres, type_name, manifest.types, manifest.resources)
+        %{resource_module: module, type_name: type_name, fields: fields, enums: enums}
+      end)
 
     all_type_names =
       MapSet.union(primary_type_names, MapSet.new(related_raw, & &1.type_name))
 
     emitted_modules =
-      MapSet.union(
-        MapSet.new(primary_resources, & &1.resource_module),
-        MapSet.new(related_raw, & &1.resource_module)
-      )
+      MapSet.union(primary_modules, MapSet.new(related_raw, & &1.resource_module))
 
     # Enum type names are checked only for collisions with resource struct names.
     # `related_raw` entries use the slim %{resource_module, type_name, fields, enums} shape, so only
