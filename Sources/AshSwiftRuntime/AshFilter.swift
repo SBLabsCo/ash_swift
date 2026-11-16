@@ -33,6 +33,7 @@ public struct AnyEncodable: Encodable, Sendable {
 // The group an attribute gets is driven by its Ash type:
 //   - boolean              → EquatableOperators        (eq, notEq)
 //   - string / enum / uuid → EnumOperators             (eq, notEq, in)
+//   - ci_string            → CiStringOperators         (eq, notEq, in; case-insensitive on the backend)
 //   - numeric / date(time) → ComparableOperators       (the above + comparisons)
 // A nullable attribute gets the matching `Nullable*` variant, which adds `isNil`.
 // The bare variants omit `isNil` so a non-null attribute exposes exactly its
@@ -90,6 +91,18 @@ public struct NullableEnumOperators<T: Encodable & Sendable>: Encodable, Sendabl
         self.isNil = isNil
     }
 }
+
+/// Equality + membership operators for a non-null case-insensitive string
+/// attribute (Ash `:ci_string`). An alias of `EnumOperators`, so it encodes
+/// identically: values are sent unmodified. The backend compares
+/// `eq` / `notEq` / `in` case-insensitively, so `eq: "Coach@Example.com"`
+/// matches `coach@example.com`. No client-side case normalization is done.
+public typealias CiStringOperators<T: Encodable & Sendable> = EnumOperators<T>
+
+/// `CiStringOperators` plus `isNil`, for a nullable case-insensitive string
+/// attribute. An alias of `NullableEnumOperators`; comparisons are
+/// case-insensitive on the backend and values are sent unmodified.
+public typealias NullableCiStringOperators<T: Encodable & Sendable> = NullableEnumOperators<T>
 
 /// Equality, membership, and ordering operators for a non-null comparable
 /// attribute (numeric and date/datetime types).

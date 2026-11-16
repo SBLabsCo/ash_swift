@@ -49,7 +49,8 @@ defmodule AshSwift.Codegen.ReaderTest do
 
     @generic_keys ~w(rpc_name action action_type get
                      not_found_error? input_struct_name primary_key_params pagination_type
-                     optional_pagination_type sortable? filterable? generic_return)a
+                     optional_pagination_type sortable? filterable? generic_return
+                     generic_return_resource)a
                   |> MapSet.new()
 
     test "CRUD actions carry exactly the documented keys; generic actions their own set", %{
@@ -91,7 +92,7 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
-  describe "accepted-attribute input optionality (#113, #124)" do
+  describe "input optionality: accepted attributes and arguments (#113, #124, #75)" do
     test "require_attributes makes accepted update/destroy attributes required (#113)", %{ir: ir} do
       rename = input_struct(ir, "RenameTodoInput")
       assert %{required?: true} = input_field(rename, "title")
@@ -113,6 +114,13 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       # control: allow_nil?: false, no default, not in allow_nil_input
       assert %{required?: true} = input_field(input_struct(ir, "CreateTodoInput"), "title")
+    end
+
+    test "a required argument named like a nullable public attribute stays required (#75)", %{
+      ir: ir
+    } do
+      assert %{required?: true, swift_type: "Int"} =
+               input_field(input_struct(ir, "SetTodoScoreInput"), "score")
     end
   end
 
@@ -172,8 +180,8 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert groups["title"] == "EnumOperators<String>"
       # string, nullable → isNil added
       assert groups["default"] == "NullableEnumOperators<String>"
-      # ci_string joins the equality+membership group like other strings
-      assert groups["username"] == "NullableEnumOperators<String>"
+      # ci_string, nullable → case-insensitive-aware group
+      assert groups["username"] == "NullableCiStringOperators<String>"
     end
 
     test "date/datetime and decimal attributes are comparable, typed by their Swift type", %{
@@ -265,15 +273,25 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "generic-action gating (#54)" do
-    test "generic actions whose shape needs field selection are dropped; supported ones kept", %{
-      ir: ir
-    } do
+    test "unmappable generic actions are dropped; supported ones kept", %{ir: ir} do
       todo = resource(ir, "Todo")
       rpc_names = Enum.map(todo.actions, & &1.rpc_name)
 
-      # :summarize (a resource return) needs field selection the generic-action
-      # slice doesn't emit yet (#56).
-      refute :summarize in rpc_names
+      # :summarize_all (an array-of-resource return) maps to no Swift type: dropped (#56).
+      refute :summarize_all in rpc_names
+      # :deep_broadcast is dropped for its nested-array argument.
+      refute :deep_broadcast in rpc_names
+
+      # :summarize (a struct return of a resource, allow_nil? true) is an optional
+      # field-selected model return, carrying its target resource (#56).
+      summarize = Enum.find(todo.actions, &(&1.rpc_name == :summarize))
+      assert summarize.generic_return == {:typed_record, "Todo?"}
+      assert summarize.generic_return_resource == AshSwift.Test.Todo
+
+      # Ash's default allow_nil? false makes the same return non-optional.
+      required = Enum.find(todo.actions, &(&1.rpc_name == :summarize_required))
+      assert required.generic_return == {:typed_record, "Todo"}
+      assert required.generic_return_resource == AshSwift.Test.Todo
 
       # Void and scalar/map generic actions are supported and kept — including the
       # void branch of generic_action_return/1 (nil -> :void), exercised by :ping_void.
@@ -303,6 +321,19 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert log =~ "generic action :deep_broadcast"
       assert log =~ "argument :matrix"
       assert log =~ "skipping"
+    end
+  end
+
+  describe "generic action resource return targets (#56)" do
+    test "an unexposed, unrelated return target's model struct is emitted" do
+      ir = Reader.read([AshSwift.Test.ReturnOnlyDomain])
+
+      assert resource(ir, "Publisher")
+
+      reporter = resource(ir, "Reporter")
+      latest = Enum.find(reporter.actions, &(&1.rpc_name == :latest_publisher))
+      assert latest.generic_return == {:typed_record, "Publisher?"}
+      assert latest.generic_return_resource == AshSwift.Test.Publisher
     end
   end
 

@@ -92,15 +92,21 @@ and a TypeScript client stay wire-identical by construction.
   `Decodable` struct — `uploadStart` returns `UploadStartResult { videoId, clips:
   [UploadStartResultClipsItem] }` instead of an untyped `[String: AshJSON]` (an
   *unconstrained* map stays the untyped dict). A generic action *returning* a
-  resource/struct that needs field selection is not generated yet
-  ([#56](https://github.com/SBLabsCo/ash_swift/issues/56)).
+  resource (or a `:struct` that is an instance of one) takes a required
+  `fields:` selection and returns the resource's generated model type as a
+  non-optional (`summarizeRequired(fields:) -> Todo`), or **optional** (`Todo?`) when
+  the action sets `allow_nil? true`. Array-of-resource returns
+  are skipped with a warning.
 - **Ad-hoc field selection** — request only the fields a screen needs, including
   fields on nested relationships. Every model field is `Optional`, so unselected
   fields safely decode as `nil`.
 - **Typed filtering** — read actions take an optional, type-safe `{Resource}Filter`
   where each attribute exposes only the operators its type supports (equality for
   booleans, comparisons for numbers and dates, membership for strings and enums),
-  and nullable attributes add `isNil`. Compound predicates compose through typed
+  and nullable attributes add `isNil`. `:ci_string` attributes get
+  `CiStringOperators` / `NullableCiStringOperators` (same operators and wire format
+  as the string group; the backend compares `eq`/`notEq`/`in` case-insensitively and
+  values are sent unmodified). Compound predicates compose through typed
   `and`/`or`/`not` combinators. Filtering an action off (`enable_filter?: false`)
   drops the parameter, so a forbidden filter is a compile error.
 - **Typed sorting** — read actions take a typed sort over a generated

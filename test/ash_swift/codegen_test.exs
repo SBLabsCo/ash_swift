@@ -682,6 +682,34 @@ defmodule AshSwift.CodegenTest do
                "client.execute(GenericActionRequest<[String: AshJSON], EmptyActionInput>(action: \"stats\"))"
     end
 
+    test "a struct return of a resource emits a field-selected optional model return (#56)",
+         %{files: files} do
+      # `summarize` returns a struct (instance_of Todo): the pipeline requires
+      # `fields:`, and the action may return nil, so the function returns `Todo?`.
+      functions = files["AshRpcFunctions.swift"]
+
+      assert functions =~
+               "public func summarize(fields: [FieldSelection]) async throws -> Todo? {"
+
+      # Without `allow_nil? true` the return is a non-optional `Todo`.
+      assert functions =~
+               "public func summarizeRequired(fields: [FieldSelection]) async throws -> Todo {"
+
+      assert functions =~
+               ~s[client.execute(GenericActionRequest<Todo?, EmptyActionInput>(action: "summarize", fields: fields))]
+
+      # The target model struct is emitted by the existing model path — no result struct.
+      refute files["AshRpcTypes.swift"] =~ "SummarizeResult"
+    end
+
+    test "an array-of-resource return is skipped with a warning, not emitted", %{files: files} do
+      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
+
+      assert log =~ "generic action :summarize_all"
+      assert log =~ "skipping"
+      refute files["AshRpcFunctions.swift"] =~ "func summarizeAll"
+    end
+
     test "a void no-argument action emits VoidActionRequest<EmptyActionInput> and no input param",
          %{files: files} do
       functions = files["AshRpcFunctions.swift"]
@@ -1023,6 +1051,17 @@ defmodule AshSwift.CodegenTest do
       # untyped dict — only a *constrained* map gets a generated struct.
       assert functions =~ "public func stats() async throws -> [String: AshJSON] {"
       refute files["AshRpcTypes.swift"] =~ "StatsResult"
+    end
+  end
+
+  describe "generic action returning an unexposed, unrelated resource (#56)" do
+    # The classification (IR) is pinned in reader_test.exs; this checks the model
+    # struct reaches the rendered types file.
+    test "renders the target's model struct" do
+      files = Codegen.build_files([AshSwift.Test.ReturnOnlyDomain])
+
+      assert files["AshRpcTypes.swift"] =~
+               "public struct Publisher: Codable, Sendable, Equatable {"
     end
   end
 

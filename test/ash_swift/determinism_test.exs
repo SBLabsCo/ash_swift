@@ -19,12 +19,14 @@ defmodule AshSwift.DeterminismTest do
   alias AshSwift.Codegen
 
   # One entry per fixture domain set worth pinning — the primary resources,
-  # map-only resources, and tags. CollisionDomain is excluded by design:
-  # build_files/1 raises on its name collision (pinned in codegen_test).
+  # map-only resources, tags, and a
+  # resource reachable only as a generic-action return. CollisionDomain is
+  # excluded by design: build_files/1 raises on its name collision (pinned in codegen_test).
   @matrix %{
     "domain" => [AshSwift.Test.Domain],
     "map_only_domain" => [AshSwift.Test.MapOnlyDomain],
-    "tag_domain" => [AshSwift.Test.TagDomain]
+    "tag_domain" => [AshSwift.Test.TagDomain],
+    "return_only_domain" => [AshSwift.Test.ReturnOnlyDomain]
   }
 
   for {label, domains} <- @matrix do

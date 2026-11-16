@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- Filter fields for `:ci_string` attributes are now typed
+  `NullableCiStringOperators<String>` / `CiStringOperators<String>`, documented
+  aliases of `NullableEnumOperators` / `EnumOperators` (same operators, same
+  wire format; the backend compares case-insensitively). Existing call sites
+  keep compiling. (#58)
+
 ### Breaking
 
 - Create input structs now make attributes listed in the action's

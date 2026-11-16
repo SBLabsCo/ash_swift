@@ -857,6 +857,30 @@
       "sortable": false
     },
     {
+      "action": "set_score",
+      "action_type": "update",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "score",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "name": "set_todo_score",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
       "action": "stats",
       "action_type": "action",
       "domain": "AshSwift.Test.Domain",
@@ -867,6 +891,32 @@
       "resource": "Todo",
       "resource_module": "AshSwift.Test.Todo",
       "result_type": "[String: AshJSON]",
+      "sortable": false
+    },
+    {
+      "action": "summarize",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [],
+      "name": "summarize",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo?",
+      "sortable": false
+    },
+    {
+      "action": "summarize_required",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [],
+      "name": "summarize_required",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
       "sortable": false
     },
     {
@@ -1563,6 +1613,17 @@
     {
       "fields": [
         {
+          "name": "score",
+          "optional": false,
+          "type": "Int"
+        }
+      ],
+      "kind": "input",
+      "name": "SetTodoScoreInput"
+    },
+    {
+      "fields": [
+        {
           "name": "amount",
           "optional": true,
           "type": "String"
@@ -1756,7 +1817,7 @@
         {
           "name": "username",
           "optional": true,
-          "type": "NullableEnumOperators<String>"
+          "type": "NullableCiStringOperators<String>"
         }
       ],
       "kind": "filter",

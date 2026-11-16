@@ -104,8 +104,9 @@ defmodule AshSwift.Codegen.TypeMap do
 
   # The operator group an attribute's filter predicate exposes, keyed on the Ash
   # type. Comparable types (numbers, dates) get the ordered operator set; Boolean
-  # is equality-only; Map is excluded from filtering entirely; everything else
-  # (String, CiString, UUID, Atom, …) falls to the equality+membership group.
+  # is equality-only; Map is excluded from filtering entirely; CiString gets its own
+  # equality+membership group (the backend compares case-insensitively); everything
+  # else (String, UUID, Atom, …) falls to the plain equality+membership group.
   #
   # NOTE: this is keyed on the Ash type, deliberately distinct from sorting's
   # `@sortable_swift_types` (keyed on the mapped Swift type, in AshSwift.Codegen) —
@@ -126,7 +127,8 @@ defmodule AshSwift.Codegen.TypeMap do
 
   def scalar_filter_group(Ash.Type.Boolean), do: :equatable
   def scalar_filter_group(Ash.Type.Map), do: :exclude
-  # String, CiString, UUID, unconstrained Atom, and any unmapped scalar fall to
+  def scalar_filter_group(Ash.Type.CiString), do: :ci_string
+  # String, UUID, unconstrained Atom, and any unmapped scalar fall to
   # the equality+membership group — matching AshTypescript's `default` filter
   # classification (eq/notEq/in over the mapped Swift type, which is String).
   def scalar_filter_group(_type), do: :enum
@@ -138,6 +140,8 @@ defmodule AshSwift.Codegen.TypeMap do
   def operator_generic_name(:equatable, true), do: "NullableEquatableOperators"
   def operator_generic_name(:enum, false), do: "EnumOperators"
   def operator_generic_name(:enum, true), do: "NullableEnumOperators"
+  def operator_generic_name(:ci_string, false), do: "CiStringOperators"
+  def operator_generic_name(:ci_string, true), do: "NullableCiStringOperators"
   def operator_generic_name(:comparable, false), do: "ComparableOperators"
   def operator_generic_name(:comparable, true), do: "NullableComparableOperators"
 

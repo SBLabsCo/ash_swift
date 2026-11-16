@@ -37,8 +37,8 @@ defmodule AshSwift.Codegen.Reader do
   :destroy`) and generic (`:action`) actions share the uniform keys.
   `input_required?` is present on CRUD actions only (always `false` outside a
   read or destroy with a required input: an argument, or an accepted attribute
-  a soft destroy lists in `require_attributes`) and `generic_return` on
-  generic actions only;
+  a soft destroy lists in `require_attributes`) and `generic_return` and
+  `generic_return_resource` on generic actions only;
   every other key is present on every kind. A `[read only]` tag below means the
   value is *meaningful* only on reads, not that the key is absent elsewhere.
 
@@ -63,7 +63,8 @@ defmodule AshSwift.Codegen.Reader do
         optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload
         sortable?:       boolean,              # list reads only: offers a `sort:` parameter
         filterable?:     boolean,              # list reads only: offers a `filter:` parameter
-        generic_return:  :void | {:typed, swift_type} | {:typed_record, struct_name}  # [generic only]
+        generic_return:  :void | {:typed, swift_type} | {:typed_record, swift_type}  # [generic only]; a resource return's swift_type is the model type ("Todo"), "Todo?" when the action has allow_nil? true
+        generic_return_resource: module | nil,  # [generic only] the resource a resource/struct return targets; expand_with_related/2 emits its model struct
       }
 
   `get` says whether an action is a single-record read and, if so, where its
@@ -362,6 +363,7 @@ defmodule AshSwift.Codegen.Reader do
               rpc_action,
               resource,
               formatter,
+              manifest.resources,
               {actions_acc, structs_acc}
             )
           else
@@ -533,8 +535,8 @@ defmodule AshSwift.Codegen.Reader do
 
   # Per-action collector for generic (`:action`-type) actions (#54). Inputs are
   # action *arguments* mapped straight from their manifest type (not resource
-  # attributes); the return is classified by generic_action_return/1. An action
-  # whose return needs field selection or is an unmapped type is skipped with a
+  # attributes); the return is classified by generic_action_return/6. An action
+  # whose return is an unmapped shape is skipped with a
   # warning rather than emitted with a wrong decode — the accumulator passes
   # through unchanged.
   defp collect_generic_action(
@@ -542,10 +544,18 @@ defmodule AshSwift.Codegen.Reader do
          rpc_action,
          resource,
          formatter,
+         manifest_resources,
          {actions_acc, structs_acc} = acc
        ) do
-    with {gen_return, result_structs} when gen_return != :unsupported <-
-           generic_action_return(maction.returns, rpc_action.name, resource, formatter),
+    with {gen_return, result_structs, return_resource} <-
+           generic_action_return(
+             maction.returns,
+             rpc_action.name,
+             resource,
+             formatter,
+             manifest_resources,
+             ash_action_facts(resource, maction).allow_nil?
+           ),
          {:ok, inputs, nested_structs} <-
            collect_generic_action_inputs(maction, rpc_action, resource, formatter) do
       input_struct_name = if inputs == [], do: nil, else: pascal_case(rpc_action.name) <> "Input"
@@ -562,13 +572,14 @@ defmodule AshSwift.Codegen.Reader do
         optional_pagination_type: :none,
         sortable?: false,
         filterable?: false,
-        generic_return: gen_return
+        generic_return: gen_return,
+        generic_return_resource: return_resource
       }
 
       # The action's own input struct plus any nested structs its array-of-record
       # arguments generated (e.g. `UploadStartClipsItem` for a `clips` argument),
       # plus any structs the typed-`:map` return generated (e.g. `UploadStartResult`
-      # and a nested `UploadStartResultClipsItem` — see generic_action_return/4).
+      # and a nested `UploadStartResultClipsItem` — see generic_action_return/6).
       input_structs =
         if input_struct_name,
           do: [%{struct_name: input_struct_name, fields: inputs} | nested_structs],
@@ -576,14 +587,14 @@ defmodule AshSwift.Codegen.Reader do
 
       {[action | actions_acc], input_structs ++ result_structs ++ structs_acc}
     else
-      # A return that needs field selection / maps to no Swift type, or an argument
+      # A return that maps to no supported Swift type, or an argument
       # of an unmappable type (e.g. a list/array arg) — skip the whole action with
       # a warning rather than emit a wrong decode or a String-guessed input field.
       :unsupported ->
         warn_skip_generic(
           maction,
-          "returns #{inspect(maction.returns && maction.returns.kind)}, which needs field " <>
-            "selection or maps to no Swift type"
+          "returns #{inspect(maction.returns && maction.returns.kind)}, which maps to no " <>
+            "supported Swift return type"
         )
 
         acc
@@ -600,9 +611,9 @@ defmodule AshSwift.Codegen.Reader do
 
   defp warn_skip_generic(maction, reason) do
     Logger.warning(
-      "AshSwift: generic action #{inspect(maction.name)} #{reason}; skipping. Resource/struct " <>
-        "returns (field selection) are tracked in issue #56; other unmapped shapes are out of " <>
-        "scope for the generic-action slice (#54)."
+      "AshSwift: generic action #{inspect(maction.name)} #{reason}; skipping. Unmapped " <>
+        "generic-action shapes (array-of-resource returns, " <>
+        "unmappable arguments) are out of scope for the generic-action slices (#54, #56)."
     )
   end
 
@@ -972,11 +983,50 @@ defmodule AshSwift.Codegen.Reader do
   #   * an **unconstrained** `:map` -> {{:typed, "[String: AshJSON]"}, []}
   #     (no `fields:` — the action opted out of typing, keys are the caller's)
   #   * a scalar                    -> {{:typed, t}, []}
-  #   * anything else               -> :unsupported (resource/struct returns are
-  #     Tier C — they need field selection, issue #56)
-  defp generic_action_return(nil, _rpc_name, _resource, _formatter), do: {:void, []}
+  #   * a **resource** / `:struct` with `instance_of` a resource -> {{:typed_record, "T"}, [], module}
+  #     (issue #56). Decoded into the resource's generated model type through the
+  #     same field-selected path as the typed map. The manifest drops the action's
+  #     `allow_nil?` (Ash default false: a nil return is rejected unless the action
+  #     sets `allow_nil? true`), so ash_action_facts/2 supplies it: the type is
+  #     `"T?"` only when the action allows nil, else a non-optional `"T"`. The
+  #     target must have a type name and be present in the manifest (see
+  #     model_struct_target/2), else the model struct would never be emitted —
+  #     then :unsupported. The third element is the target module, so
+  #     expand_with_related/2 can emit its model struct.
+  #   * anything else               -> :unsupported (array-of-resource returns
+  #     included)
+  #
+  # Every supported clause returns {gen_return, result_structs, target_module | nil}.
+  defp generic_action_return(nil, _rpc_name, _resource, _formatter, _manifest_resources, _nil?),
+    do: {:void, [], nil}
 
-  defp generic_action_return(%{kind: :map, fields: fields}, rpc_name, resource, formatter)
+  defp generic_action_return(
+         %{kind: :resource, resource_module: module},
+         _rpc_name,
+         _resource,
+         _formatter,
+         manifest_resources,
+         allow_nil?
+       )
+       when not is_nil(module) do
+    case model_struct_target(module, manifest_resources) do
+      {:ok, type_name} ->
+        swift_type = if allow_nil?, do: type_name <> "?", else: type_name
+        {{:typed_record, swift_type}, [], module}
+
+      :error ->
+        :unsupported
+    end
+  end
+
+  defp generic_action_return(
+         %{kind: :map, fields: fields},
+         rpc_name,
+         resource,
+         formatter,
+         _manifest_resources,
+         _allow_nil?
+       )
        when is_list(fields) and fields != [] do
     result_struct_name = pascal_case(rpc_name) <> "Result"
 
@@ -991,17 +1041,29 @@ defmodule AshSwift.Codegen.Reader do
         # `:typed_record` (not `:typed`) so the emitter knows this return is a
         # field-selectable typed struct: the RPC pipeline requires a `fields:`
         # selection for it (issue #73), unlike a scalar or untyped-map return.
-        {{:typed_record, result_struct_name}, [result_struct | nested_structs]}
+        {{:typed_record, result_struct_name}, [result_struct | nested_structs], nil}
 
       :unsupported ->
         :unsupported
     end
   end
 
-  defp generic_action_return(type, _rpc_name, _resource, _formatter) do
+  defp generic_action_return(type, _rpc_name, _resource, _formatter, _manifest_resources, _nil?) do
     case TypeMap.generic_swift_type(type) do
-      {:ok, swift_type} -> {{:typed, swift_type}, []}
+      {:ok, swift_type} -> {{:typed, swift_type}, [], nil}
       :unsupported -> :unsupported
+    end
+  end
+
+  # A resource's model struct is emitted only when it has a Swift type name and is
+  # present in the manifest. Shared by the generic-return gate and
+  # expand_with_related/2 so the two can't drift.
+  defp model_struct_target(module, manifest_resources) do
+    with {:ok, type_name} <- ResourceInfo.typescript_type_name(module),
+         true <- Map.has_key?(manifest_resources, module) do
+      {:ok, type_name}
+    else
+      _ -> :error
     end
   end
 
@@ -1111,9 +1173,10 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # Augments the primary resource list with any related resources referenced by
-  # their relationships that aren't already in the primary set. The related
-  # resource's struct must be in the types file so the nested field decodes
-  # correctly. Only one hop of relationship expansion is performed for M1.
+  # their relationships, or by a generic action's resource return (#56), that
+  # aren't already in the primary set. The related resource's struct must be in
+  # the types file so the nested field decodes correctly. Only one hop of
+  # relationship expansion is performed for M1.
   #
   # Related entries share the same map shape as primary entries (resource_module:
   # nil, actions: []) so render_types and render_functions always see uniform
@@ -1128,17 +1191,26 @@ defmodule AshSwift.Codegen.Reader do
 
     related_raw =
       primary_resources
-      |> Enum.flat_map(fn %{resource_module: resource} ->
-        manifest.resources
-        |> Map.fetch!(resource)
-        |> ManifestResource.all_relationships()
-        |> Enum.flat_map(fn rel ->
-          # Skip when the destination has no Swift type name, is already a primary
-          # resource, or isn't present in the manifest (e.g. not reachable as a
-          # full resource entry). Each case yields no extra related struct.
-          with {:ok, type_name} <- ResourceInfo.typescript_type_name(rel.destination),
-               false <- MapSet.member?(primary_type_names, type_name),
-               %{} = dest_mres <- Map.get(manifest.resources, rel.destination) do
+      |> Enum.flat_map(fn %{resource_module: resource, actions: actions} ->
+        # One hop out: relationship destinations, plus the target of any generic
+        # action's resource/struct return (#56) — its model struct must exist for
+        # the function's return type to compile.
+        relationship_destinations =
+          manifest.resources
+          |> Map.fetch!(resource)
+          |> ManifestResource.all_relationships()
+          |> Enum.map(& &1.destination)
+
+        return_targets =
+          actions |> Enum.map(& &1[:generic_return_resource]) |> Enum.reject(&is_nil/1)
+
+        Enum.flat_map(relationship_destinations ++ return_targets, fn destination ->
+          # Skip when the destination has no Swift type name (or isn't in the
+          # manifest; model_struct_target/2 checks both) or is already a primary
+          # resource. Each case yields no extra related struct.
+          with {:ok, type_name} <- model_struct_target(destination, manifest.resources),
+               false <- MapSet.member?(primary_type_names, type_name) do
+            dest_mres = Map.fetch!(manifest.resources, destination)
             {fields, enums} = collect_fields(dest_mres, type_name, manifest.types)
             [%{type_name: type_name, fields: fields, enums: enums}]
           else
@@ -1424,6 +1496,10 @@ defmodule AshSwift.Codegen.Reader do
   #     ordinary `id` input mixed in with real arguments, issue #87); `[]` for a
   #     non-get read or a pure `get?`. Remove once the manifest carries `get_by`.
   #
+  #   * `allow_nil?` — a generic action's `allow_nil?` (Ash default false: a nil
+  #     return is rejected unless set). Decides `T` vs `T?` for a resource return
+  #     (#56). Remove once the manifest carries action-level nullability.
+  #
   # Fails loudly if the action can't be found rather than silently treating every
   # argument as an attribute.
   defp ash_action_facts(resource, maction) do
@@ -1434,7 +1510,8 @@ defmodule AshSwift.Codegen.Reader do
 
         %{
           argument_names: arguments |> Enum.filter(& &1.public?) |> MapSet.new(& &1.name),
-          get_by: get_by
+          get_by: get_by,
+          allow_nil?: Map.get(action, :allow_nil?, false)
         }
 
       other ->
