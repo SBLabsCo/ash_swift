@@ -699,23 +699,21 @@ defmodule AshSwift.Codegen.Reader do
     # An array of a constrained map = a typed record list. Generate a named nested
     # struct (e.g. `UploadStartClipsItem` / `UploadStartResultClipsItem`) so the
     # element is compiler-checked rather than an untyped `[[String: AshJSON]]`.
-    # Built from the raw field atom (not the formatted client name), which
-    # `field_names` can map to a clean name while the raw one stays hostile,
-    # so the derived struct name is checked on its own (#142).
-    struct_name =
-      assert_swift_identifier!(
-        name_prefix <> pascal_case(field_name) <> "Item",
-        "struct name",
-        resource
-      )
-
-    # The item struct's own name is the prefix for anything nested inside it, so a
-    # doubly nested item struct (not supported yet) can't collide with another
-    # struct's name.
-    case map_constraint_fields(item_fields, struct_name, resource, formatter,
+    case map_constraint_fields(item_fields, name_prefix, resource, formatter,
            allow_nested?: false
          ) do
       {:ok, struct_fields, []} ->
+        # Built from the raw field atom (not the formatted client name), which
+        # `field_names` can map to a clean name while the raw one stays hostile,
+        # so the derived struct name is checked on its own (#142). Checked only
+        # here so an unsupported item is skipped rather than raising.
+        struct_name =
+          assert_swift_identifier!(
+            name_prefix <> pascal_case(field_name) <> "Item",
+            "struct name",
+            resource
+          )
+
         {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
 
       :unsupported ->
