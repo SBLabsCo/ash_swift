@@ -275,6 +275,17 @@ Decode errors leniently, per field. The envelope decode is what turns a
 `success: false` body into `AshRpcError.server`; if one unexpected field throws,
 the caller gets `decodingFailed` and loses the refusal entirely.
 
+### Create optionality: the manifest's `required?` is not enough on its own
+
+`Ash.Info.Manifest.Argument.required?` folds `allow_nil_input` and
+`require_attributes` for accepted attributes, so the Reader reads it for every
+action type. But on a **create**, `require_attributes` marks even a *nullable* or
+*defaulted* attribute `required?: true`, whereas ash_typescript (`input_types.ex`)
+keeps those optional (`nullable = attr.allow_nil? || in allow_nil_input`;
+`optional = nullable || default != nil`). We chose parity: a create field is required
+only when `input.required?` and the attribute is non-null with no default. Update and
+destroy have no such guard. See #124 (fixture: `create_lenient`).
+
 ## Test patterns
 
 ### Extend the fixture domain when the bug class needs it

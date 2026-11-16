@@ -196,6 +196,17 @@ defmodule AshSwift.Test.Todo do
       change set_attribute(:completed, true)
     end
 
+    # Issue #124: create optionality is read from the manifest's `input.required?`.
+    # `title` is `allow_nil?: false` but listed in `allow_nil_input`, so optional;
+    # `score` is nullable yet listed in `require_attributes` (the manifest marks it
+    # required, ash_typescript keeps it optional); `completed` has a default and is
+    # in `require_attributes` (likewise kept optional).
+    create :create_lenient do
+      accept [:title, :priority, :score, :completed]
+      allow_nil_input [:title]
+      require_attributes [:score, :completed]
+    end
+
     # Create/update actions with action *arguments* (issue #83). The manifest folds
     # arguments and accepted attributes into one `inputs` list; codegen must emit a
     # field for each argument, typed the way a generic-action argument would be:
