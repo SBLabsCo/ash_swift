@@ -48,6 +48,12 @@ defmodule AshSwift.Test.SwiftConsumer do
             Path.join(File.cwd!(), "test/support/swift/ConsumerCheck.swift"),
             Path.join(sources, "ConsumerCheck.swift")
           )
+
+          # The capture half of the capture-and-replay harness (see `replay/2`).
+          File.cp!(
+            Path.join(File.cwd!(), "test/support/swift/CapturingTransport.swift"),
+            Path.join(tests_dir(tmp), "CapturingTransport.swift")
+          )
         catch
           kind, reason ->
             File.rm_rf!(tmp)
@@ -144,6 +150,23 @@ defmodule AshSwift.Test.SwiftConsumer do
       System.cmd("swift", ["test", "--filter", class], cd: tmp, stderr_to_stdout: true)
 
     assert status == 0, "swift test #{class} failed:\n#{output}"
+  end
+
+  @doc """
+  Replays a request body captured by the Swift `capturingRpc(name, response)`
+  factory (`test/support/swift/CapturingTransport.swift`) through the real RPC
+  pipeline. Returns `{decoded_body, result}`.
+  """
+  def replay(name, tmp \\ shared_package()) do
+    body =
+      tmp
+      |> Path.join("captured_bodies")
+      |> Path.join("#{name}.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+    {body, AshTypescript.Rpc.run_action(:ash_swift, conn, body)}
   end
 
   # The library target cannot change after `shared_package/0`, so a successful

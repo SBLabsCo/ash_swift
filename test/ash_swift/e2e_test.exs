@@ -557,10 +557,7 @@ defmodule AshSwift.E2ETest do
   end
 
   test "read/destroy action arguments: the generated functions' request bodies carry them (issues #87, #102)" do
-    tmp = SwiftConsumer.shared_package()
-    bodies_dir = Path.join(tmp, "captured_bodies")
-    File.rm_rf!(bodies_dir)
-    File.mkdir_p!(bodies_dir)
+    File.rm_rf!(Path.join(SwiftConsumer.shared_package(), "captured_bodies"))
 
     # A fresh owner with one completed and one open todo. The ETS table is shared
     # across this module's tests, so every assertion below is scoped to these rows
@@ -595,8 +592,8 @@ defmodule AshSwift.E2ETest do
 
     [archived, vetoed, discarded, plain] = Enum.map(~w(a v d p), mk)
 
-    # Step 1 (Swift): call each generated read function through a stub transport
-    # that captures the outgoing body and writes it to disk. The canned responses
+    # Step 1 (Swift): call each generated function through the shared
+    # `capturingRpc` factory, which captures the outgoing body to disk. The canned responses
     # only need to decode; the server never sees them.
     e2e_swift = """
     import XCTest
@@ -605,26 +602,13 @@ defmodule AshSwift.E2ETest do
     import GeneratedClient
 
     final class E2EReadArgumentsTest: XCTestCase {
-        private struct CapturingTransport: Transport {
-            let response: String
-            let name: String
-
-            func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-                let path = "#{bodies_dir}/\\(name).json"
-                try request.httpBody!.write(to: URL(fileURLWithPath: path))
-                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-                return (Data(response.utf8), http)
-            }
-        }
-
         private let list = #"{"success":true,"data":[]}"#
         private let record = #"{"success":true,"data":{"id":"x"}}"#
         private let offsetPage = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":0,"count":null}}"#
         private let keysetPage = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"after":null,"before":null,"nextPage":null,"previousPage":null,"count":null}}"#
 
         private func rpc(_ name: String, _ response: String) -> AshRpc {
-            let config = AshRpcConfig(baseURL: URL(string: "https://example.com")!)
-            return AshRpc(client: AshRpcClient(config: config, transport: CapturingTransport(response: response, name: name)))
+            capturingRpc(name, response)
         }
 
         func testCaptureReadBodies() async throws {
@@ -677,12 +661,7 @@ defmodule AshSwift.E2ETest do
     SwiftConsumer.run_swift_test!("E2EReadArgumentsTest", e2e_swift)
 
     # Step 2 (Elixir): replay each captured body through the real RPC pipeline.
-    conn = %Plug.Conn{private: %{}, assigns: %{}}
-
-    run = fn name ->
-      body = bodies_dir |> Path.join("#{name}.json") |> File.read!() |> Jason.decode!()
-      {body, AshTypescript.Rpc.run_action(:ash_swift, conn, body)}
-    end
+    run = &SwiftConsumer.replay/1
 
     ids = fn %{"success" => true, "data" => data} ->
       rows = if is_map(data) and Map.has_key?(data, "results"), do: data["results"], else: data
