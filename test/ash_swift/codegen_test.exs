@@ -88,8 +88,8 @@ defmodule AshSwift.CodegenTest do
       types = files["AshRpcTypes.swift"]
       # `name_size` is a zero-arg :atom calculation with a one_of constraint, so it
       # resolves to an enum and is emitted like an enum attribute: a typed field
-      # plus a per-resource generated enum. This exercises emit_derived_fields/5's
-      # enum branch from the *calculation* path (aggregates cover it too, but only
+      # plus a per-resource generated enum. This exercises the enum branch of the
+      # Reader's derived-field classifier (private `emit_derived_fields/5`) from the *calculation* path (aggregates cover it too, but only
       # indirectly for calcs).
       assert types =~ "public enum UserNameSize: String, Codable, Sendable, Equatable {"
 

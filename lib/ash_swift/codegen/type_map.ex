@@ -83,7 +83,7 @@ defmodule AshSwift.Codegen.TypeMap do
   # The Swift type for a generic action's argument or scalar/map return — the
   # shared classifier behind both generic_action_return/1 and the input collector.
   # These types are *computed* (a return) or carry no module (a list/array argument
-  # is `kind: :array, module: nil`), so — exactly like emit_derived_fields — this
+  # is `kind: :array, module: nil`), so — exactly like the Reader's derived-field classifier (`emit_derived_fields/5`) — this
   # gates on kind/module and refuses to String-guess: a map maps to AshJSON, a
   # mapped scalar to its Swift type, and anything else (array/tuple/union/struct/
   # enum/resource) is :unsupported. `ash_type_to_swift` would silently return
