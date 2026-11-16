@@ -613,6 +613,16 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert attr_type(category, "publisherId") == "String"
     end
 
+    test "relationship fields record their destination module; other fields do not (#147)", %{
+      ir: ir
+    } do
+      tag = resource(ir, "Tag")
+      assert %{resource: AshSwift.Test.Category} = Enum.find(tag.fields, &(&1.name == "category"))
+
+      category = resource(ir, "Category")
+      refute Enum.any?(category.fields, &(&1.name == "name" and Map.has_key?(&1, :resource)))
+    end
+
     test "an array-of-optional-elements field on a related struct is kept (#78)", %{ir: ir} do
       # The safety check strips one bracket layer to reach the element type; unless
       # it also drops the element's own `?`, `[String?]` resolves to the unknown

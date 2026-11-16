@@ -23,13 +23,22 @@ defmodule AshSwift.Codegen.Reader do
         domain:          module | nil,        # nil for a related-only entry (ADR-0009: read
                                               # straight off the IR, not Ash.Resource.Info.domain/1)
         type_name:       "Todo",                # validated plain Swift identifier (Reader raises otherwise)
-        fields:          [%{name, swift_type}],   # attributes + relationships + derived
+        fields:          [field],                 # attributes + relationships + derived; see Field below
         enums:           [%{enum_name, cases: [%{name, raw}]}],  # raw: wire string, nil when equal to name
         actions:         [action],                # [] for a related-only entry
         input_structs:   [%{struct_name, fields, decodable?}],  # decodable? true => Decodable result struct, else Encodable input
         sort_field:      %{type_name, fields} | nil,   # fields: [name_string]; nil when no sortable surface
         filter_struct:   %{type_name, fields} | nil    # fields: [%{name, swift_type}]; nil when no filterable surface
       }
+
+  ### Field
+
+  A model-struct field is `%{name, swift_type}`. A **relationship** field also
+  carries `resource: module`, the destination resource its Swift type refers
+  to; the 2-hop guard in `expand_with_related/2` keeps such a field only when
+  that resource's model struct is emitted in the file. Every other field
+  (attribute, aggregate, calculation) omits the key: its type is a built-in or
+  an enum defined alongside it, so it is always safe to reference.
 
   ### Action
 
@@ -103,18 +112,6 @@ defmodule AshSwift.Codegen.Reader do
   alias AshTypescript.FieldFormatter
   alias AshTypescript.Resource.Info, as: ResourceInfo
   alias AshTypescript.Rpc.Info, as: RpcInfo
-
-  # Built-in Swift types that are always safe to reference from related-resource
-  # structs (no generated struct needed, never "2 hops away"). Includes scalar
-  # types and AshJSON, which lives in the runtime package.
-  @builtin_swift_types MapSet.new([
-                         "String",
-                         "Bool",
-                         "Int",
-                         "Double",
-                         "Date",
-                         "AshJSON"
-                       ])
 
   # The comparable scalar Swift types the backend can sort a read by. An
   # attribute mapping to one of these (or an enum) is emitted as a sort field;
@@ -978,7 +975,7 @@ defmodule AshSwift.Codegen.Reader do
               end
 
             name = format_name!(rel.name, resource, formatter)
-            [%{name: name, swift_type: swift_type}]
+            [%{name: name, swift_type: swift_type, resource: rel.destination}]
 
           :none ->
             []
@@ -1141,9 +1138,10 @@ defmodule AshSwift.Codegen.Reader do
   # `{:ok, type_name, manifest_resource}` or `:none`. Shared by the
   # generic-return gate, expand_with_related/2 and collect_fields/4's
   # relationship fields so they can't drift; any new feature that references a
-  # resource type should go through it too. The 2-hop guard's swift_type_safe?/3
-  # deliberately stays a set check over the emitted Swift type names: it answers
-  # "is this type emitted in this file", not "can this resource be referenced".
+  # resource type should go through it too. The 2-hop guard filters relationship
+  # fields on the destination module recorded in the IR (see "Field" in the
+  # moduledoc) through this predicate, then checks the resulting type name
+  # against the emitted set.
   defp model_struct_target(module, manifest_resources) do
     with {:ok, type_name} <- checked_type_name(module),
          {:ok, mres} <- Map.fetch(manifest_resources, module) do
@@ -1268,10 +1266,12 @@ defmodule AshSwift.Codegen.Reader do
   # nil, actions: []) so render_types and render_functions always see uniform
   # maps regardless of which list they iterate.
   #
-  # 2-hop guard: a related resource's own relationship fields may point to types
-  # that are never emitted (2 hops away). Those fields are dropped so the
-  # generated Swift compiles without undefined-type references. Enum fields are
-  # always safe because their type is defined in the same file.
+  # 2-hop guard: a related resource's own relationship fields may point to
+  # resources whose model struct is never emitted (2 hops away). Those fields
+  # are dropped so the generated Swift compiles without undefined-type
+  # references. The decision reads the `resource:` module recorded on each
+  # relationship field, not the rendered Swift type; every other field (scalar,
+  # enum) is always safe.
   defp expand_with_related(primary_resources, manifest) do
     primary_type_names = MapSet.new(primary_resources, & &1.type_name)
 
@@ -1311,10 +1311,9 @@ defmodule AshSwift.Codegen.Reader do
     all_type_names =
       MapSet.union(primary_type_names, MapSet.new(related_raw, & &1.type_name))
 
-    # Enum types defined in this file are always safe to reference — include
-    # them in the known-type set so the 2-hop guard doesn't drop enum fields.
-    # Note: `related_raw` entries use the slim %{type_name, fields, enums} shape
-    # (no :resource_module or :actions keys), so only :enums is accessed here.
+    # Enum type names are checked only for collisions with resource struct names.
+    # `related_raw` entries use the slim %{type_name, fields, enums} shape, so only
+    # :enums is accessed here.
     all_enum_type_names =
       (primary_resources ++ related_raw)
       |> Enum.flat_map(& &1.enums)
@@ -1334,9 +1333,7 @@ defmodule AshSwift.Codegen.Reader do
     related =
       Enum.map(related_raw, fn %{type_name: type_name, fields: fields, enums: enums} ->
         safe_fields =
-          Enum.filter(fields, fn %{swift_type: swift_type} ->
-            swift_type_safe?(swift_type, all_type_names, all_enum_type_names)
-          end)
+          Enum.filter(fields, &referenceable_field?(&1, all_type_names, manifest.resources))
 
         %{
           resource_module: nil,
@@ -1368,42 +1365,18 @@ defmodule AshSwift.Codegen.Reader do
     type_name <> capitalized
   end
 
-  # Returns true when a Swift type expression is safe to use in a related
-  # resource struct — i.e., all referenced types are either built-in or
-  # defined in the emitted output (resource types, enums).
-  #
-  # Handles: scalars ("String?"), arrays ("[Todo]?", "[String?]"), and dicts
-  # ("[String: AshJSON]"). The dict case strips the leading "[String: " and
-  # trailing "]" to get the value type, then checks it independently. The "?" is
-  # trimmed on both sides of the bracket strip so an array of optional elements
-  # (`[String?]`, from a `nil_items?: true` attribute) resolves to its element type
-  # rather than the unknown-to-everything "String?".
-  #
-  # Known limitation: nested generics (e.g. "[String: [AshJSON]]") are not
-  # handled — stripping one bracket layer yields "[AshJSON]" as the value type,
-  # which won't match any entry in the builtin or type-name sets. No current code
-  # path generates such types, so this is a future-maintainer note, not a bug.
-  defp swift_type_safe?(swift_type, all_type_names, all_enum_type_names) do
-    bare =
-      swift_type
-      |> String.trim_trailing("?")
-      |> String.trim_leading("[")
-      |> String.trim_trailing("]")
-      |> String.trim_trailing("?")
-
-    if String.starts_with?(bare, "String: ") do
-      value_type = String.replace_prefix(bare, "String: ", "")
-      builtin_or_known?(value_type, all_type_names, all_enum_type_names)
-    else
-      builtin_or_known?(bare, all_type_names, all_enum_type_names)
+  # The 2-hop guard's per-field test. A relationship field (it carries
+  # `resource:`) is kept only when that resource's model struct is emitted: it
+  # passes model_struct_target/2 and its type name is in the emitted set. Every
+  # other field is built-in or an enum defined in this file, so it is kept.
+  defp referenceable_field?(%{resource: module}, all_type_names, manifest_resources) do
+    case model_struct_target(module, manifest_resources) do
+      {:ok, type_name, _mres} -> MapSet.member?(all_type_names, type_name)
+      :none -> false
     end
   end
 
-  defp builtin_or_known?(type_name, all_type_names, all_enum_type_names) do
-    MapSet.member?(@builtin_swift_types, type_name) or
-      MapSet.member?(all_type_names, type_name) or
-      MapSet.member?(all_enum_type_names, type_name)
-  end
+  defp referenceable_field?(_field, _all_type_names, _manifest_resources), do: true
 
   # Determines whether a read action is a get action and, if so, collects the
   # lookup field params and where to place them in the request body.
