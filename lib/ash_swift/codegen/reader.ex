@@ -699,20 +699,23 @@ defmodule AshSwift.Codegen.Reader do
     # An array of a constrained map = a typed record list. Generate a named nested
     # struct (e.g. `UploadStartClipsItem` / `UploadStartResultClipsItem`) so the
     # element is compiler-checked rather than an untyped `[[String: AshJSON]]`.
-    case map_constraint_fields(item_fields, name_prefix, resource, formatter,
+    # Built from the raw field atom (not the formatted client name), which
+    # `field_names` can map to a clean name while the raw one stays hostile,
+    # so the derived struct name is checked on its own (#142).
+    struct_name =
+      assert_swift_identifier!(
+        name_prefix <> pascal_case(field_name) <> "Item",
+        "struct name",
+        resource
+      )
+
+    # The item struct's own name is the prefix for anything nested inside it, so a
+    # doubly nested item struct (not supported yet) can't collide with another
+    # struct's name.
+    case map_constraint_fields(item_fields, struct_name, resource, formatter,
            allow_nested?: false
          ) do
       {:ok, struct_fields, []} ->
-        # Built from the raw field atom (not the formatted client name), which
-        # `field_names` can map to a clean name while the raw one stays hostile,
-        # so the derived struct name is checked on its own (#142).
-        struct_name =
-          assert_swift_identifier!(
-            name_prefix <> pascal_case(field_name) <> "Item",
-            "struct name",
-            resource
-          )
-
         {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
 
       :unsupported ->
@@ -1099,18 +1102,23 @@ defmodule AshSwift.Codegen.Reader do
        when is_list(fields) and fields != [] do
     result_struct_name = pascal_case(rpc_name) <> "Result"
 
-    case collect_result_struct_fields(fields, result_struct_name, resource, formatter) do
+    # map_constraint_fields/5 with nested structs allowed: an array-of-constrained-map
+    # field becomes `[<Result><Field>Item]` + a nested struct, an array-of-scalar
+    # `[Scalar]`, a plain map `[String: AshJSON]`. Any unmappable field makes the
+    # whole return, and so the action, unsupported.
+    case map_constraint_fields(fields, result_struct_name, resource, formatter,
+           allow_nested?: true
+         ) do
       {:ok, struct_fields, nested_structs} ->
-        result_struct = %{
-          struct_name: result_struct_name,
-          fields: struct_fields,
-          decodable?: true
-        }
+        result_struct = %{struct_name: result_struct_name, fields: struct_fields}
 
         # `:typed_record` (not `:typed`) so the emitter knows this return is a
         # field-selectable typed struct: the RPC pipeline requires a `fields:`
         # selection for it (issue #73), unlike a scalar or untyped-map return.
-        {{:typed_record, result_struct_name}, [result_struct | nested_structs], nil}
+        # Every result-side struct is `decodable?: true` so the emitter renders it as a
+        # Decodable result struct, not an Encodable input struct.
+        structs = Enum.map([result_struct | nested_structs], &Map.put(&1, :decodable?, true))
+        {{:typed_record, result_struct_name}, structs, nil}
 
       :unsupported ->
         :unsupported
@@ -1293,23 +1301,6 @@ defmodule AshSwift.Codegen.Reader do
       {:ok, type_name, mres}
     else
       _ -> :none
-    end
-  end
-
-  # The fields of a typed-`:map` return struct, plus any nested structs an
-  # `{:array, :map}` field generated: map_constraint_fields/5 with nested structs
-  # allowed (an array-of-constrained-map field becomes `[<Result><Field>Item]` + a
-  # nested struct, an array-of-scalar `[Scalar]`, a plain map `[String: AshJSON]`).
-  # The generated structs are tagged `decodable?: true` so the emitter renders them
-  # as Decodable result structs, not Encodable input structs. Any unmappable field
-  # makes the whole return — and so the action — unsupported.
-  defp collect_result_struct_fields(fields, name_prefix, resource, formatter) do
-    case map_constraint_fields(fields, name_prefix, resource, formatter, allow_nested?: true) do
-      {:ok, struct_fields, structs} ->
-        {:ok, struct_fields, Enum.map(structs, &Map.put(&1, :decodable?, true))}
-
-      :unsupported ->
-        :unsupported
     end
   end
 
