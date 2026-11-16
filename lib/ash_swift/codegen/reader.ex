@@ -1374,8 +1374,10 @@ defmodule AshSwift.Codegen.Reader do
             # about it once for this resource, so this drop stays quiet.
             #
             # Unlike the model field, dropping here is only safe for an OPTIONAL
-            # attribute: a required one (create: `allow_nil?: false` with no default;
-            # update / soft destroy: listed in `require_attributes`) still yields an
+            # attribute: a required one (create: `input.required?` and `allow_nil?: false`
+            # with no default, i.e. not in `allow_nil_input`; update / soft destroy:
+            # `input.required?`, i.e. listed in `require_attributes`; the rule lives
+            # in the `required?` case below) still yields an
             # input struct that compiles, and the action then fails server-side at run
             # time rather than at build time. Tracked in issue #79.
             case attribute_swift_type(attr, formatted_name, type_name) do

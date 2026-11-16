@@ -4,6 +4,15 @@
 
 ### Breaking
 
+- Create input structs now make attributes listed in the action's
+  `allow_nil_input` optional (`T?`, `= nil` in the init), where a non-null
+  attribute without a default used to be required. Those params also move after
+  the required ones in the memberwise init, so call sites must reorder:
+  `CreateTodoInput(title: "x", priority: .low)` becomes
+  `CreateTodoInput(priority: .low, title: "x")` when `title` is in
+  `allow_nil_input` (and `priority` is required), and reading `.title` now
+  yields `String?`. (#124)
+
 - Update and soft-destroy input structs now make the attributes listed in the
   action's `require_attributes` non-optional, with no default in the init,
   matching ash_typescript. Callers must pass those fields when building the
