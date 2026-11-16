@@ -239,8 +239,8 @@ not be renamed. So a generated typed `Decodable` result struct should use
 client-formatted (camelCase) field names (`FieldFormatter.format_field_for_client`),
 and Swift's synthesized `CodingKeys` match the wire with no explicit keys — exactly
 like a model struct. Don't reuse the `[String: AshJSON]` mapping for a constrained
-map: it's still passed through for the *unconstrained* case only. See `generic_action_return/4`
-+ `collect_result_struct_fields/4` (issue #70); the wire behavior is in
+map: it's still passed through for the *unconstrained* case only. See `generic_action_return/6`
++ `map_constraint_fields/5` (issue #70); the wire behavior is in
 `deps/ash_typescript/lib/ash_typescript/rpc/value_formatter.ex`.
 
 ### A return-side nested struct name must include the `Result` segment to avoid colliding with the argument-side one
