@@ -466,8 +466,8 @@ defmodule AshSwift.Codegen.Emitter do
   #
   # The Reader guarantees `sortable?` / `filterable?` are false for gets (they
   # are list-read flags), so this clause matches on both: an IR that says
-  # otherwise falls to the raising clause below rather than being quietly
-  # re-decided here (ADR-0010: one owner per decision).
+  # otherwise is rejected by the guarded raising clause below rather than being
+  # quietly re-decided here (ADR-0010: one owner per decision).
   defp method_spec(
          %{
            rpc_name: rpc_name,
@@ -520,10 +520,19 @@ defmodule AshSwift.Codegen.Emitter do
     }
   end
 
-  defp method_spec(%{rpc_name: rpc_name, action_type: :read, get: get} = action, _type_name)
-       when not is_nil(get) do
-    raise "AshSwift: get action #{inspect(rpc_name)} has sortable?: #{inspect(action.sortable?)}, " <>
-            "filterable?: #{inspect(action.filterable?)}; the Reader must set both false for gets"
+  defp method_spec(
+         %{
+           rpc_name: rpc_name,
+           action_type: :read,
+           get: get,
+           sortable?: sortable?,
+           filterable?: filterable?
+         },
+         _type_name
+       )
+       when not is_nil(get) and (sortable? != false or filterable? != false) do
+    raise "AshSwift: get action #{inspect(rpc_name)} has sortable?: #{inspect(sortable?)}, " <>
+            "filterable?: #{inspect(filterable?)}; the Reader must set both false for gets"
   end
 
   # Create actions: typed input struct + returns the created record.
