@@ -688,7 +688,15 @@ defmodule AshSwift.Codegen.Reader do
       %{kind: :map, fields: item_fields} when is_list(item_fields) and item_fields != [] ->
         case collect_record_struct_fields(item_fields, resource, formatter) do
           {:ok, struct_fields} ->
-            struct_name = name_prefix <> pascal_case(field_name) <> "Item"
+            # Built from the raw field atom (not the formatted client name), which
+            # `field_names` can map to a clean name while the raw one stays hostile,
+            # so the derived struct name is checked on its own (#142).
+            struct_name =
+              assert_swift_identifier!(
+                name_prefix <> pascal_case(field_name) <> "Item",
+                "struct name",
+                resource
+              )
 
             {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
 

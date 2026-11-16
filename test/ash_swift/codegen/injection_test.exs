@@ -54,5 +54,11 @@ defmodule AshSwift.Codegen.InjectionTest do
         Reader.read([AshSwift.Test.BadEnumValueDomain])
       end
     end
+
+    test "rejects a nested struct name derived from a hostile raw typed-map return field (array-of-map arguments share the helper)" do
+      assert_raise Mix.Error, ~r/struct name .* is not a valid Swift identifier/s, fn ->
+        Reader.read([AshSwift.Test.BadStructNameReturnDomain])
+      end
+    end
   end
 end
