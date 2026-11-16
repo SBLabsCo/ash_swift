@@ -243,6 +243,15 @@ defmodule AshSwift.Test.Todo do
       change set_attribute(:title, arg(:new_title))
     end
 
+    # Issue #75: argument-only update whose required argument shares a name with a
+    # PUBLIC, nullable attribute (the SwingClips `set_display_name` shape). The
+    # argument's `allow_nil?: false` must win over the attribute's nullability.
+    update :set_score do
+      accept []
+      argument :score, :integer, allow_nil?: false
+      change set_attribute(:score, arg(:score))
+    end
+
     # Issue #84: argument-only update whose argument shares a name with a PRIVATE
     # attribute — the SwingClips `set_date_of_birth` shape.
     update :set_due_date do

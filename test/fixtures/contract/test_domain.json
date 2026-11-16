@@ -857,6 +857,30 @@
       "sortable": false
     },
     {
+      "action": "set_score",
+      "action_type": "update",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "score",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "name": "set_todo_score",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
       "action": "stats",
       "action_type": "action",
       "domain": "AshSwift.Test.Domain",
@@ -1559,6 +1583,17 @@
       ],
       "kind": "input",
       "name": "SetTodoDueDateInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "score",
+          "optional": false,
+          "type": "Int"
+        }
+      ],
+      "kind": "input",
+      "name": "SetTodoScoreInput"
     },
     {
       "fields": [
