@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Two different resources that map to the same Swift type name (for example a
+  related, unexposed resource sharing a primary's `type_name`) are now a codegen
+  error instead of one being silently decoded as the other's struct. Give one of
+  them a distinct `type_name` in its `typescript do ... end` block. (#156)
 - String literals in generated Swift are now escaped, and codegen stops with an
   error when a resource `type_name`, rpc action name, field or argument name, or
   enum value is not a plain Swift identifier. Previously such names produced

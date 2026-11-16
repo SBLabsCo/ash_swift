@@ -463,12 +463,19 @@ defmodule AshSwift.Codegen.Emitter do
   # Get (single-record read) actions: typed lookup params and a typed return.
   # not_found_error? true → return T (throws on missing).
   # not_found_error? false → return T? (nil on missing).
+  #
+  # The Reader guarantees `sortable?` / `filterable?` are false for gets (they
+  # are list-read flags), so this clause matches on both: an IR that says
+  # otherwise is rejected by the guarded raising clause below rather than being
+  # quietly re-decided here (ADR-0010: one owner per decision).
   defp method_spec(
          %{
            rpc_name: rpc_name,
            action_type: :read,
            get: get,
-           not_found_error?: not_found_error?
+           not_found_error?: not_found_error?,
+           sortable?: false,
+           filterable?: false
          } = action,
          type_name
        )
@@ -511,6 +518,21 @@ defmodule AshSwift.Codegen.Emitter do
         [{"action", swift_string(rpc_name)}] ++
           lookup_args ++ input_args ++ [{"fields", "fields"}]
     }
+  end
+
+  defp method_spec(
+         %{
+           rpc_name: rpc_name,
+           action_type: :read,
+           get: get,
+           sortable?: sortable?,
+           filterable?: filterable?
+         },
+         _type_name
+       )
+       when not is_nil(get) and (sortable? != false or filterable? != false) do
+    raise "AshSwift: get action #{inspect(rpc_name)} has sortable?: #{inspect(sortable?)}, " <>
+            "filterable?: #{inspect(filterable?)}; the Reader must set both false for gets"
   end
 
   # Create actions: typed input struct + returns the created record.

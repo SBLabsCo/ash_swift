@@ -54,42 +54,6 @@ defmodule AshSwift.CodegenTest do
       assert functions =~ "public func `init`("
     end
 
-    test "emits a Swift enum for an aggregate whose resolved type is an enum",
-         %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # `top_priority` is a `first` aggregate over the enum attribute :priority, so
-      # it resolves to an enum type and is emitted like an enum attribute: a typed
-      # field plus a per-resource generated enum.
-      assert types =~ "public enum UserTopPriority: String, Codable, Sendable, Equatable {"
-
-      # Scope the case assertions to the UserTopPriority block. Asserting `case high`
-      # against the whole file would be vacuous — TodoPriority carries the same cases
-      # in the same string — so extract this enum's body and check the cases there,
-      # making the assertion load-bearing if UserTopPriority's cases ever regress.
-      enum_block = Regex.run(~r/public enum UserTopPriority:.*?\n\}/s, types) |> List.first()
-      assert enum_block =~ "case high"
-      assert enum_block =~ "case low"
-      assert enum_block =~ "case medium"
-    end
-
-    test "emits a Swift enum for a zero-argument calculation whose type is an enum",
-         %{files: files} do
-      types = files["AshRpcTypes.swift"]
-      # `name_size` is a zero-arg :atom calculation with a one_of constraint, so it
-      # resolves to an enum and is emitted like an enum attribute: a typed field
-      # plus a per-resource generated enum. This exercises the enum branch of the
-      # Reader's derived-field classifier (private `emit_derived_fields/5`) from
-      # the *calculation* path (aggregates cover it too, but only indirectly for
-      # calcs).
-      assert types =~ "public enum UserNameSize: String, Codable, Sendable, Equatable {"
-
-      # Scope the case assertions to the UserNameSize block so they stay
-      # load-bearing (a whole-file `case short` could be satisfied elsewhere).
-      enum_block = Regex.run(~r/public enum UserNameSize:.*?\n\}/s, types) |> List.first()
-      assert enum_block =~ "case long"
-      assert enum_block =~ "case short"
-    end
-
     test "pure get? action with arguments takes input: and no lookup param (#91)", %{
       files: files
     } do

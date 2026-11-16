@@ -11,6 +11,7 @@ defmodule AshSwift.Codegen.ReaderTest do
   import ExUnit.CaptureLog
 
   alias AshSwift.Codegen.Reader
+  alias AshSwift.Test.ActionIRKeys
 
   @domains [AshSwift.Test.Domain]
 
@@ -44,17 +45,6 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "action IR key sets (#95)" do
-    @crud_keys ~w(rpc_name action action_type get
-                  not_found_error? input_struct_name input_required? primary_key_params
-                  pagination_type optional_pagination_type sortable? filterable?)a
-               |> MapSet.new()
-
-    @generic_keys ~w(rpc_name action action_type get
-                     not_found_error? input_struct_name primary_key_params pagination_type
-                     optional_pagination_type sortable? filterable? generic_return
-                     generic_return_resource)a
-                  |> MapSet.new()
-
     test "CRUD actions carry exactly the documented keys; generic actions their own set", %{
       ir: ir
     } do
@@ -71,11 +61,13 @@ defmodule AshSwift.Codegen.ReaderTest do
             :discard_todo
           ] do
         action = Enum.find(todo.actions, &(&1.rpc_name == name))
-        assert MapSet.new(Map.keys(action)) == @crud_keys, "CRUD keys drifted for #{name}"
+
+        assert MapSet.new(Map.keys(action)) == ActionIRKeys.crud(),
+               "CRUD keys drifted for #{name}"
       end
 
       ping = Enum.find(todo.actions, &(&1.rpc_name == :ping))
-      assert MapSet.new(Map.keys(ping)) == @generic_keys
+      assert MapSet.new(Map.keys(ping)) == ActionIRKeys.generic()
     end
   end
 
@@ -695,6 +687,27 @@ defmodule AshSwift.Codegen.ReaderTest do
       # `destination:`); a non-relationship field like this one is kept
       # whatever the shape of its Swift type.
       assert attr_type(resource(ir, "Category"), "aliases") == "[String?]"
+    end
+  end
+
+  describe "type-name collisions between different resource modules (#156)" do
+    test "a related destination sharing a primary's type name is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/same Swift type name: "Clash" \(AshSwift\.Test\.ClashPrimary, AshSwift\.Test\.ClashRelated\)/,
+                   fn -> Reader.read([AshSwift.Test.TypeNameClashPrimaryDomain]) end
+    end
+
+    test "two related destinations sharing a type name are a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/same Swift type name: "ClashDup" \(AshSwift\.Test\.ClashRelatedA, AshSwift\.Test\.ClashRelatedB\)/,
+                   fn -> Reader.read([AshSwift.Test.TypeNameClashRelatedDomain]) end
+    end
+
+    test "an unexposed module reached by two relationships is emitted once, not an error" do
+      ir = Reader.read([AshSwift.Test.SharedDestinationDomain])
+
+      assert ir.all_resources |> Enum.map(& &1.type_name) |> Enum.sort() ==
+               ["SharedHolder", "SharedTarget"]
     end
   end
 
