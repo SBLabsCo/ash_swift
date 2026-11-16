@@ -8,6 +8,9 @@ defmodule AshSwift.Codegen.EmitterTest do
   keyword-named field), a filter struct and a sort-field enum, plus a second
   resource that has neither a filter predicate nor a sort surface.
 
+  Hand-built IR must follow the shape in the Reader's moduledoc (see
+  `generic_action/1` for generic actions).
+
   What the Reader decides (which actions are sortable, how a manifest type maps)
   is *input* here; these tests pin only how the Emitter renders it.
   """
@@ -33,6 +36,27 @@ defmodule AshSwift.Codegen.EmitterTest do
       },
       Map.new(overrides)
     )
+  end
+
+  # Shaped exactly like the Reader's generic-action IR: no `input_required?`
+  # (CRUD only), plus `generic_return` and `generic_return_resource`.
+  defp generic_action(overrides) do
+    %{
+      rpc_name: :ping,
+      action: :ping,
+      action_type: :action,
+      get: nil,
+      not_found_error?: false,
+      input_struct_name: nil,
+      primary_key_params: [],
+      pagination_type: :none,
+      optional_pagination_type: :none,
+      sortable?: false,
+      filterable?: false,
+      generic_return: :void,
+      generic_return_resource: nil
+    }
+    |> Map.merge(Map.new(overrides))
   end
 
   defp todo(actions) do
@@ -478,11 +502,10 @@ defmodule AshSwift.Codegen.EmitterTest do
     test "generic actions: void and typed returns, with and without input" do
       out =
         functions([
-          action(rpc_name: :ping, action_type: :action, generic_return: :void),
-          action(rpc_name: :count, action_type: :action, generic_return: {:typed, "Int"}),
-          action(
+          generic_action(rpc_name: :ping, generic_return: :void),
+          generic_action(rpc_name: :count, generic_return: {:typed, "Int"}),
+          generic_action(
             rpc_name: :rename,
-            action_type: :action,
             input_struct_name: "RenameInput",
             generic_return: {:typed_record, "Todo"}
           )
@@ -518,12 +541,6 @@ defmodule AshSwift.Codegen.EmitterTest do
       {a, _} = :binary.match(out, "func aSecond")
       assert b < a
       assert out =~ ~r/\}\n\n    \/\/\/ Calls the `a_second`/
-    end
-
-    test "rendering is deterministic" do
-      actions = [action(sortable?: true, filterable?: true)]
-      assert functions(actions) == functions(actions)
-      assert Emitter.render_types([todo(actions)]) == Emitter.render_types([todo(actions)])
     end
   end
 end

@@ -1,7 +1,9 @@
 defmodule AshSwift.CodegenTest do
   @moduledoc """
-  Tests the primary M1 seam: the Swift source codegen emits — never its internal
-  helpers. These assert on observable, structural properties of the output.
+  End-to-end tests of the full pipeline (manifest -> Reader -> Emitter) over the
+  fixture domains: the Swift source codegen emits, never its internal helpers.
+  Pure Swift formatting is pinned in `codegen/emitter_test.exs` over a hand-built
+  IR, and Reader classifications in `codegen/reader_test.exs`.
   """
   use ExUnit.Case, async: true
 
@@ -78,15 +80,6 @@ defmodule AshSwift.CodegenTest do
       assert enum_block =~ "case short"
     end
 
-    test "the functions file imports the runtime and exposes an AshRpc entry point", %{
-      files: files
-    } do
-      functions = files["AshRpcFunctions.swift"]
-      assert functions =~ "import AshSwiftRuntime"
-      assert functions =~ "public struct AshRpc: Sendable {"
-      assert functions =~ "public let client: AshRpcClient"
-    end
-
     test "get action with not_found_error? true emits a typed non-optional return", %{
       files: files
     } do
@@ -114,17 +107,6 @@ defmodule AshSwift.CodegenTest do
                "public func getTodoByScore(score: String, fields: [FieldSelection]) async throws -> Todo {"
     end
 
-    test "pure get? action takes no lookup param and sends no identity (#91)", %{
-      files: files
-    } do
-      functions = files["AshRpcFunctions.swift"]
-
-      assert functions =~
-               "public func fetchTodo(fields: [FieldSelection]) async throws -> Todo {"
-
-      assert functions =~ ~s[GetRequest(action: "fetch_todo", fields: fields)]
-    end
-
     test "pure get? action with arguments takes input: and no lookup param (#91)", %{
       files: files
     } do
@@ -135,15 +117,6 @@ defmodule AshSwift.CodegenTest do
 
       assert functions =~
                "GetRequest(action: \"fetch_todo_by_title\", arguments: AnyEncodable(input)"
-    end
-
-    test "rpc_action get_by emits getBy: argument in the generated call", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-
-      assert functions =~
-               "public func findTodoByTitle(title: String, fields: [FieldSelection]) async throws -> Todo {"
-
-      assert functions =~ ~s(getBy: ["title": title])
     end
 
     test "is deterministic — same domains produce byte-identical output", %{files: files} do
@@ -168,15 +141,6 @@ defmodule AshSwift.CodegenTest do
       assert functions =~
                ~s[client.execute(ListRequest(action: "list_todos_no_sort", filter: filter.map { AnyEncodable($0) }, fields: fields))]
     end
-
-    test "get actions do not gain a sort: parameter", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-
-      assert functions =~
-               "public func getTodo(id: String, fields: [FieldSelection]) async throws -> Todo {"
-
-      refute functions =~ "public func getTodo(id: String, sort:"
-    end
   end
 
   describe "filter surface (issue #35)" do
@@ -195,11 +159,6 @@ defmodule AshSwift.CodegenTest do
 
       assert functions =~
                ~s[client.execute(ListRequest(action: "list_todos_no_filter", sort: ashSortString(sort), fields: fields))]
-    end
-
-    test "get actions do not gain a filter: parameter", %{files: files} do
-      functions = files["AshRpcFunctions.swift"]
-      refute functions =~ "public func getTodo(id: String, filter:"
     end
 
     test "a resource with no filterable attributes emits a valid filter struct with only combinators" do
@@ -259,12 +218,6 @@ defmodule AshSwift.CodegenTest do
                "public func listMapOnlysSortable(filter: MapOnlyFilter? = nil, fields: [FieldSelection])"
 
       refute functions =~ "sort:"
-    end
-  end
-
-  describe "filter logical combinators (issue #36)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
     end
   end
 
