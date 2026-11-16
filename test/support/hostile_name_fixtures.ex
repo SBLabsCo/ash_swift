@@ -80,7 +80,7 @@ defmodule AshSwift.Test.LeadingUnderscoreActionNameDomain do
 
   typescript_rpc do
     resource AshSwift.Test.LeadingUnderscoreActionName do
-      rpc_action(:_1, :read)
+      rpc_action(:"1st", :read)
     end
   end
 
@@ -396,5 +396,50 @@ defmodule AshSwift.Test.BadCalcEnumValueDomain do
 
   resources do
     resource AshSwift.Test.BadCalcEnumValue
+  end
+end
+
+defmodule AshSwift.Test.SnakeEnumValue do
+  @moduledoc "Fixture resource (#142): a snake_case enum value whose Swift case name differs from its wire value."
+
+  use Ash.Resource,
+    domain: AshSwift.Test.SnakeEnumValueDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("SnakeEnumValue")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id, public?: true
+    attribute :stage, :atom, public?: true, constraints: [one_of: [:done, :in_progress]]
+  end
+
+  actions do
+    defaults [:read]
+  end
+end
+
+defmodule AshSwift.Test.SnakeEnumValueDomain do
+  @moduledoc "Fixture domain exposing `AshSwift.Test.SnakeEnumValue` (#142)."
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.SnakeEnumValue do
+      rpc_action(:list_snake_enum, :read)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.SnakeEnumValue
   end
 end

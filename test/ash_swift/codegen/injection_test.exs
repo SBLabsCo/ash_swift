@@ -44,7 +44,7 @@ defmodule AshSwift.Codegen.InjectionTest do
       end
     end
 
-    test "rejects an rpc_action name whose lower-camelled form is not a Swift identifier" do
+    test "rejects an rpc_action name that starts with a digit (not a Swift identifier)" do
       assert_raise Mix.Error, ~r/rpc_action name .* is not a valid Swift identifier/s, fn ->
         Reader.read([AshSwift.Test.LeadingUnderscoreActionNameDomain])
       end
@@ -72,6 +72,28 @@ defmodule AshSwift.Codegen.InjectionTest do
       assert_raise Mix.Error, ~r/struct name .* is not a valid Swift identifier/s, fn ->
         Reader.read([AshSwift.Test.BadStructNameReturnDomain])
       end
+    end
+  end
+
+  describe "snake_case enum values (raw wire value pin)" do
+    test "the Reader keeps the raw wire value when the Swift case name is lower-camelled" do
+      resource =
+        [AshSwift.Test.SnakeEnumValueDomain]
+        |> Reader.read()
+        |> Map.fetch!(:all_resources)
+        |> Enum.find(&(&1.type_name == "SnakeEnumValue"))
+
+      enum = Enum.find(resource.enums, &(&1.enum_name == "SnakeEnumValueStage"))
+
+      assert %{name: "inProgress", raw: "in_progress"} in enum.cases
+      assert %{name: "done", raw: nil} in enum.cases
+    end
+
+    test "the Emitter renders the raw wire value on the case" do
+      files = Codegen.build_files([AshSwift.Test.SnakeEnumValueDomain])
+      types = files |> Map.values() |> Enum.join("\n")
+
+      assert types =~ ~s(case inProgress = "in_progress")
     end
   end
 
