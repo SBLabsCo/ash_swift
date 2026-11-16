@@ -17,6 +17,7 @@ defmodule AshSwift.Codegen.EmitterTest do
   use ExUnit.Case, async: true
 
   alias AshSwift.Codegen.Emitter
+  alias AshSwift.Test.ActionIRKeys
 
   defp action(overrides) do
     Map.merge(
@@ -57,6 +58,11 @@ defmodule AshSwift.Codegen.EmitterTest do
       generic_return_resource: nil
     }
     |> Map.merge(Map.new(overrides))
+  end
+
+  test "hand-built action IR carries exactly the Reader's key sets (#154)" do
+    assert MapSet.new(Map.keys(action([]))) == ActionIRKeys.crud()
+    assert MapSet.new(Map.keys(generic_action([]))) == ActionIRKeys.generic()
   end
 
   defp todo(actions) do
