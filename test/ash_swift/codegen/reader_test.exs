@@ -77,6 +77,52 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
+  describe "list and get action flags (#34, #35, #37, #41)" do
+    defp action_ir(ir, type_name, rpc_name),
+      do: Enum.find(resource(ir, type_name).actions, &(&1.rpc_name == rpc_name))
+
+    test "a default list read is sortable and filterable; enable_sort?/enable_filter? false each drop one",
+         %{ir: ir} do
+      assert %{sortable?: true, filterable?: true} = action_ir(ir, "Todo", :list_todos)
+      assert %{sortable?: false, filterable?: true} = action_ir(ir, "Todo", :list_todos_no_sort)
+      assert %{sortable?: true, filterable?: false} = action_ir(ir, "Todo", :list_todos_no_filter)
+    end
+
+    test "a get is never sortable or filterable, and never has an optional pagination overload",
+         %{ir: ir} do
+      for name <- [:get_todo, :find_todo, :fetch_todo, :find_todo_by_title] do
+        assert %{sortable?: false, filterable?: false, optional_pagination_type: :none} =
+                 action_ir(ir, "Todo", name)
+      end
+    end
+
+    test "not_found_error? is true by default and false when the RPC action says so", %{ir: ir} do
+      assert %{not_found_error?: true} = action_ir(ir, "Todo", :get_todo)
+      assert %{not_found_error?: false} = action_ir(ir, "Todo", :find_todo)
+    end
+
+    test "optional pagination is classified by the supported types; required pagination is not optional",
+         %{ir: ir} do
+      assert %{optional_pagination_type: :offset, pagination_type: :none} =
+               action_ir(ir, "Todo", :list_todos)
+
+      assert %{optional_pagination_type: :keyset} =
+               action_ir(ir, "Todo", :list_todos_keyset_optional)
+
+      assert %{pagination_type: :offset, optional_pagination_type: :none} =
+               action_ir(ir, "Todo", :list_todos_offset)
+    end
+
+    test "a sortable read over a resource with no sortable attributes drops the sort surface (#41)" do
+      ir = Reader.read([AshSwift.Test.MapOnlyDomain])
+
+      assert %{sort_field: nil, filter_struct: %{fields: []}} = resource(ir, "MapOnly")
+
+      assert %{sortable?: false, filterable?: true} =
+               action_ir(ir, "MapOnly", :list_map_onlys_sortable)
+    end
+  end
+
   describe "destroy action inputs (#102)" do
     test "a destroy gets an input struct only when it declares inputs", %{ir: ir} do
       todo = resource(ir, "Todo")
