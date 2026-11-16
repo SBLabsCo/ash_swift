@@ -15,9 +15,11 @@ defmodule AshSwift.Codegen.ReaderTest do
 
   @domains [AshSwift.Test.Domain]
 
-  # The IR is immutable data; read it once for the whole module.
+  # The IR is immutable data; read it once for the whole module. setup_all runs
+  # outside the per-test process, so capture the skip warnings here.
   setup_all do
-    %{ir: Reader.read(@domains)}
+    {ir, _log} = with_log(fn -> Reader.read(@domains) end)
+    %{ir: ir}
   end
 
   defp resource(ir, type_name), do: Enum.find(ir.all_resources, &(&1.type_name == type_name))
@@ -312,6 +314,13 @@ defmodule AshSwift.Codegen.ReaderTest do
       get_todo = Enum.find(todo.actions, &(&1.rpc_name == :get_todo))
 
       assert {:input, [%{name: "id"}]} = get_todo.get
+    end
+
+    test "a non-String native get_by field is coerced to a String lookup param", %{ir: ir} do
+      # `score` is an Ash.Type.Integer attribute, but lookup values travel in
+      # `[String: String]` dicts (lessons.md), so TypeMap's Int must not leak in.
+      assert {:input, [%{name: "score", swift_type: "String"}]} =
+               action_ir(ir, "Todo", :get_todo_by_score).get
     end
 
     test "an RPC-level get_by action still travels via :get_by", %{ir: ir} do
