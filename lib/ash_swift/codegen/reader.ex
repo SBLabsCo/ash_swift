@@ -902,7 +902,7 @@ defmodule AshSwift.Codegen.Reader do
   # Returns a tuple {fields, enums} for the resource.
   #
   # fields: sorted list of %{name, swift_type} for public scalar attributes and
-  # public relationships. Field names go through the same formatter AshTypescript
+  # public relationships whose destination passes model_struct_target/2. Field names go through the same formatter AshTypescript
   # uses for output. Enum attributes produce a generated Swift enum type name
   # instead of the default "String" fallback.
   #
@@ -944,6 +944,11 @@ defmodule AshSwift.Codegen.Reader do
       mres
       |> ManifestResource.all_relationships()
       |> Enum.flat_map(fn rel ->
+        # `:none` is defensive and, as far as the manifest is concerned,
+        # unreachable in practice (the manifest lists a relationship's
+        # destination as a resource). It exists so every caller shares one
+        # predicate, and it drops (rather than emits) a field whose struct would
+        # never be generated.
         case model_struct_target(rel.destination, manifest_resources) do
           {:ok, dest_type, _dest_mres} ->
             swift_type =
