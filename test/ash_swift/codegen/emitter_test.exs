@@ -20,8 +20,14 @@ defmodule AshSwift.Codegen.EmitterTest do
   alias AshSwift.Codegen.Emitter
   alias AshSwift.Test.ActionIRKeys
 
+  # Overrides use `Map.replace!/3`, so a typo'd key or one the Reader never emits
+  # for this action kind raises instead of silently rendering an impossible shape.
+  defp override!(base, overrides) do
+    Enum.reduce(overrides, base, fn {k, v}, acc -> Map.replace!(acc, k, v) end)
+  end
+
   defp action(overrides) do
-    Map.merge(
+    override!(
       %{
         rpc_name: :list_todos,
         action: :read,
@@ -36,7 +42,7 @@ defmodule AshSwift.Codegen.EmitterTest do
         sortable?: false,
         filterable?: false
       },
-      Map.new(overrides)
+      overrides
     )
   end
 
@@ -58,7 +64,7 @@ defmodule AshSwift.Codegen.EmitterTest do
       generic_return: :void,
       generic_return_resource: nil
     }
-    |> Map.merge(Map.new(overrides))
+    |> override!(overrides)
   end
 
   defp todo(actions) do
