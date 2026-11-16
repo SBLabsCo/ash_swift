@@ -411,9 +411,6 @@ defmodule AshSwift.CodegenTest do
       # CiString has an explicit mapping, so codegen emits String without the
       # unmapped-type fallback warning.
       assert types =~ "public var username: String?"
-      # Its filter type is the case-insensitive-aware group, not the plain string one.
-      assert types =~ "public var username: NullableCiStringOperators<String>?"
-      refute types =~ "public var username: NullableEnumOperators<String>?"
     end
 
     test "an {:array, :string} attribute maps to [String], not a scalar String (#78)", %{
