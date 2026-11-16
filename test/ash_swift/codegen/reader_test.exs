@@ -82,10 +82,15 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert %{sortable?: true, filterable?: false} = action_ir(ir, "Todo", :list_todos_no_filter)
     end
 
-    test "a get is never sortable or filterable, and never has an optional pagination overload",
+    test "a get is never sortable, filterable or paginated, and never has an optional pagination overload",
          %{ir: ir} do
       for name <- [:get_todo, :find_todo, :fetch_todo, :find_todo_by_title] do
-        assert %{sortable?: false, filterable?: false, optional_pagination_type: :none} =
+        assert %{
+                 sortable?: false,
+                 filterable?: false,
+                 pagination_type: :none,
+                 optional_pagination_type: :none
+               } =
                  action_ir(ir, "Todo", name)
       end
     end
