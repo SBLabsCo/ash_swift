@@ -1228,6 +1228,11 @@
           "name": "priority",
           "optional": true,
           "type": "Int"
+        },
+        {
+          "name": "tags",
+          "optional": false,
+          "type": "[String]"
         }
       ],
       "kind": "input",

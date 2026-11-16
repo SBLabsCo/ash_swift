@@ -233,6 +233,10 @@ enum ConsumerCheck {
         _ = uploadManifest.caption  // nil — absent from response
         _ = uploadManifest.clips?.first?.clipId  // "c1"
         let _: [String]? = uploadManifest.clips?.first?.studentNames  // ["Ada"]
+
+        // Array-of-scalar field in an Encodable array-of-map argument item (#172).
+        let bulk = BulkCreateInput(rows: [BulkCreateRowsItem(label: "a", tags: ["x"], priority: nil)])
+        _ = try JSONEncoder().encode(bulk)
     }
 
     // A custom Transport can be injected without depending on AshSwift's default.

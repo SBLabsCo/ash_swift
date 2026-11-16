@@ -353,6 +353,9 @@ defmodule AshSwift.Codegen.ReaderTest do
       # :deep_broadcast takes a nested-array argument ({:array, {:array, _}}) whose element is
       # unmappable, so the whole action is skipped rather than emitted with a wrong-typed input.
       refute :deep_broadcast in rpc_names
+      # :nested_records has an array-of-record field inside its array-of-map item,
+      # which would need a doubly nested struct: skipped too (#172).
+      refute :nested_records in rpc_names
 
       # :summarize (a struct return of a resource, allow_nil? true) is an optional
       # field-selected model return, carrying its target resource (#56).
@@ -387,6 +390,9 @@ defmodule AshSwift.Codegen.ReaderTest do
       # an array, which maps to no Swift type, so the input gate skips the action.
       assert log =~ "generic action :deep_broadcast"
       assert log =~ "argument :matrix"
+
+      # `nested_records` has an array-of-record field inside its item: also skipped.
+      assert log =~ "generic action :nested_records"
       assert log =~ "skipping"
     end
   end
@@ -550,6 +556,16 @@ defmodule AshSwift.Codegen.ReaderTest do
       # The {:array, :map} field is typed by the generated element struct.
       assert %{swift_type: "[UploadStartResultClipsItem]", required?: false} =
                Enum.find(result.fields, &(&1.name == "clips"))
+    end
+
+    test "an array-of-scalar field in an array-of-map argument item maps to [String] (#172)", %{
+      ir: ir
+    } do
+      item = input_struct(ir, "BulkCreateRowsItem")
+      assert item, "expected a generated BulkCreateRowsItem struct"
+
+      assert %{swift_type: "[String]", required?: true} =
+               Enum.find(item.fields, &(&1.name == "tags"))
     end
 
     test "an {:array, :map} return field generates a typed, decodable nested struct", %{ir: ir} do

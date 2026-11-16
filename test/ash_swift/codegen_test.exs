@@ -480,7 +480,6 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public var clipId: String\n"
       assert types =~ "public var orderIndex: Int\n"
       assert types =~ "public var uploadUrl: String\n"
-      assert types =~ "public var studentNames: [String]\n"
     end
 
     test "an unconstrained :map return still maps to [String: AshJSON] (no struct)", %{

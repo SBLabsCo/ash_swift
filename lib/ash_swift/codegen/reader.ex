@@ -720,51 +720,62 @@ defmodule AshSwift.Codegen.Reader do
         end
 
       # An array of a scalar (or an unconstrained map) maps element-wise.
-      element ->
-        case TypeMap.generic_swift_type(element) do
-          {:ok, swift} -> {:ok, "[#{swift}]", []}
+      _element ->
+        case element_swift_type(%{kind: :array, item_type: item}) do
+          {:ok, swift} -> {:ok, swift, []}
           :unsupported -> :unsupported
         end
     end
   end
 
   defp generic_field_swift_type(type, _name_prefix, _field_name, _resource, _formatter) do
-    case TypeMap.generic_swift_type(type) do
+    case element_swift_type(type) do
       {:ok, swift} -> {:ok, swift, []}
       :unsupported -> :unsupported
     end
   end
 
-  # The fields of a generated nested record struct (an array-of-map argument's
-  # element). Each field maps via generic_field_swift_type/5, so an array of a
-  # scalar (`student_names: {:array, :string}`) becomes `[String]`; a field is required
-  # only when `allow_nil?` is explicitly `false` — map-constraint fields are
-  # nullable by default, so an unset (`nil`) `allow_nil?` is an optional Swift
-  # property, not a required one. Any unmappable field type makes the whole element
+  # The Swift type of a field that generates no nested struct: an array of a scalar
+  # (or an unconstrained map) maps element-wise, anything else defers to
+  # TypeMap.generic_swift_type/1.
+  defp element_swift_type(%{kind: :array, item_type: item}) when not is_nil(item) do
+    case TypeMap.generic_swift_type(item) do
+      {:ok, swift} -> {:ok, "[#{swift}]"}
+      :unsupported -> :unsupported
+    end
+  end
+
+  defp element_swift_type(type), do: TypeMap.generic_swift_type(type)
+
+  # The fields of a generated nested record struct: the element of an array-of-map
+  # argument (input side) or of an array-of-map field in a typed `:map` return
+  # (output side). Each field maps via element_swift_type/1, so an array of a
+  # scalar (`student_names: {:array, :string}`) becomes `[String]`; a field is
+  # required only when `allow_nil?` is explicitly `false` — map-constraint fields
+  # are nullable by default, so an unset (`nil`) `allow_nil?` is an optional Swift
+  # property, not a required one. An array-of-record field would need a doubly
+  # nested struct, and any unmappable field type likewise makes the whole element
   # — and so the action — unsupported.
   defp collect_record_struct_fields(fields, resource, formatter) do
     fields
-    |> Enum.reduce_while({:ok, []}, fn field, {:ok, acc} ->
-      # name_prefix is only used to name a nested struct, which an item field
-      # never generates (see the `{:ok, _, [_ | _]}` clause), so it is empty.
-      case generic_field_swift_type(field.type, "", field.name, resource, formatter) do
-        {:ok, swift, []} ->
-          struct_field = %{
-            name: format_name!(field.name, resource, formatter),
-            swift_type: swift,
-            required?: field.allow_nil? == false
-          }
+    |> Enum.reduce_while({:ok, []}, fn
+      %{type: %{kind: :array, item_type: %{kind: :map, fields: [_ | _]}}}, _acc ->
+        {:halt, :unsupported}
 
-          {:cont, {:ok, [struct_field | acc]}}
+      field, {:ok, acc} ->
+        case element_swift_type(field.type) do
+          {:ok, swift} ->
+            struct_field = %{
+              name: format_name!(field.name, resource, formatter),
+              swift_type: swift,
+              required?: field.allow_nil? == false
+            }
 
-        # An array-of-record field inside an item would need a doubly nested
-        # struct; out of scope, so the action is skipped as before.
-        {:ok, _swift, [_ | _]} ->
-          {:halt, :unsupported}
+            {:cont, {:ok, [struct_field | acc]}}
 
-        :unsupported ->
-          {:halt, :unsupported}
-      end
+          :unsupported ->
+            {:halt, :unsupported}
+        end
     end)
     |> case do
       {:ok, struct_fields} -> {:ok, Enum.sort_by(struct_fields, & &1.name)}
