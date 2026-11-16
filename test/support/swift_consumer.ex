@@ -13,10 +13,10 @@ defmodule AshSwift.Test.SwiftConsumer do
   `run_swift_test!/2` writes a test's Swift file into the shared test target and
   removes it again when the test exits, so the target holds only the shared harness
   (`StubTransport.swift`) plus the running test's file, and one test's compile error
-  can never fail another. The generated
-  client is compiled once (`swift build`, memoized after the first success); if
-  that fails the message says the *shared generated client* failed to compile,
-  not the test.
+  can never fail another. It also clears `captured_bodies/` before each run. The
+  generated client is compiled once (`swift build`, memoized after the first
+  success); if that fails the message says the *shared generated client* failed to
+  compile, not the test.
 
   Swift tests build an `AshRpc` with `stubRpc(...)` (canned response) or capture
   request bodies with `capturingRpc(name, response)`; the Elixir side replays the
