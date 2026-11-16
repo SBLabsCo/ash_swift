@@ -44,10 +44,17 @@ defmodule AshSwift.Codegen.InjectionTest do
       end
     end
 
-    test "rejects an rpc_action name that passes the raw identifier check but lower-camels to a non-identifier (:_1st)" do
+    test "rejects an rpc_action name whose lower-camelled Swift name is not an identifier (:\"1st\")" do
       assert_raise Mix.Error, ~r/rpc_action name .* is not a valid Swift identifier/s, fn ->
         Reader.read([AshSwift.Test.UnderscoreDigitActionNameDomain])
       end
+    end
+
+    test "the rpc_action check runs on the lower-camelled name, which can differ from the raw atom" do
+      # `_1st` is a valid raw identifier but lower-camels to `1st`. The Reader validates the
+      # lower-camelled form (what Swift sees), so this is the case a raw-name check would miss.
+      # It can't be a fixture domain because ash_typescript's verifier warns on `_<digit>` names.
+      assert AshSwift.Codegen.Naming.lower_camel(:_1st) == "1st"
     end
 
     test "rejects a field name that is not a Swift identifier" do

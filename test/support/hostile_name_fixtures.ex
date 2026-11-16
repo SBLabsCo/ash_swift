@@ -80,7 +80,9 @@ defmodule AshSwift.Test.UnderscoreDigitActionNameDomain do
 
   typescript_rpc do
     resource AshSwift.Test.UnderscoreDigitActionName do
-      rpc_action(:_1st, :read)
+      # Not `:_1st`: ash_typescript's own verifier warns on `_<digit>` names, and CI compiles
+      # with --warnings-as-errors. `:"1st"` reaches the same lower-camel check.
+      rpc_action(:"1st", :read)
     end
   end
 
