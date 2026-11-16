@@ -591,8 +591,8 @@ defmodule AshSwift.E2ETest do
     [archived, vetoed, discarded, plain] = Enum.map(~w(a v d p), mk)
 
     # Step 1 (Swift): call each generated function through the shared
-    # `capturingRpc` factory, which captures the outgoing body to disk. The canned responses
-    # only need to decode; the server never sees them.
+    # `capturingRpc` factory, which captures the outgoing body to disk. The
+    # canned responses only need to decode; the server never sees them.
     e2e_swift = """
     import XCTest
     import Foundation
@@ -655,7 +655,6 @@ defmodule AshSwift.E2ETest do
     SwiftConsumer.run_swift_test!("E2EReadArgumentsTest", e2e_swift)
 
     # Step 2 (Elixir): replay each captured body through the real RPC pipeline.
-
     ids = fn %{"success" => true, "data" => data} ->
       rows = if is_map(data) and Map.has_key?(data, "results"), do: data["results"], else: data
       rows |> Enum.map(& &1["id"]) |> MapSet.new()

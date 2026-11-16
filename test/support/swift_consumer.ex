@@ -147,6 +147,7 @@ defmodule AshSwift.Test.SwiftConsumer do
     tmp = shared_package()
     file = Path.join(tests_dir(tmp), "#{class}.swift")
     File.write!(file, swift_source)
+    File.rm_rf!(Path.join(tmp, "captured_bodies"))
     on_exit(fn -> File.rm(file) end)
 
     assert_client_built!(tmp, class)
