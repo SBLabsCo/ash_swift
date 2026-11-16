@@ -689,42 +689,31 @@ defmodule AshSwift.Codegen.Reader do
   # element type; everything else defers to TypeMap.generic_swift_type/1 (scalar →
   # its Swift type, map → `[String: AshJSON]`).
   defp generic_field_swift_type(
-         %{kind: :array, item_type: item},
+         %{kind: :array, item_type: %{kind: :map, fields: [_ | _] = item_fields}},
          name_prefix,
          field_name,
          resource,
          formatter
-       )
-       when not is_nil(item) do
-    case item do
-      # An array of a constrained map = a typed record list. Generate a named nested
-      # struct (e.g. `UploadStartClipsItem` / `UploadStartResultClipsItem`) so the
-      # element is compiler-checked rather than an untyped `[[String: AshJSON]]`.
-      %{kind: :map, fields: item_fields} when is_list(item_fields) and item_fields != [] ->
-        case collect_record_struct_fields(item_fields, resource, formatter) do
-          {:ok, struct_fields} ->
-            # Built from the raw field atom (not the formatted client name), which
-            # `field_names` can map to a clean name while the raw one stays hostile,
-            # so the derived struct name is checked on its own (#142).
-            struct_name =
-              assert_swift_identifier!(
-                name_prefix <> pascal_case(field_name) <> "Item",
-                "struct name",
-                resource
-              )
+       ) do
+    # An array of a constrained map = a typed record list. Generate a named nested
+    # struct (e.g. `UploadStartClipsItem` / `UploadStartResultClipsItem`) so the
+    # element is compiler-checked rather than an untyped `[[String: AshJSON]]`.
+    case collect_record_struct_fields(item_fields, resource, formatter) do
+      {:ok, struct_fields} ->
+        # Built from the raw field atom (not the formatted client name), which
+        # `field_names` can map to a clean name while the raw one stays hostile,
+        # so the derived struct name is checked on its own (#142).
+        struct_name =
+          assert_swift_identifier!(
+            name_prefix <> pascal_case(field_name) <> "Item",
+            "struct name",
+            resource
+          )
 
-            {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
+        {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
 
-          :unsupported ->
-            :unsupported
-        end
-
-      # An array of a scalar (or an unconstrained map) maps element-wise.
-      _element ->
-        case element_swift_type(%{kind: :array, item_type: item}) do
-          {:ok, swift} -> {:ok, swift, []}
-          :unsupported -> :unsupported
-        end
+      :unsupported ->
+        :unsupported
     end
   end
 
@@ -737,7 +726,12 @@ defmodule AshSwift.Codegen.Reader do
 
   # The Swift type of a field that generates no nested struct: an array of a scalar
   # (or an unconstrained map) maps element-wise, anything else defers to
-  # TypeMap.generic_swift_type/1.
+  # TypeMap.generic_swift_type/1. An array of a typed record needs a generated
+  # struct that only generic_field_swift_type/5 builds, so a doubly nested one is
+  # unsupported here.
+  defp element_swift_type(%{kind: :array, item_type: %{kind: :map, fields: [_ | _]}}),
+    do: :unsupported
+
   defp element_swift_type(%{kind: :array, item_type: item}) when not is_nil(item) do
     case TypeMap.generic_swift_type(item) do
       {:ok, swift} -> {:ok, "[#{swift}]"}
@@ -758,24 +752,20 @@ defmodule AshSwift.Codegen.Reader do
   # — and so the action — unsupported.
   defp collect_record_struct_fields(fields, resource, formatter) do
     fields
-    |> Enum.reduce_while({:ok, []}, fn
-      %{type: %{kind: :array, item_type: %{kind: :map, fields: [_ | _]}}}, _acc ->
-        {:halt, :unsupported}
+    |> Enum.reduce_while({:ok, []}, fn field, {:ok, acc} ->
+      case element_swift_type(field.type) do
+        {:ok, swift} ->
+          struct_field = %{
+            name: format_name!(field.name, resource, formatter),
+            swift_type: swift,
+            required?: field.allow_nil? == false
+          }
 
-      field, {:ok, acc} ->
-        case element_swift_type(field.type) do
-          {:ok, swift} ->
-            struct_field = %{
-              name: format_name!(field.name, resource, formatter),
-              swift_type: swift,
-              required?: field.allow_nil? == false
-            }
+          {:cont, {:ok, [struct_field | acc]}}
 
-            {:cont, {:ok, [struct_field | acc]}}
-
-          :unsupported ->
-            {:halt, :unsupported}
-        end
+        :unsupported ->
+          {:halt, :unsupported}
+      end
     end)
     |> case do
       {:ok, struct_fields} -> {:ok, Enum.sort_by(struct_fields, & &1.name)}
