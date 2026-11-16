@@ -11,17 +11,19 @@ defmodule AshSwift.CodegenTest do
 
   @domains [AshSwift.Test.Domain]
 
-  # The generated files are immutable strings; build them once for the whole
-  # module. The MapOnly domain is built once too; other domains call `Codegen.build_files/1`.
+  # The generated files are immutable strings; build them (the main and MapOnly
+  # domains) once for the whole module. Tests that need a different domain, or a
+  # fresh build (determinism), still call `Codegen.build_files/1` themselves.
   # setup_all runs outside the per-test process, so capture_log: true does not
-  # apply; capture the skip warnings here to keep passing runs quiet.
+  # apply; capture the skip warnings here (returned as `:build_log` for the tests
+  # that assert on them) to keep passing runs quiet.
   setup_all do
-    {files, _log} = ExUnit.CaptureLog.with_log(fn -> Codegen.build_files(@domains) end)
+    {files, build_log} = ExUnit.CaptureLog.with_log(fn -> Codegen.build_files(@domains) end)
 
     {map_only, _log} =
       ExUnit.CaptureLog.with_log(fn -> Codegen.build_files([AshSwift.Test.MapOnlyDomain]) end)
 
-    %{files: files, map_only_files: map_only}
+    %{files: files, build_log: build_log, map_only_files: map_only}
   end
 
   describe "build_files/1" do
@@ -310,19 +312,16 @@ defmodule AshSwift.CodegenTest do
 
   describe "create/update action arguments (issue #83)" do
     test "an unmappable argument is warned about and the rest of the action is still emitted", %{
-      files: files
+      files: files,
+      build_log: log
     } do
-      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
-
       assert log =~ "argument :grid of action :create_with_args"
       # The rest of the action is still emitted.
       assert files["AshRpcFunctions.swift"] =~
                "public func createTodoWithArgs(input: CreateTodoWithArgsInput, fields: [FieldSelection]) async throws -> Todo {"
     end
 
-    test "the 'arguments are not yet supported' warning is gone" do
-      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
-
+    test "the 'arguments are not yet supported' warning is gone", %{build_log: log} do
       refute log =~ "not yet supported"
       refute log =~ "is not a public attribute"
     end
@@ -338,9 +337,7 @@ defmodule AshSwift.CodegenTest do
                "public func checkTodoDueDate(input: CheckTodoDueDateInput) async throws -> Bool {"
     end
 
-    test "no omission warning is logged for either action" do
-      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
-
+    test "no omission warning is logged for either action", %{build_log: log} do
       refute log =~ ":set_due_date"
       refute log =~ ":check_due_date"
     end
