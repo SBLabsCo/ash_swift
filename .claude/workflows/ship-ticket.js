@@ -86,6 +86,14 @@ const freshnessRefusal = (fresh, main) => {
 }
 
 // POSIX single-quote a value for a shell command line.
+// Declared up here, not beside durable(), on purpose: `const`s below the top-level `await parallel(...)`
+// are still uninitialised when the workers call durable(), which threw `Cannot access 'categorySlug'
+// before initialization` and killed every ticket that reached its run record.
+// A lens's category as the kebab-case slug the record contract requires (bin/pr-record refuses anything else,
+// which would lose the whole record): lowercased, runs of anything else collapsed to one hyphen.
+const categorySlug = c => String(c || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'uncategorized'
+// A finding's problem as one line: whitespace collapsed, clipped.
+const oneLine = (t, max) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, max)
 const sq = v => "'" + String(v).replace(/'/g, "'\\''") + "'"
 
 const RUN = {
@@ -319,11 +327,6 @@ async function drive(n, rec, done) {
 
 // ---------------------------------------------------------------------------
 
-// A lens's category as the kebab-case slug the record contract requires (bin/pr-record refuses anything else,
-// which would lose the whole record): lowercased, runs of anything else collapsed to one hyphen.
-const categorySlug = c => String(c || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'uncategorized'
-// A finding's problem as one line: whitespace collapsed, clipped.
-const oneLine = (t, max) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, max)
 
 // The durable form of a run record: no agent prose beyond a short rationale, no worktree paths.
 // Whatever bin/findings-retro (and bin/after-merge) read later is in here; each finding keeps a one-line problem
