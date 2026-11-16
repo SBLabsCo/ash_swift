@@ -81,7 +81,7 @@ defmodule AshSwift.Codegen.Emitter do
   #     Encodable Decodable Equatable CodingKey Encoder Optional Void
   #   * Data URL UUID: not written by the Emitter (TypeMap maps UUID to String);
   #     reserved defensively because the runtime and consuming apps use them.
-  # `reader_test.exs` scans the generated Swift for conformances and fails when
+  # `emitter_test.exs` scans the generated Swift for conformances and fails when
   # a template names one that is missing here.
   @builtin_type_names ~w(
     Bool Codable CodingKey Data Date Decodable Double Encodable Encoder

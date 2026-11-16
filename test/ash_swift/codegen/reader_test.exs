@@ -783,41 +783,6 @@ defmodule AshSwift.Codegen.ReaderTest do
                    fn -> Reader.read([AshSwift.Test.ReservedNameClashDomain]) end
     end
 
-    test "the reserved built-in names cover every conformance, encode signature and scalar field type the Emitter writes",
-         %{ir: ir} do
-      swift = Emitter.render_types(ir.all_resources) <> Emitter.render_functions(ir.all_resources)
-
-      conformances =
-        ~r/^\s*public (?:struct|enum) \w+: ([\w, ]+) \{/m
-        |> Regex.scan(swift, capture: :all_but_first)
-        |> Enum.flat_map(fn [list] -> String.split(list, ", ") end)
-
-      encode_param_types =
-        ~r/func \w+\(\w+ \w+: (\w+)\)/
-        |> Regex.scan(swift, capture: :all_but_first)
-        |> List.flatten()
-
-      declared =
-        ~r/public (?:struct|enum) (\w+)/
-        |> Regex.scan(swift, capture: :all_but_first)
-        |> List.flatten()
-
-      # Base names of every field type the IR writes (`[Date]?`, `[String: Int]`, ...), minus
-      # the names generated declarations or AshSwiftRuntime own: what is left resolves to Swift/Foundation.
-      scalar_types =
-        ir.all_resources
-        |> Enum.flat_map(&(&1.fields ++ Enum.flat_map(&1.input_structs, fn s -> s.fields end)))
-        |> Enum.flat_map(&Regex.scan(~r/[A-Za-z_]\w*/, &1.swift_type))
-        |> List.flatten()
-        |> Enum.uniq()
-        |> Kernel.--(declared ++ Reader.reserved_runtime_type_names())
-
-      used = Enum.uniq(conformances ++ ["CodingKey"] ++ encode_param_types ++ scalar_types)
-      assert "String" in used and "Date" in used
-      assert "Encoder" in used and "Sendable" in used and "Codable" in used
-      assert used -- Emitter.reserved_builtin_type_names() == []
-    end
-
     test "the reserved runtime type names match the public types in Sources/AshSwiftRuntime" do
       declared =
         "Sources/AshSwiftRuntime/*.swift"
