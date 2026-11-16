@@ -10,7 +10,6 @@ defmodule AshSwift.SwiftBuildTest do
   alias AshSwift.Codegen
   alias AshSwift.Test.SwiftConsumer
 
-  @domains [AshSwift.Test.Domain]
   # Excluded automatically when the swift toolchain is absent (see test_helper).
   @moduletag :swift_build
 
@@ -45,18 +44,5 @@ defmodule AshSwift.SwiftBuildTest do
 
     {output, status} = SwiftConsumer.build_client(tmp)
     assert status == 0, "swift build failed:\n#{output}"
-  end
-
-  test "regenerating with no schema change produces no diff" do
-    sources =
-      Path.join(System.tmp_dir!(), "ash_swift_determinism_#{System.unique_integer([:positive])}")
-
-    on_exit(fn -> File.rm_rf!(sources) end)
-
-    assert {:ok, first} = Codegen.generate(@domains, sources)
-    assert "AshRpcTypes.swift" in first
-
-    # Second run sees identical content and writes nothing — no diff, no churn.
-    assert {:ok, []} = Codegen.generate(@domains, sources)
   end
 end

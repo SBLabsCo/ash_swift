@@ -1452,4 +1452,22 @@ defmodule AshSwift.CodegenTest do
       assert Codegen.stale_files(@domains, dir) == ["AshRpcTypes.swift"]
     end
   end
+
+  describe "generate/2 write-skip" do
+    test "regenerating with no schema change produces no diff" do
+      sources =
+        Path.join(
+          System.tmp_dir!(),
+          "ash_swift_determinism_#{System.unique_integer([:positive])}"
+        )
+
+      on_exit(fn -> File.rm_rf!(sources) end)
+
+      assert {:ok, first} = Codegen.generate(@domains, sources)
+      assert "AshRpcTypes.swift" in first
+
+      # Second run sees identical content and writes nothing — no diff, no churn.
+      assert {:ok, []} = Codegen.generate(@domains, sources)
+    end
+  end
 end
