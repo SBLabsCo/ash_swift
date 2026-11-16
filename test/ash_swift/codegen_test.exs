@@ -702,11 +702,9 @@ defmodule AshSwift.CodegenTest do
       refute files["AshRpcTypes.swift"] =~ "SummarizeResult"
     end
 
-    test "an array-of-resource return is skipped with a warning, not emitted", %{files: files} do
-      log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
-
-      assert log =~ "generic action :summarize_all"
-      assert log =~ "skipping"
+    test "an array-of-resource return is not emitted (warning pinned in reader_test)", %{
+      files: files
+    } do
       refute files["AshRpcFunctions.swift"] =~ "func summarizeAll"
     end
 

@@ -279,7 +279,8 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       # :summarize_all (an array-of-resource return) maps to no Swift type: dropped (#56).
       refute :summarize_all in rpc_names
-      # :deep_broadcast is dropped for its nested-array argument.
+      # :deep_broadcast takes a nested-array argument ({:array, {:array, _}}) whose element is
+      # unmappable, so the whole action is skipped rather than emitted with a wrong-typed input.
       refute :deep_broadcast in rpc_names
 
       # :summarize (a struct return of a resource, allow_nil? true) is an optional
@@ -303,18 +304,13 @@ defmodule AshSwift.Codegen.ReaderTest do
       # array (:bulk_create) both generate.
       assert :broadcast in rpc_names
       assert :bulk_create in rpc_names
-
-      # A nested-array argument ({:array, {:array, _}}) has an unmappable element, so
-      # the whole action is skipped rather than emitted with a wrong-typed input.
-      refute :deep_broadcast in rpc_names
     end
 
     test "skipped generic actions are announced with a warning" do
       log = capture_log(fn -> Reader.read(@domains) end)
 
-      # `summarize` returns a struct (instance_of Todo): a typed-record return
-      # needs field selection, deferred.
-      assert log =~ "generic action :summarize"
+      # `summarize_all` returns an array of resources, which maps to no Swift type (#56).
+      assert log =~ "generic action :summarize_all"
 
       # `deep_broadcast` takes `{:array, {:array, :string}}`: the element is itself
       # an array, which maps to no Swift type, so the input gate skips the action.
