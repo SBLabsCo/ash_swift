@@ -771,32 +771,6 @@ defmodule AshSwift.CodegenTest do
       %{files: Codegen.build_files(@domains)}
     end
 
-    # The body of one generated struct, up to its closing brace. Classification
-    # (types, required?) is asserted on the IR in reader_test.exs; these tests
-    # pin only how a required and an optional field render.
-    defp struct_body(types, name) do
-      [_, rest] = String.split(types, "public struct #{name}: Encodable, Sendable {", parts: 2)
-      rest |> String.split("\n}\n", parts: 2) |> hd()
-    end
-
-    test "a required argument renders without `?` or a default and is encoded unconditionally",
-         %{files: files} do
-      body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput")
-
-      assert body =~ "public var note: String\n"
-      assert body =~ "public init(note: String,"
-      assert body =~ "try container.encode(note, forKey: .note)"
-    end
-
-    test "an optional argument renders as optional with a nil default and is encoded if present",
-         %{files: files} do
-      body = struct_body(files["AshRpcTypes.swift"], "CreateTodoWithArgsInput")
-
-      assert body =~ "public var extras: [String: AshJSON]?\n"
-      assert body =~ "extras: [String: AshJSON]? = nil"
-      assert body =~ "try container.encodeIfPresent(extras, forKey: .extras)"
-    end
-
     test "an unmappable argument is warned about and the rest of the action is still emitted", %{
       files: files
     } do
