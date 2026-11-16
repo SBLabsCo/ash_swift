@@ -71,8 +71,8 @@ defmodule AshSwift.Codegen.Reader do
                                                # The identity that addresses the record; the emitter sends it as `identity`
         pagination_type: :offset | :keyset | :none,           # required pagination => paginated return
         optional_pagination_type: :offset | :keyset | :none,  # supported-but-optional => extra paginated overload
-        sortable?:       boolean,              # list reads only: offers a `sort:` parameter
-        filterable?:     boolean,              # list reads only: offers a `filter:` parameter
+        sortable?:       boolean,              # list reads only (false for gets; Emitter raises otherwise)
+        filterable?:     boolean,              # list reads only (false for gets; Emitter raises otherwise)
         generic_return:  :void | {:typed, swift_type} | {:typed_record, swift_type}  # [generic only]; a resource return's swift_type is the model type ("Todo"), "Todo?" when the action has allow_nil? true
         generic_return_resource: module | nil,  # [generic only] the resource a resource/struct return targets; expand_with_related/2 emits its model struct
       }

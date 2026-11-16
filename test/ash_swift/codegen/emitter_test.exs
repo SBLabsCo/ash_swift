@@ -459,6 +459,14 @@ defmodule AshSwift.Codegen.EmitterTest do
                ~s|getBy: ["title": title]|
     end
 
+    test "a get whose IR claims sortable? or filterable? raises instead of being re-decided" do
+      for flag <- [:sortable?, :filterable?] do
+        assert_raise RuntimeError, ~r/the Reader must set both false for gets/, fn ->
+          functions([action([{:rpc_name, :get_todo}, {:get, :pure}, {flag, true}])])
+        end
+      end
+    end
+
     test "a pure get takes no lookup param" do
       out = functions([action(rpc_name: :fetch_todo, get: :pure, not_found_error?: true)])
 
