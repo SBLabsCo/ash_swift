@@ -85,7 +85,6 @@ const freshnessRefusal = (fresh, main) => {
   return { outcome: 'failed', reason: 'freshness_unknown', message: `bin/orchestration-fresh could not confirm the main checkout is current (exit ${fresh.exit_code}): ${json.message || fresh.stderr_tail || 'no output'}. If it is missing, ${main} predates it: git -C ${main} merge --ff-only origin/main` }
 }
 
-// POSIX single-quote a value for a shell command line.
 // Declared up here, not beside durable(), on purpose: `const`s below the top-level `await parallel(...)`
 // are still uninitialised when the workers call durable(), which threw `Cannot access 'categorySlug'
 // before initialization` and killed every ticket that reached its run record.
@@ -94,6 +93,7 @@ const freshnessRefusal = (fresh, main) => {
 const categorySlug = c => String(c || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'uncategorized'
 // A finding's problem as one line: whitespace collapsed, clipped.
 const oneLine = (t, max) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, max)
+// POSIX single-quote a value for a shell command line.
 const sq = v => "'" + String(v).replace(/'/g, "'\\''") + "'"
 
 const RUN = {
@@ -200,6 +200,8 @@ if (refusal) {
 const queue = ISSUES.slice()
 const records = []
 const worker = async () => { while (queue.length) { const n = queue.shift(); records.push(await ship(n)) } }
+// Everything below runs only after the workers finish, but the workers call into it first: declare helpers
+// below this line as `function`s (hoisted), never `const`/`let`, or they hit the temporal dead zone.
 await parallel(Array.from({ length: Math.min(CONCURRENCY, ISSUES.length) }, () => worker))
 return records
 
@@ -326,7 +328,6 @@ async function drive(n, rec, done) {
 }
 
 // ---------------------------------------------------------------------------
-
 
 // The durable form of a run record: no agent prose beyond a short rationale, no worktree paths.
 // Whatever bin/findings-retro (and bin/after-merge) read later is in here; each finding keeps a one-line problem
