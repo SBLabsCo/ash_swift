@@ -390,7 +390,7 @@ defmodule AshSwift.Codegen.Contract do
       all_resources
       |> Enum.flat_map(& &1.enums)
       |> Enum.map(fn %{enum_name: name, cases: cases} ->
-        %{name: name, values: cases |> Enum.map(&to_string/1) |> Enum.sort()}
+        %{name: name, values: cases |> Enum.map(&(&1.raw || &1.name)) |> Enum.sort()}
       end)
 
     # Emitter.render_sort_field_enum/1 emits `{Resource}SortField` as a plain

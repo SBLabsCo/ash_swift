@@ -45,4 +45,15 @@ defmodule AshSwift.SwiftBuildTest do
     {output, status} = SwiftConsumer.build_client(tmp)
     assert status == 0, "swift build failed:\n#{output}"
   end
+
+  test "a get_by field named like a Swift keyword compiles (issue #142)" do
+    tmp = SwiftConsumer.fresh_package("ash_swift_build")
+    on_exit(fn -> File.rm_rf!(tmp) end)
+    sources = SwiftConsumer.sources_dir(tmp)
+
+    assert {:ok, _written} = Codegen.generate([AshSwift.Test.KeywordGetByDomain], sources)
+
+    {output, status} = SwiftConsumer.build_client(tmp)
+    assert status == 0, "swift build failed:\n#{output}"
+  end
 end

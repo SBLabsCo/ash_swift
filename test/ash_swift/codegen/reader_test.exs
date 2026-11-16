@@ -135,7 +135,12 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert "TodoStatus" in enum_names
 
       priority = Enum.find(todo.enums, &(&1.enum_name == "TodoPriority"))
-      assert priority.cases == [:low, :medium, :high]
+
+      assert priority.cases == [
+               %{name: "low", raw: nil},
+               %{name: "medium", raw: nil},
+               %{name: "high", raw: nil}
+             ]
     end
 
     test "an Ash.Type.Enum attribute types its field with the generated enum", %{ir: ir} do
@@ -143,7 +148,14 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       assert attr_type(todo, "status") == "TodoStatus"
       status = Enum.find(todo.enums, &(&1.enum_name == "TodoStatus"))
-      assert Enum.sort(status.cases) == [:active, :archived, :case, :default, :pending]
+
+      assert Enum.sort(Enum.map(status.cases, & &1.name)) == [
+               "active",
+               "archived",
+               "case",
+               "default",
+               "pending"
+             ]
     end
   end
 
@@ -353,7 +365,7 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert attr_type(todo, "labels") == "[TodoLabels]"
 
       labels = Enum.find(todo.enums, &(&1.enum_name == "TodoLabels"))
-      assert labels.cases == [:red, :green]
+      assert labels.cases == [%{name: "red", raw: nil}, %{name: "green", raw: nil}]
     end
 
     test "element nullability comes from nil_items?, not the attribute's allow_nil?", %{ir: ir} do
@@ -518,7 +530,7 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       assert attr_type(user, "topPriority") == "UserTopPriority"
       enum = Enum.find(user.enums, &(&1.enum_name == "UserTopPriority"))
-      assert Enum.sort(enum.cases) == [:high, :low, :medium]
+      assert Enum.sort(Enum.map(enum.cases, & &1.name)) == ["high", "low", "medium"]
     end
 
     test "an aggregate that resolves to no scalar/enum (a list) is skipped", %{ir: ir} do
@@ -548,7 +560,7 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       assert attr_type(user, "nameSize") == "UserNameSize"
       enum = Enum.find(user.enums, &(&1.enum_name == "UserNameSize"))
-      assert Enum.sort(enum.cases) == [:long, :short]
+      assert Enum.sort(Enum.map(enum.cases, & &1.name)) == ["long", "short"]
     end
 
     test "argument-bearing calculations (optional or required argument) are skipped", %{ir: ir} do
