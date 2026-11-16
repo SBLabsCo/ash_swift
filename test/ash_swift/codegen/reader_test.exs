@@ -721,6 +721,12 @@ defmodule AshSwift.Codegen.ReaderTest do
                    fn -> Reader.read([AshSwift.Test.SameResourceInputClashDomain]) end
     end
 
+    test "a resource named like another's derived result struct is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "BuildReportResult" \(AshSwift\.Test\.BuildReportResultResource struct, AshSwift\.Test\.ReportBuilder result struct\)/,
+                   fn -> Reader.read([AshSwift.Test.ResultStructClashDomain]) end
+    end
+
     test "a related destination sharing a primary's type name is a codegen error" do
       assert_raise Mix.Error,
                    ~r/not unique: "Clash" \(AshSwift\.Test\.ClashPrimary struct, AshSwift\.Test\.ClashRelated struct\)/,

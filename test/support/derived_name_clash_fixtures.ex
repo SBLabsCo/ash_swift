@@ -1,5 +1,5 @@
 # Fixtures for Swift name collisions between a resource's *derived* top-level
-# names and another declaration (#164). Three domains, each raising in the Reader:
+# names and another declaration (#164). Five domains, each raising in the Reader:
 #
 #   * FilterNameClashDomain: filterable `Widget` derives `WidgetFilter`, which the
 #     resource with type_name "WidgetFilter" also declares.
@@ -10,6 +10,9 @@
 #   * SameResourceInputClashDomain: one resource's generic actions `upload`
 #     (argument `start_clips`) and `upload_start` (argument `clips`) both derive the
 #     nested input struct `UploadStartClipsItem`.
+#   * ResultStructClashDomain: `ReportBuilder`'s generic action `build_report` returns a
+#     constrained `:map`, deriving the result struct `BuildReportResult`, which the
+#     resource with type_name "BuildReportResult" also declares.
 
 defmodule AshSwift.Test.Widget do
   @moduledoc false
@@ -264,5 +267,85 @@ defmodule AshSwift.Test.SameResourceInputClashDomain do
 
   resources do
     resource AshSwift.Test.Uploader
+  end
+end
+
+defmodule AshSwift.Test.ReportBuilder do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: AshSwift.Test.ResultStructClashDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("ReportBuilder")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id
+  end
+
+  actions do
+    defaults [:read]
+
+    action :build_report, :map do
+      constraints fields: [title: [type: :string, allow_nil?: false]]
+
+      run fn _input, _ctx -> {:ok, %{title: "t"}} end
+    end
+  end
+end
+
+defmodule AshSwift.Test.BuildReportResultResource do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: AshSwift.Test.ResultStructClashDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("BuildReportResult")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id
+  end
+
+  actions do
+    defaults [:read]
+  end
+end
+
+defmodule AshSwift.Test.ResultStructClashDomain do
+  @moduledoc false
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.ReportBuilder do
+      rpc_action(:build_report, :build_report)
+    end
+
+    resource AshSwift.Test.BuildReportResultResource do
+      rpc_action(:get_build_report_results, :read)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.ReportBuilder
+    resource AshSwift.Test.BuildReportResultResource
   end
 end
