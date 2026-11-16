@@ -336,7 +336,7 @@ defmodule AshSwift.Codegen.Reader do
     |> Enum.map(fn {domain, %{resource: resource, rpc_actions: rpc_actions}} ->
       type_name = ResourceInfo.typescript_type_name!(resource)
       mres = Map.fetch!(manifest.resources, resource)
-      {fields, enums} = collect_fields(mres, type_name, manifest.types)
+      {fields, enums} = collect_fields(mres, type_name, manifest.types, manifest.resources)
       formatter = AshTypescript.output_field_formatter() || :camel_case
 
       # A resource's sortable public attributes, computed once. When empty, the
@@ -902,13 +902,14 @@ defmodule AshSwift.Codegen.Reader do
   # Returns a tuple {fields, enums} for the resource.
   #
   # fields: sorted list of %{name, swift_type} for public scalar attributes and
-  # public relationships. Field names go through the same formatter AshTypescript
-  # uses for output. Enum attributes produce a generated Swift enum type name
-  # instead of the default "String" fallback.
+  # public relationships whose destination passes model_struct_target/2. Field
+  # names go through the same formatter AshTypescript uses for output. Enum
+  # attributes produce a generated Swift enum type name instead of the default
+  # "String" fallback.
   #
   # enums: sorted list of %{enum_name, cases} for each attribute whose Ash type
   # is an enum (Ash.Type.Atom with one_of constraint, or Ash.Type.Enum subtype).
-  defp collect_fields(mres, type_name, types) do
+  defp collect_fields(mres, type_name, types, manifest_resources) do
     formatter = AshTypescript.output_field_formatter() || :camel_case
     resource = mres.module
 
@@ -944,8 +945,13 @@ defmodule AshSwift.Codegen.Reader do
       mres
       |> ManifestResource.all_relationships()
       |> Enum.flat_map(fn rel ->
-        case ResourceInfo.typescript_type_name(rel.destination) do
-          {:ok, dest_type} ->
+        # `:none` is defensive and, as far as the manifest is concerned,
+        # unreachable in practice (the manifest lists a relationship's
+        # destination as a resource). It exists so every caller shares one
+        # predicate, and it drops (rather than emits) a field whose struct would
+        # never be generated.
+        case model_struct_target(rel.destination, manifest_resources) do
+          {:ok, dest_type, _dest_mres} ->
             swift_type =
               case rel.cardinality do
                 :one -> dest_type
@@ -955,7 +961,7 @@ defmodule AshSwift.Codegen.Reader do
             name = FieldFormatter.format_field_for_client(rel.name, resource, formatter)
             [%{name: name, swift_type: swift_type}]
 
-          :error ->
+          :none ->
             []
         end
       end)
@@ -1010,11 +1016,11 @@ defmodule AshSwift.Codegen.Reader do
        )
        when not is_nil(module) do
     case model_struct_target(module, manifest_resources) do
-      {:ok, type_name} ->
+      {:ok, type_name, _mres} ->
         swift_type = if allow_nil?, do: type_name <> "?", else: type_name
         {{:typed_record, swift_type}, [], module}
 
-      :error ->
+      :none ->
         :unsupported
     end
   end
@@ -1055,15 +1061,20 @@ defmodule AshSwift.Codegen.Reader do
     end
   end
 
-  # A resource's model struct is emitted only when it has a Swift type name and is
-  # present in the manifest. Shared by the generic-return gate and
-  # expand_with_related/2 so the two can't drift.
+  # The single predicate for "this resource's model struct can be referenced":
+  # it has a Swift type name and is present in the manifest. Returns
+  # `{:ok, type_name, manifest_resource}` or `:none`. Shared by the
+  # generic-return gate, expand_with_related/2 and collect_fields/4's
+  # relationship fields so they can't drift; any new feature that references a
+  # resource type should go through it too. The 2-hop guard's swift_type_safe?/3
+  # deliberately stays a set check over the emitted Swift type names: it answers
+  # "is this type emitted in this file", not "can this resource be referenced".
   defp model_struct_target(module, manifest_resources) do
     with {:ok, type_name} <- ResourceInfo.typescript_type_name(module),
-         true <- Map.has_key?(manifest_resources, module) do
-      {:ok, type_name}
+         {:ok, mres} <- Map.fetch(manifest_resources, module) do
+      {:ok, type_name, mres}
     else
-      _ -> :error
+      _ -> :none
     end
   end
 
@@ -1139,7 +1150,7 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # Maps a list of derived (aggregate/calculation) manifest Fields to
-  # {fields, enums} in the shape collect_fields/3 expects, mirroring its attribute
+  # {fields, enums} in the shape collect_fields/4 expects, mirroring its attribute
   # reduce: an enum-typed field produces a generated Swift enum plus a typed field;
   # a scalar field maps through TypeMap.ash_type_to_swift; anything else is skipped
   # (see TypeMap.derived_scalar_kinds/0).
@@ -1208,10 +1219,12 @@ defmodule AshSwift.Codegen.Reader do
           # Skip when the destination has no Swift type name (or isn't in the
           # manifest; model_struct_target/2 checks both) or is already a primary
           # resource. Each case yields no extra related struct.
-          with {:ok, type_name} <- model_struct_target(destination, manifest.resources),
+          with {:ok, type_name, dest_mres} <-
+                 model_struct_target(destination, manifest.resources),
                false <- MapSet.member?(primary_type_names, type_name) do
-            dest_mres = Map.fetch!(manifest.resources, destination)
-            {fields, enums} = collect_fields(dest_mres, type_name, manifest.types)
+            {fields, enums} =
+              collect_fields(dest_mres, type_name, manifest.types, manifest.resources)
+
             [%{type_name: type_name, fields: fields, enums: enums}]
           else
             _ -> []
@@ -1430,7 +1443,7 @@ defmodule AshSwift.Codegen.Reader do
 
           attr = Map.get(attrs_map, input.name) ->
             # Same gate as the model field: an attribute that maps to no Swift type is
-            # omitted rather than String-guessed. collect_fields/3 has already warned
+            # omitted rather than String-guessed. collect_fields/4 has already warned
             # about it once for this resource, so this drop stays quiet.
             #
             # Unlike the model field, dropping here is only safe for an OPTIONAL
