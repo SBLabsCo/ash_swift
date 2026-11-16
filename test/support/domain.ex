@@ -36,6 +36,8 @@ defmodule AshSwift.Test.Domain do
       # Create/update actions with arguments (issue #83).
       rpc_action(:create_todo_with_args, :create_with_args)
       rpc_action(:retitle_todo, :retitle)
+      # Required argument sharing a name with a public nullable attribute (issue #75).
+      rpc_action(:set_todo_score, :set_score)
       # Arguments named like a private attribute (issue #84).
       rpc_action(:set_todo_due_date, :set_due_date)
       rpc_action(:check_todo_due_date, :check_due_date)
