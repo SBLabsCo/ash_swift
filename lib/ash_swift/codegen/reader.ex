@@ -685,9 +685,10 @@ defmodule AshSwift.Codegen.Reader do
   # generates. `name_prefix` is the already-pascal-cased struct-name root
   # (`UploadStart` for an argument, `UploadStartResult` for a return field), which
   # keeps an argument's and a return's nested struct names distinct even when both
-  # carry a `clips` array (no `UploadStartClipsItem` collision). Arrays map their
-  # element type; everything else defers to TypeMap.generic_swift_type/1 (scalar →
-  # its Swift type, map → `[String: AshJSON]`).
+  # carry a `clips` array (no `UploadStartClipsItem` collision). An array of a
+  # constrained map generates a nested struct; everything else maps via
+  # element_swift_type/1 (array of a scalar → `[Scalar]`, scalar → its Swift type,
+  # map → `[String: AshJSON]`).
   defp generic_field_swift_type(
          %{kind: :array, item_type: %{kind: :map, fields: [_ | _] = item_fields}},
          name_prefix,
