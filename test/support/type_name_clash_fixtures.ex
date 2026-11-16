@@ -306,3 +306,93 @@ defmodule AshSwift.Test.ClientNameClashDomain do
     resource AshSwift.Test.ClientNameResource
   end
 end
+
+# A resource whose type_name is AshRpcClient (#171).
+defmodule AshSwift.Test.RuntimeNameResource do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: AshSwift.Test.RuntimeNameClashDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("AshRpcClient")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id
+  end
+
+  actions do
+    defaults [:read]
+  end
+end
+
+defmodule AshSwift.Test.RuntimeNameClashDomain do
+  @moduledoc false
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.RuntimeNameResource do
+      rpc_action(:list_runtime_names, :read)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.RuntimeNameResource
+  end
+end
+
+# A resource whose type_name is Date (#171).
+defmodule AshSwift.Test.BuiltinNameResource do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: AshSwift.Test.BuiltinNameClashDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("Date")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id
+  end
+
+  actions do
+    defaults [:read]
+  end
+end
+
+defmodule AshSwift.Test.BuiltinNameClashDomain do
+  @moduledoc false
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.BuiltinNameResource do
+      rpc_action(:list_builtin_names, :read)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.BuiltinNameResource
+  end
+end

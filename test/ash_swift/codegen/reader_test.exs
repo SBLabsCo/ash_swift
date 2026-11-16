@@ -744,6 +744,33 @@ defmodule AshSwift.Codegen.ReaderTest do
                    fn -> Reader.read([AshSwift.Test.ClientNameClashDomain]) end
     end
 
+    test "a resource named like an AshSwiftRuntime public type is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "AshRpcClient" \(AshSwift\.Test\.RuntimeNameResource struct, AshSwiftRuntime\)/,
+                   fn -> Reader.read([AshSwift.Test.RuntimeNameClashDomain]) end
+    end
+
+    test "a resource named like a Foundation type the generated files use is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "Date" \(AshSwift\.Test\.BuiltinNameResource struct, Swift\/Foundation\)/,
+                   fn -> Reader.read([AshSwift.Test.BuiltinNameClashDomain]) end
+    end
+
+    test "the reserved runtime type names match the public types in Sources/AshSwiftRuntime" do
+      declared =
+        "Sources/AshSwiftRuntime/*.swift"
+        |> Path.wildcard()
+        |> Enum.flat_map(fn file ->
+          ~r/^public (?:indirect |final )?(?:struct|enum|protocol|typealias|class|actor) (\w+)/m
+          |> Regex.scan(File.read!(file), capture: :all_but_first)
+          |> List.flatten()
+        end)
+        |> Enum.sort()
+
+      assert declared != []
+      assert Reader.reserved_runtime_type_names() == declared
+    end
+
     test "a related destination sharing a primary's type name is a codegen error" do
       assert_raise Mix.Error,
                    ~r/not unique: "Clash" \(AshSwift\.Test\.ClashPrimary struct, AshSwift\.Test\.ClashRelated struct\)/,
