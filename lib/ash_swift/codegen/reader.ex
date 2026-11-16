@@ -1118,10 +1118,17 @@ defmodule AshSwift.Codegen.Reader do
   # entries by module), so a name that occurs twice is a real collision, even
   # when both occurrences come from the same resource (two actions or fields
   # deriving the same struct name).
+  # The Emitter's fixed top-level client struct; it owns this name like any resource.
+  @client_struct_name "AshRpc"
+
+  @doc false
+  def client_struct_name, do: @client_struct_name
+
   defp assert_unique_swift_names!(resources) do
     collisions =
       resources
       |> Enum.flat_map(&swift_name_owners/1)
+      |> Kernel.++([{@client_struct_name, "AshSwift generated client"}])
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
       |> Enum.filter(fn {_name, owners} -> length(owners) > 1 end)
       |> Enum.sort()
