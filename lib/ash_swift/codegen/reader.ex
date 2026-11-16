@@ -150,7 +150,9 @@ defmodule AshSwift.Codegen.Reader do
   # The manifest is the sole resource-metadata source (ADR-0009): which resources
   # and actions are exposed still comes from the `typescript_rpc` DSL, but every
   # field, type, relationship, action input, and pagination detail is read from
-  # the manifest rather than `Ash.Resource.Info`.
+  # the manifest rather than `Ash.Resource.Info`, except the argument/get_by
+  # facts the manifest lacks, which `ash_action_facts/2` reads in one place (a
+  # deliberate ADR-0009 deviation).
   defp build_manifest([]), do: %{resources: %{}, actions: %{}, types: %{}}
 
   defp build_manifest([first | _] = domains) do
@@ -412,7 +414,7 @@ defmodule AshSwift.Codegen.Reader do
 
     get =
       if maction.type == :read do
-        build_get_info(maction, rpc_action, resource, formatter, ash_facts)
+        build_get_info(maction, rpc_action, resource, formatter, ash_facts.get_by)
       end
 
     pagination_type =
@@ -1253,11 +1255,10 @@ defmodule AshSwift.Codegen.Reader do
   #   - `:pure` — pure get? (no lookup channel; the action narrows itself
   #     through its own arguments)
   #   - `nil` — not a get
-  defp build_get_info(maction, rpc_action, resource, formatter, ash_facts) do
+  defp build_get_info(maction, rpc_action, resource, formatter, native_get_by) do
     # The native get_by fields come from the Ash action facts (see
     # ash_action_facts/2). A pure `get?` action has no get_by and takes no lookup
     # params.
-    native_get_by = ash_facts.get_by
     rpc_get_by = Map.get(rpc_action, :get_by) || []
     rpc_get? = Map.get(rpc_action, :get?, false)
 

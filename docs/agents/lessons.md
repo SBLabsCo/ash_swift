@@ -76,7 +76,7 @@ declares, with nothing marking which is which, and the manifest has no `get_by`
 field. So "a get's inputs are its lookup fields" only holds until a get gains an
 argument — then the extra argument becomes a bogus lookup param. Read the lookup
 fields from `Ash.Resource.Info.action(resource, name).get_by` and treat the rest
-of `inputs` as arguments (see `native_get_by_fields/2` in `reader.ex`, issue #87).
+of `inputs` as arguments (see the `get_by` key of `ash_action_facts/2` in `reader.ex`, issue #87).
 On the wire both travel in the same `input` dict, so the runtime's `GetInput`
 merges the typed arguments and the lookup values into one object.
 
