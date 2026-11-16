@@ -101,6 +101,40 @@
       "sortable": false
     },
     {
+      "action": "create_lenient",
+      "action_type": "create",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "completed",
+          "required": false,
+          "type": "Bool"
+        },
+        {
+          "name": "priority",
+          "required": false,
+          "type": "TodoPriority"
+        },
+        {
+          "name": "score",
+          "required": false,
+          "type": "Int"
+        },
+        {
+          "name": "title",
+          "required": false,
+          "type": "String"
+        }
+      ],
+      "name": "create_lenient_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
       "action": "create",
       "action_type": "create",
       "domain": "AshSwift.Test.Domain",
@@ -1151,6 +1185,32 @@
       ],
       "kind": "input",
       "name": "CheckTodoDueDateInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "completed",
+          "optional": true,
+          "type": "Bool"
+        },
+        {
+          "name": "priority",
+          "optional": true,
+          "type": "TodoPriority"
+        },
+        {
+          "name": "score",
+          "optional": true,
+          "type": "Int"
+        },
+        {
+          "name": "title",
+          "optional": true,
+          "type": "String"
+        }
+      ],
+      "kind": "input",
+      "name": "CreateLenientTodoInput"
     },
     {
       "fields": [

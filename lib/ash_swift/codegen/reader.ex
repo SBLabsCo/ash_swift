@@ -1319,11 +1319,12 @@ defmodule AshSwift.Codegen.Reader do
   #     argument of an unmappable type is omitted with a warning rather than
   #     String-guessed. Arguments are checked first: an argument named like a
   #     public attribute is still an argument on the wire, with the argument's type.
-  #   * an accepted public attribute maps via attribute_swift_type/3. Create
-  #     optionality derives from the attribute; update and destroy fields are
-  #     optional (a partial operation) unless the manifest's `input.required?`
-  #     says otherwise — it reflects the action's `require_attributes` and
-  #     `allow_nil_input`.
+  #   * an accepted public attribute maps via attribute_swift_type/3.
+  #     Optionality comes from the manifest's `input.required?` (it folds the
+  #     action's `require_attributes` and `allow_nil_input`); update and destroy
+  #     fields are otherwise optional (a partial operation). A create field is
+  #     additionally optional when the attribute is nullable or has a default,
+  #     matching ash_typescript even if `require_attributes` lists it.
   #   * anything else (an accepted non-public attribute) is omitted with a warning.
   defp collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types) do
     resource = mres.module
@@ -1381,8 +1382,15 @@ defmodule AshSwift.Codegen.Reader do
               {:ok, swift_type, _enum} ->
                 required? =
                   case maction.type do
-                    :create -> not attr.allow_nil? and not attr.has_default?
-                    _update_or_destroy -> input.required? == true
+                    # The manifest folds `allow_nil_input` and `require_attributes`
+                    # into `input.required?`. Parity with ash_typescript (#124): a
+                    # nullable or defaulted attribute stays optional on create even
+                    # when `require_attributes` lists it.
+                    :create ->
+                      input.required? == true and not attr.allow_nil? and not attr.has_default?
+
+                    _update_or_destroy ->
+                      input.required? == true
                   end
 
                 field = %{name: formatted_name, swift_type: swift_type, required?: required?}

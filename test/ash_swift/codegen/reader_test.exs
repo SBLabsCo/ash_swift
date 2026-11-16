@@ -89,6 +89,24 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
+  describe "create input optionality (#124)" do
+    test "allow_nil_input, nullable and defaulted attributes stay optional" do
+      todo = resource(Reader.read(@domains), "Todo")
+      input = Enum.find(todo.input_structs, &(&1.struct_name == "CreateLenientTodoInput"))
+      required = Map.new(input.fields, &{&1.name, &1.required?})
+
+      # allow_nil?: false, but in allow_nil_input
+      assert required["title"] == false
+      # nullable, in require_attributes: manifest says required, parity says optional
+      assert required["score"] == false
+      # has a default, in require_attributes
+      assert required["completed"] == false
+
+      create = Enum.find(todo.input_structs, &(&1.struct_name == "CreateTodoInput"))
+      assert %{required?: true} = Enum.find(create.fields, &(&1.name == "title"))
+    end
+  end
+
   describe "enum classification" do
     test "an attribute with a one_of / Ash.Type.Enum type becomes a typed enum in the IR" do
       todo = resource(Reader.read(@domains), "Todo")
