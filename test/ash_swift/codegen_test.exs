@@ -11,11 +11,13 @@ defmodule AshSwift.CodegenTest do
 
   @domains [AshSwift.Test.Domain]
 
-  describe "build_files/1" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
+  # The generated files are immutable strings; build them once for the whole
+  # module. Tests that need a different domain call `Codegen.build_files/1`.
+  setup_all do
+    %{files: Codegen.build_files(@domains)}
+  end
 
+  describe "build_files/1" do
     test "splits output into a navigable types file and an RPC-functions file", %{files: files} do
       assert Map.keys(files) |> Enum.sort() == ["AshRpcFunctions.swift", "AshRpcTypes.swift"]
     end
@@ -77,17 +79,6 @@ defmodule AshSwift.CodegenTest do
       enum_block = Regex.run(~r/public enum UserNameSize:.*?\n\}/s, types) |> List.first()
       assert enum_block =~ "case long"
       assert enum_block =~ "case short"
-    end
-
-    test "non-String get_by field (integer) is always emitted as String parameter type", %{
-      files: files
-    } do
-      functions = files["AshRpcFunctions.swift"]
-
-      # score is Ash.Type.Integer; ash_type_to_swift would emit "Int", but
-      # lookup params travel in [String: String] dicts so must always be String.
-      assert functions =~
-               "public func getTodoByScore(score: String, fields: [FieldSelection]) async throws -> Todo {"
     end
 
     test "pure get? action with arguments takes input: and no lookup param (#91)", %{
@@ -166,10 +157,6 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "generic actions (issue #54)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
-
     test "a void action with an argument emits a VoidActionRequest call + typed input struct", %{
       files: files
     } do
@@ -201,12 +188,10 @@ defmodule AshSwift.CodegenTest do
       assert functions =~
                ~s[return try await client.execute(GenericActionRequest(action: "echo", input: input))]
 
-      # required? drives optionality: message (required) is non-optional + plain
-      # encode; loud (optional argument) is Optional + encodeIfPresent.
+      # Required/optional field rendering is pinned in emitter_test; here only
+      # that both arguments reach the input struct.
       assert types =~ "public var message: String\n"
       assert types =~ "public var loud: Bool?\n"
-      assert types =~ "try container.encode(message, forKey: .message)"
-      assert types =~ "try container.encodeIfPresent(loud, forKey: .loud)"
     end
 
     test "a no-argument scalar action pins both generics and takes no input param", %{
@@ -305,10 +290,8 @@ defmodule AshSwift.CodegenTest do
 
       assert types =~ "public struct BulkCreateInput: Encodable, Sendable {"
 
-      # The generated element struct, with field optionality from allow_nil?.
+      # The generated element struct (field optionality is pinned in reader_test).
       assert types =~ "public struct BulkCreateRowsItem: Encodable, Sendable {"
-      assert types =~ "try container.encode(label, forKey: .label)"
-      assert types =~ "try container.encodeIfPresent(priority, forKey: .priority)"
     end
 
     test "an array-of-map argument action renders an input-taking function", %{files: files} do
@@ -318,10 +301,6 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "create/update action arguments (issue #83)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
-
     test "an unmappable argument is warned about and the rest of the action is still emitted", %{
       files: files
     } do
@@ -342,10 +321,6 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "arguments named like a private attribute (issue #84)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
-
     test "an argument-only update and a generic action whose argument shadows a private attribute are both emitted with input-taking functions",
          %{files: files} do
       assert files["AshRpcFunctions.swift"] =~
@@ -364,10 +339,6 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "destroy action arguments (issue #102)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
-
     test "a required argument generates an input struct and a required input:", %{files: files} do
       body = input_struct(files["AshRpcTypes.swift"], "ArchiveTodoInput")
       assert body =~ "    public var reason: String\n"
@@ -404,10 +375,6 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "read action arguments (issue #87)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
-
     defp input_struct(types, name) do
       [_, rest] = String.split(types, "public struct #{name}: Encodable, Sendable {", parts: 2)
       rest |> String.split("\n}\n", parts: 2) |> hd()
@@ -502,10 +469,6 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "generic-action constrained-map return (issue #70)" do
-    setup do
-      %{files: Codegen.build_files(@domains)}
-    end
-
     test "a constrained :map return emits a typed Decodable result struct, not [String: AshJSON]",
          %{files: files} do
       functions = files["AshRpcFunctions.swift"]

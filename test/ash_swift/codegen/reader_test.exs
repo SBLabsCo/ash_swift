@@ -322,6 +322,13 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert {:input, [%{name: "id"}]} = get_todo.get
     end
 
+    test "a non-String native get_by field is coerced to a String lookup param", %{ir: ir} do
+      # `score` is an Ash.Type.Integer attribute, but lookup values travel in
+      # `[String: String]` dicts (lessons.md), so TypeMap's Int must not leak in.
+      assert {:input, [%{name: "score", swift_type: "String"}]} =
+               action_ir(ir, "Todo", :get_todo_by_score).get
+    end
+
     test "an RPC-level get_by action still travels via :get_by", %{ir: ir} do
       todo = resource(ir, "Todo")
       find_by_title = Enum.find(todo.actions, &(&1.rpc_name == :find_todo_by_title))
