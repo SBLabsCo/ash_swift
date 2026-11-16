@@ -63,8 +63,8 @@ public struct NullableEquatableOperators<T: Encodable & Sendable>: Encodable, Se
     }
 }
 
-/// NOTE: `CiStringOperators` / `NullableCiStringOperators` below mirror this
-/// pair field for field; update them together.
+// NOTE: `CiStringOperators` / `NullableCiStringOperators` below mirror this
+// pair field for field; update them together.
 /// Equality + membership operators for a non-null attribute. Used for the
 /// equality-and-`in` group: enums, strings, UUIDs, and the default fallback.
 public struct EnumOperators<T: Encodable & Sendable>: Encodable, Sendable {
