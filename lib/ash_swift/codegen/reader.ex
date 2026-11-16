@@ -1120,29 +1120,39 @@ defmodule AshSwift.Codegen.Reader do
 
   # Public types of the AshSwiftRuntime package (`Sources/AshSwiftRuntime`) that
   # the generated files import, so a generated declaration of the same name would
-  # shadow them. Sorted; `test/ash_swift/codegen/reader_test.exs` scans the
+  # shadow them. Kept sorted; `test/ash_swift/codegen/reader_test.exs` scans the
   # Sources directory and fails when this list drifts from the public
   # declarations there. (The Sources are not shipped in the Hex package, so the
   # list cannot be derived at compile time.)
   @runtime_type_names ~w(
-    ActionFieldsBody AnyEncodable AshRpcClient AshRpcConfig AshRpcError
-    AshRpcServerError AshJSON ComparableOperators CreateBody CreateRequest
-    DataEnvelopeRequest DestroyBody DestroyRequest EmptyActionInput EnumOperators
-    EquatableOperators FieldSelection GenericActionBody GenericActionRequest
-    GetBody GetInput GetOptionalRequest GetRequest KeysetPage KeysetPageParams
-    KeysetPageRequest ListRequest NullableComparableOperators
-    NullableEnumOperators NullableEquatableOperators OffsetPage OffsetPageParams
-    OffsetPageRequest PagedBody RawRequest RpcRequest SortDirection SortField
-    Transport UpdateBody UpdateRequest URLSessionTransport VoidActionRequest
-    CiStringOperators NullableCiStringOperators
+    ActionFieldsBody AnyEncodable AshJSON AshRpcClient AshRpcConfig AshRpcError
+    AshRpcServerError CiStringOperators ComparableOperators CreateBody
+    CreateRequest DataEnvelopeRequest DestroyBody DestroyRequest
+    EmptyActionInput EnumOperators EquatableOperators FieldSelection
+    GenericActionBody GenericActionRequest GetBody GetInput GetOptionalRequest
+    GetRequest KeysetPage KeysetPageParams KeysetPageRequest ListRequest
+    NullableCiStringOperators NullableComparableOperators NullableEnumOperators
+    NullableEquatableOperators OffsetPage OffsetPageParams OffsetPageRequest
+    PagedBody RawRequest RpcRequest SortDirection SortField Transport
+    URLSessionTransport UpdateBody UpdateRequest VoidActionRequest
   )
 
-  # Foundation and standard-library types the Emitter writes into field types
-  # (`TypeMap` scalars, `Date`) or the runtime decodes through.
-  @builtin_type_names ~w(Bool Data Date Double Int String URL UUID)
+  # Swift standard-library and Foundation names the generated files resolve to,
+  # so a generated declaration of the same name would shadow or break them:
+  #   * `TypeMap` scalar results: String Bool Int Double Date
+  #   * protocols and types the Emitter templates write: Sendable Codable
+  #     Encodable Decodable Equatable CodingKey Encoder Optional Void
+  #   * Data URL UUID: not written by the Emitter (TypeMap maps UUID to String);
+  #     reserved defensively because the runtime and consuming apps use them.
+  # `reader_test.exs` scans the generated Swift for conformances and fails when
+  # a template names one that is missing here.
+  @builtin_type_names ~w(
+    Bool Codable CodingKey Data Date Decodable Double Encodable Encoder
+    Equatable Int Optional Sendable String URL UUID Void
+  )
 
   @doc false
-  def reserved_runtime_type_names, do: Enum.sort(@runtime_type_names)
+  def reserved_runtime_type_names, do: @runtime_type_names
 
   @doc false
   def reserved_builtin_type_names, do: @builtin_type_names

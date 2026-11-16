@@ -262,12 +262,15 @@ defmodule AshSwift.Test.SharedDestinationDomain do
   end
 end
 
+# One domain exposing a resource per reserved Swift name; the Reader reports every
+# collision in one message, so each reader_test case pins its own.
+
 # A resource whose type_name is the Emitter's fixed client struct name (#164).
 defmodule AshSwift.Test.ClientNameResource do
   @moduledoc false
 
   use Ash.Resource,
-    domain: AshSwift.Test.ClientNameClashDomain,
+    domain: AshSwift.Test.ReservedNameClashDomain,
     data_layer: Ash.DataLayer.Ets,
     extensions: [AshTypescript.Resource]
 
@@ -288,31 +291,12 @@ defmodule AshSwift.Test.ClientNameResource do
   end
 end
 
-defmodule AshSwift.Test.ClientNameClashDomain do
-  @moduledoc false
-
-  use Ash.Domain,
-    otp_app: :ash_swift,
-    extensions: [AshTypescript.Rpc],
-    validate_config_inclusion?: false
-
-  typescript_rpc do
-    resource AshSwift.Test.ClientNameResource do
-      rpc_action(:list_client_names, :read)
-    end
-  end
-
-  resources do
-    resource AshSwift.Test.ClientNameResource
-  end
-end
-
-# A resource whose type_name is AshRpcClient (#171).
+# A resource whose type_name is an AshSwiftRuntime public type (#171).
 defmodule AshSwift.Test.RuntimeNameResource do
   @moduledoc false
 
   use Ash.Resource,
-    domain: AshSwift.Test.RuntimeNameClashDomain,
+    domain: AshSwift.Test.ReservedNameClashDomain,
     data_layer: Ash.DataLayer.Ets,
     extensions: [AshTypescript.Resource]
 
@@ -333,31 +317,12 @@ defmodule AshSwift.Test.RuntimeNameResource do
   end
 end
 
-defmodule AshSwift.Test.RuntimeNameClashDomain do
-  @moduledoc false
-
-  use Ash.Domain,
-    otp_app: :ash_swift,
-    extensions: [AshTypescript.Rpc],
-    validate_config_inclusion?: false
-
-  typescript_rpc do
-    resource AshSwift.Test.RuntimeNameResource do
-      rpc_action(:list_runtime_names, :read)
-    end
-  end
-
-  resources do
-    resource AshSwift.Test.RuntimeNameResource
-  end
-end
-
-# A resource whose type_name is Date (#171).
+# A resource whose type_name is a Foundation type the generated files use (#171).
 defmodule AshSwift.Test.BuiltinNameResource do
   @moduledoc false
 
   use Ash.Resource,
-    domain: AshSwift.Test.BuiltinNameClashDomain,
+    domain: AshSwift.Test.ReservedNameClashDomain,
     data_layer: Ash.DataLayer.Ets,
     extensions: [AshTypescript.Resource]
 
@@ -378,7 +343,33 @@ defmodule AshSwift.Test.BuiltinNameResource do
   end
 end
 
-defmodule AshSwift.Test.BuiltinNameClashDomain do
+# A resource whose type_name is a protocol every generated declaration conforms to (#171).
+defmodule AshSwift.Test.ProtocolNameResource do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: AshSwift.Test.ReservedNameClashDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("Sendable")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id
+  end
+
+  actions do
+    defaults [:read]
+  end
+end
+
+defmodule AshSwift.Test.ReservedNameClashDomain do
   @moduledoc false
 
   use Ash.Domain,
@@ -387,12 +378,27 @@ defmodule AshSwift.Test.BuiltinNameClashDomain do
     validate_config_inclusion?: false
 
   typescript_rpc do
+    resource AshSwift.Test.ClientNameResource do
+      rpc_action(:list_client_names, :read)
+    end
+
+    resource AshSwift.Test.RuntimeNameResource do
+      rpc_action(:list_runtime_names, :read)
+    end
+
     resource AshSwift.Test.BuiltinNameResource do
       rpc_action(:list_builtin_names, :read)
+    end
+
+    resource AshSwift.Test.ProtocolNameResource do
+      rpc_action(:list_protocol_names, :read)
     end
   end
 
   resources do
+    resource AshSwift.Test.ClientNameResource
+    resource AshSwift.Test.RuntimeNameResource
     resource AshSwift.Test.BuiltinNameResource
+    resource AshSwift.Test.ProtocolNameResource
   end
 end
