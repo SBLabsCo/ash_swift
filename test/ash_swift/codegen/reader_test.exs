@@ -37,7 +37,8 @@ defmodule AshSwift.Codegen.ReaderTest do
 
     @generic_keys ~w(rpc_name action action_type get
                      not_found_error? input_struct_name primary_key_params pagination_type
-                     optional_pagination_type sortable? filterable? generic_return)a
+                     optional_pagination_type sortable? filterable? generic_return
+                     generic_return_resource)a
                   |> MapSet.new()
 
     test "CRUD actions carry exactly the documented keys; generic actions their own set" do
@@ -209,13 +210,25 @@ defmodule AshSwift.Codegen.ReaderTest do
   end
 
   describe "generic-action gating (#54)" do
-    test "generic actions whose shape needs field selection are dropped; supported ones kept" do
+    test "unmappable generic actions are dropped; supported ones kept" do
       todo = resource(Reader.read(@domains), "Todo")
       rpc_names = Enum.map(todo.actions, & &1.rpc_name)
 
-      # :summarize (a resource return) needs field selection the generic-action
-      # slice doesn't emit yet (#56).
-      refute :summarize in rpc_names
+      # :summarize_all (an array-of-resource return) maps to no Swift type: dropped (#56).
+      refute :summarize_all in rpc_names
+      # :deep_broadcast is dropped for its nested-array argument.
+      refute :deep_broadcast in rpc_names
+
+      # :summarize (a struct return of a resource, allow_nil? true) is an optional
+      # field-selected model return, carrying its target resource (#56).
+      summarize = Enum.find(todo.actions, &(&1.rpc_name == :summarize))
+      assert summarize.generic_return == {:typed_record, "Todo?"}
+      assert summarize.generic_return_resource == AshSwift.Test.Todo
+
+      # Ash's default allow_nil? false makes the same return non-optional.
+      required = Enum.find(todo.actions, &(&1.rpc_name == :summarize_required))
+      assert required.generic_return == {:typed_record, "Todo"}
+      assert required.generic_return_resource == AshSwift.Test.Todo
 
       # Void and scalar/map generic actions are supported and kept — including the
       # void branch of generic_action_return/1 (nil -> :void), exercised by :ping_void.
@@ -227,6 +240,19 @@ defmodule AshSwift.Codegen.ReaderTest do
       # array (:bulk_create) both generate.
       assert :broadcast in rpc_names
       assert :bulk_create in rpc_names
+    end
+  end
+
+  describe "generic action resource return targets (#56)" do
+    test "an unexposed, unrelated return target's model struct is emitted" do
+      ir = Reader.read([AshSwift.Test.ReturnOnlyDomain])
+
+      assert resource(ir, "Publisher")
+
+      reporter = resource(ir, "Reporter")
+      latest = Enum.find(reporter.actions, &(&1.rpc_name == :latest_publisher))
+      assert latest.generic_return == {:typed_record, "Publisher?"}
+      assert latest.generic_return_resource == AshSwift.Test.Publisher
     end
   end
 

@@ -586,7 +586,8 @@ defmodule AshSwift.Codegen.Emitter do
   # Generic (`:action`-type) actions (#54). Inputs are action arguments collected
   # into an input struct (nil when the action takes none); the return is :void,
   # {:typed, swift_type} (scalar/untyped-map), or {:typed_record, swift_type} (a
-  # constrained-`:map` return typed as a generated `{Rpc}Result` struct, #70). The
+  # constrained-`:map` return typed as a generated `{Rpc}Result` struct, #70, or a
+  # resource's model type `T` / `T?` when the action allows nil, #56). The
   # body is {action, input?, fields?}: only a `:typed_record` return carries field
   # selection — the RPC pipeline requires `fields:` for it, exactly like a read
   # (#73); a void/scalar/untyped-map return sends none. When the action takes no

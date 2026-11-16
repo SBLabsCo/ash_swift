@@ -1836,4 +1836,22 @@ defmodule AshSwift.E2ETest do
 
     SwiftConsumer.run_swift_test!("E2ECalculationTest", e2e_swift)
   end
+
+  test "a generic action returning a resource needs `fields` and returns the record (issue #56)" do
+    Ash.create!(AshSwift.Test.Todo, %{title: "SummarizeE2E"}, domain: AshSwift.Test.Domain)
+
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # Without `fields` the pipeline rejects a resource return — the generated body
+    # carries `fields` (pinned in codegen_test); with it, the record comes back in
+    # the usual `{"data": {...}}` envelope. The Swift-side decode of a record and of
+    # `null` into an optional is covered by RpcRequestTests.
+    missing = AshTypescript.Rpc.run_action(:ash_swift, conn, %{"action" => "summarize"})
+    assert missing["success"] == false
+
+    params = %{"action" => "summarize", "fields" => ["id", "title"]}
+    rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
+    assert rpc_result["success"] == true, inspect(rpc_result)
+    assert is_map(rpc_result["data"])
+  end
 end
