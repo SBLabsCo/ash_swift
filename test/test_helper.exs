@@ -4,7 +4,10 @@
 # `ExUnit.configure(exclude: ...)` approach for toolchain-dependent tests.
 swift_exclude = if System.find_executable("swift"), do: [], else: [:swift_build]
 
-ExUnit.configure(exclude: swift_exclude)
+# Capture log output per test so passing runs print no stray logger noise
+# (e.g. AshSwift unmapped-type warnings from Codegen calls). Tests that assert
+# on log text use ExUnit.CaptureLog explicitly and are unaffected.
+ExUnit.configure(exclude: swift_exclude, capture_log: true)
 ExUnit.start()
 
 # The :swift_build suites share one SwiftPM consumer package per run
