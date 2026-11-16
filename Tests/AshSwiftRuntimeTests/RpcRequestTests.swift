@@ -240,6 +240,15 @@ final class RpcRequestTests: XCTestCase {
         XCTAssertEqual(items.last?.id, "2")
     }
 
+    func testGenericActionRequestDecodesOptionalRecordAndNull() throws {
+        // A resource-returning generic action (`Stub?`): a selected record decodes,
+        // `data: null` decodes to nil instead of throwing.
+        let request = GenericActionRequest<Stub?, EmptyActionInput>(action: "summarize", fields: [.scalar("id")])
+        XCTAssertEqual(
+            try request.decode(from: Data(#"{"data":{"id":"1"}}"#.utf8), using: JSONDecoder())?.id, "1")
+        XCTAssertNil(try request.decode(from: Data(#"{"data":null}"#.utf8), using: JSONDecoder()))
+    }
+
     func testGenericActionRequestUnwrapsScalarData() throws {
         // A scalar-returning generic action unwraps the `data` key (here a String).
         let data = Data(#"{"data":"pong"}"#.utf8)

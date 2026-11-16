@@ -219,10 +219,12 @@ unwrap. The catch: a **typed-record return** (a generic action returning a
 struct/resource, e.g. `returns :struct, constraints: [instance_of: __MODULE__]`)
 **requires** `fields` — the pipeline rejects it with `missing_required_parameter:
 fields`. Field-selected returns therefore carry `fields` in the generic-action
-body (#73, #56). A resource/struct return is emitted as the model type
-**optional** (`Todo?`): the manifest carries no action-level nullability and a
-generic action may return `nil` (`"data": null`), which a non-optional `T` would
-fail to decode.
+body (#73, #56). The manifest drops a generic action's `allow_nil?` (Ash
+default **false**: a nil return is rejected with `InvalidReturnType` unless the
+action sets `allow_nil? true`), so the Reader reads it from the live action
+(`ash_action_facts/2`, an ADR-0009 deviation). A resource/struct return is the
+model type `T`, or `T?` when `allow_nil? true` (`"data": null` then decodes to
+nil).
 
 ### A *constrained* `:map` return is camelCase-formatted on the wire; an unconstrained one is passed through verbatim
 

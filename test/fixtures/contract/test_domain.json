@@ -883,6 +883,19 @@
       "sortable": false
     },
     {
+      "action": "summarize_required",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [],
+      "name": "summarize_required",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
       "action": "update",
       "action_type": "update",
       "domain": "AshSwift.Test.Domain",

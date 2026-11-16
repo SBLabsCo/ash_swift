@@ -23,6 +23,7 @@ defmodule AshSwift.Test.Reporter do
 
     action :latest_publisher, :struct do
       constraints instance_of: AshSwift.Test.Publisher
+      allow_nil? true
       run fn _input, _ctx -> {:ok, nil} end
     end
   end

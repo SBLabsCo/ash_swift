@@ -94,9 +94,9 @@ and a TypeScript client stay wire-identical by construction.
   *unconstrained* map stays the untyped dict). A generic action *returning* a
   resource (or a `:struct` that is an instance of one) takes a required
   `fields:` selection and returns the resource's generated model type as an
-  **optional** — `summarize(fields:) -> Todo?` — since a generic action may
-  return `nil`. Embedded-resource and array-of-resource returns are skipped with
-  a warning.
+  non-optional (`summarize(fields:) -> Todo`), or **optional** (`Todo?`) when the
+  action sets `allow_nil? true`. Embedded-resource and array-of-resource returns
+  are skipped with a warning.
 - **Ad-hoc field selection** — request only the fields a screen needs, including
   fields on nested relationships. Every model field is `Optional`, so unselected
   fields safely decode as `nil`.

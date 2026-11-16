@@ -205,11 +205,21 @@ defmodule AshSwift.Codegen.ReaderTest do
       todo = resource(Reader.read(@domains), "Todo")
       rpc_names = Enum.map(todo.actions, & &1.rpc_name)
 
-      # :summarize (a struct return of a resource) is classified as an optional
+      # :summarize_all (an array-of-resource return) maps to no Swift type: dropped (#56).
+      refute :summarize_all in rpc_names
+      # :deep_broadcast is dropped for its nested-array argument.
+      refute :deep_broadcast in rpc_names
+
+      # :summarize (a struct return of a resource, allow_nil? true) is an optional
       # field-selected model return, carrying its target resource (#56).
       summarize = Enum.find(todo.actions, &(&1.rpc_name == :summarize))
       assert summarize.generic_return == {:typed_record, "Todo?"}
       assert summarize.generic_return_resource == AshSwift.Test.Todo
+
+      # Ash's default allow_nil? false makes the same return non-optional.
+      required = Enum.find(todo.actions, &(&1.rpc_name == :summarize_required))
+      assert required.generic_return == {:typed_record, "Todo"}
+      assert required.generic_return_resource == AshSwift.Test.Todo
 
       # Void and scalar/map generic actions are supported and kept — including the
       # void branch of generic_action_return/1 (nil -> :void), exercised by :ping_void.
@@ -221,6 +231,26 @@ defmodule AshSwift.Codegen.ReaderTest do
       # array (:bulk_create) both generate.
       assert :broadcast in rpc_names
       assert :bulk_create in rpc_names
+    end
+  end
+
+  describe "generic action resource return targets (#56)" do
+    test "an array-of-resource return is skipped with a warning" do
+      log = ExUnit.CaptureLog.capture_log(fn -> Reader.read(@domains) end)
+
+      assert log =~ "generic action :summarize_all"
+      assert log =~ "skipping"
+    end
+
+    test "an unexposed, unrelated return target's model struct is emitted" do
+      ir = Reader.read([AshSwift.Test.ReturnOnlyDomain])
+
+      assert resource(ir, "Publisher")
+
+      reporter = resource(ir, "Reporter")
+      latest = Enum.find(reporter.actions, &(&1.rpc_name == :latest_publisher))
+      assert latest.generic_return == {:typed_record, "Publisher?"}
+      assert latest.generic_return_resource == AshSwift.Test.Publisher
     end
   end
 

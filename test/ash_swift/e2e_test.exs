@@ -1837,47 +1837,21 @@ defmodule AshSwift.E2ETest do
     SwiftConsumer.run_swift_test!("E2ECalculationTest", e2e_swift)
   end
 
-  test "a generic action returning a resource decodes real pipeline JSON into the optional model (issue #56)" do
+  test "a generic action returning a resource needs `fields` and returns the record (issue #56)" do
     Ash.create!(AshSwift.Test.Todo, %{title: "SummarizeE2E"}, domain: AshSwift.Test.Domain)
 
     conn = %Plug.Conn{private: %{}, assigns: %{}}
 
-    # Without `fields` the pipeline rejects a resource return; with it, the record
-    # comes back as the usual `{"data": {...}}` envelope.
+    # Without `fields` the pipeline rejects a resource return — the generated body
+    # carries `fields` (pinned in codegen_test); with it, the record comes back in
+    # the usual `{"data": {...}}` envelope. The Swift-side decode of a record and of
+    # `null` into an optional is covered by RpcRequestTests.
+    missing = AshTypescript.Rpc.run_action(:ash_swift, conn, %{"action" => "summarize"})
+    assert missing["success"] == false
+
     params = %{"action" => "summarize", "fields" => ["id", "title"]}
     rpc_result = AshTypescript.Rpc.run_action(:ash_swift, conn, params)
     assert rpc_result["success"] == true, inspect(rpc_result)
     assert is_map(rpc_result["data"])
-
-    # A nil return (`data: null`) must decode into the optional too.
-    null_json = Jason.encode!(%{"success" => true, "data" => nil})
-    json = Jason.encode!(rpc_result)
-
-    e2e_swift = """
-    import XCTest
-    import Foundation
-    import AshSwiftRuntime
-    import GeneratedClient
-
-    // The generated `summarize` return type is `Todo?`: a selected record decodes
-    // into the model, and a null `data` decodes to nil instead of throwing.
-    final class E2ESummarizeTest: XCTestCase {
-        func testRecordAndNullDecode() throws {
-            let request = GenericActionRequest<Todo?, EmptyActionInput>(
-                action: "summarize", fields: [.scalar("id"), .scalar("title")])
-
-            let record = try request.decode(
-                from: Data(#{inspect(json, binaries: :as_strings)}.utf8), using: JSONDecoder())
-            XCTAssertNotNil(record?.id)
-            XCTAssertNotNil(record?.title)
-
-            let none = try request.decode(
-                from: Data(#{inspect(null_json, binaries: :as_strings)}.utf8), using: JSONDecoder())
-            XCTAssertNil(none)
-        }
-    }
-    """
-
-    SwiftConsumer.run_swift_test!("E2ESummarizeTest", e2e_swift)
   end
 end
