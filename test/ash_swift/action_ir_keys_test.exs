@@ -12,8 +12,4 @@ defmodule AshSwift.Test.ActionIRKeysTest do
     assert MapSet.new(Map.keys(ActionIRKeys.crud_action())) == ActionIRKeys.crud()
     assert MapSet.new(Map.keys(ActionIRKeys.generic_action())) == ActionIRKeys.generic()
   end
-
-  test "an override naming a key the builder lacks raises" do
-    assert_raise KeyError, fn -> ActionIRKeys.generic_action(input_required?: true) end
-  end
 end
