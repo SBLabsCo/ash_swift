@@ -617,16 +617,22 @@ defmodule AshSwift.Codegen.ReaderTest do
       ir: ir
     } do
       tag = resource(ir, "Tag")
-      assert %{resource: AshSwift.Test.Category} = Enum.find(tag.fields, &(&1.name == "category"))
+
+      assert %{resource_module: AshSwift.Test.Category} =
+               Enum.find(tag.fields, &(&1.name == "category"))
 
       category = resource(ir, "Category")
-      refute Enum.any?(category.fields, &(&1.name == "name" and Map.has_key?(&1, :resource)))
+
+      refute Enum.any?(
+               category.fields,
+               &(&1.name == "name" and Map.has_key?(&1, :resource_module))
+             )
     end
 
     test "an array-of-optional-elements field on a related struct is kept (#78)", %{ir: ir} do
-      # The safety check strips one bracket layer to reach the element type; unless
-      # it also drops the element's own `?`, `[String?]` resolves to the unknown
-      # "String?" and the field disappears.
+      # The 2-hop guard filters only relationship fields (by their recorded
+      # `resource_module:`); a non-relationship field like this one is kept
+      # whatever the shape of its Swift type.
       assert attr_type(resource(ir, "Category"), "aliases") == "[String?]"
     end
   end

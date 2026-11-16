@@ -34,7 +34,7 @@ defmodule AshSwift.Codegen.Reader do
   ### Field
 
   A model-struct field is `%{name, swift_type}`. A **relationship** field also
-  carries `resource: module`, the destination resource its Swift type refers
+  carries `resource_module: module`, the destination resource its Swift type refers
   to; the 2-hop guard in `expand_with_related/2` keeps such a field only when
   that resource's model struct is emitted in the file. Every other field
   (attribute, aggregate, calculation) omits the key: its type is a built-in or
@@ -975,7 +975,7 @@ defmodule AshSwift.Codegen.Reader do
               end
 
             name = format_name!(rel.name, resource, formatter)
-            [%{name: name, swift_type: swift_type, resource: rel.destination}]
+            [%{name: name, swift_type: swift_type, resource_module: rel.destination}]
 
           :none ->
             []
@@ -1269,7 +1269,7 @@ defmodule AshSwift.Codegen.Reader do
   # 2-hop guard: a related resource's own relationship fields may point to
   # resources whose model struct is never emitted (2 hops away). Those fields
   # are dropped so the generated Swift compiles without undefined-type
-  # references. The decision reads the `resource:` module recorded on each
+  # references. The decision reads the `resource_module:` recorded on each
   # relationship field, not the rendered Swift type; every other field (scalar,
   # enum) is always safe.
   defp expand_with_related(primary_resources, manifest) do
@@ -1366,10 +1366,10 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # The 2-hop guard's per-field test. A relationship field (it carries
-  # `resource:`) is kept only when that resource's model struct is emitted: it
+  # `resource_module:`) is kept only when that resource's model struct is emitted: it
   # passes model_struct_target/2 and its type name is in the emitted set. Every
   # other field is built-in or an enum defined in this file, so it is kept.
-  defp referenceable_field?(%{resource: module}, all_type_names, manifest_resources) do
+  defp referenceable_field?(%{resource_module: module}, all_type_names, manifest_resources) do
     case model_struct_target(module, manifest_resources) do
       {:ok, type_name, _mres} -> MapSet.member?(all_type_names, type_name)
       :none -> false
