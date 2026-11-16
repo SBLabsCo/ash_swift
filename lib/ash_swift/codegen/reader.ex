@@ -1138,10 +1138,8 @@ defmodule AshSwift.Codegen.Reader do
   # `{:ok, type_name, manifest_resource}` or `:none`. Shared by the
   # generic-return gate, expand_with_related/2 and collect_fields/4's
   # relationship fields so they can't drift; any new feature that references a
-  # resource type should go through it too. The 2-hop guard filters relationship
-  # fields on the destination module recorded in the IR (see "Field" in the
-  # moduledoc) through this predicate, then checks the resulting type name
-  # against the emitted set.
+  # resource type should go through it too. (The 2-hop guard does not re-run it:
+  # relationship fields were already filtered through it in collect_fields/4.)
   defp model_struct_target(module, manifest_resources) do
     with {:ok, type_name} <- checked_type_name(module),
          {:ok, mres} <- Map.fetch(manifest_resources, module) do
@@ -1269,9 +1267,9 @@ defmodule AshSwift.Codegen.Reader do
   # 2-hop guard: a related resource's own relationship fields may point to
   # resources whose model struct is never emitted (2 hops away). Those fields
   # are dropped so the generated Swift compiles without undefined-type
-  # references. The decision reads the `resource_module:` recorded on each
-  # relationship field, not the rendered Swift type; every other field (scalar,
-  # enum) is always safe.
+  # references. The decision checks the `resource_module:` recorded on each
+  # relationship field against the set of emitted modules, not the rendered Swift
+  # type; every other field (scalar, enum) is always safe.
   defp expand_with_related(primary_resources, manifest) do
     primary_type_names = MapSet.new(primary_resources, & &1.type_name)
 
@@ -1300,7 +1298,7 @@ defmodule AshSwift.Codegen.Reader do
             {fields, enums} =
               collect_fields(dest_mres, type_name, manifest.types, manifest.resources)
 
-            [%{type_name: type_name, fields: fields, enums: enums}]
+            [%{module: destination, type_name: type_name, fields: fields, enums: enums}]
           else
             _ -> []
           end
@@ -1311,8 +1309,14 @@ defmodule AshSwift.Codegen.Reader do
     all_type_names =
       MapSet.union(primary_type_names, MapSet.new(related_raw, & &1.type_name))
 
+    emitted_modules =
+      MapSet.union(
+        MapSet.new(primary_resources, & &1.resource_module),
+        MapSet.new(related_raw, & &1.module)
+      )
+
     # Enum type names are checked only for collisions with resource struct names.
-    # `related_raw` entries use the slim %{type_name, fields, enums} shape, so only
+    # `related_raw` entries use the slim %{module, type_name, fields, enums} shape, so only
     # :enums is accessed here.
     all_enum_type_names =
       (primary_resources ++ related_raw)
@@ -1333,7 +1337,7 @@ defmodule AshSwift.Codegen.Reader do
     related =
       Enum.map(related_raw, fn %{type_name: type_name, fields: fields, enums: enums} ->
         safe_fields =
-          Enum.filter(fields, &referenceable_field?(&1, all_type_names, manifest.resources))
+          Enum.filter(fields, &referenceable_field?(&1, emitted_modules))
 
         %{
           resource_module: nil,
@@ -1366,17 +1370,13 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # The 2-hop guard's per-field test. A relationship field (it carries
-  # `resource_module:`) is kept only when that resource's model struct is emitted: it
-  # passes model_struct_target/2 and its type name is in the emitted set. Every
+  # `resource_module:`, already vetted by model_struct_target/2 in collect_fields/4)
+  # is kept only when that resource's module is among the emitted ones. Every
   # other field is built-in or an enum defined in this file, so it is kept.
-  defp referenceable_field?(%{resource_module: module}, all_type_names, manifest_resources) do
-    case model_struct_target(module, manifest_resources) do
-      {:ok, type_name, _mres} -> MapSet.member?(all_type_names, type_name)
-      :none -> false
-    end
-  end
+  defp referenceable_field?(%{resource_module: module}, emitted_modules),
+    do: MapSet.member?(emitted_modules, module)
 
-  defp referenceable_field?(_field, _all_type_names, _manifest_resources), do: true
+  defp referenceable_field?(_field, _emitted_modules), do: true
 
   # Determines whether a read action is a get action and, if so, collects the
   # lookup field params and where to place them in the request body.
