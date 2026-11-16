@@ -438,8 +438,7 @@ defmodule AshSwift.Codegen.Reader do
     list_read? = maction.type == :read and is_nil(get)
 
     # A get returns a single record, so it is never paginated: `:none` for gets
-    # (the Emitter's get clause asserts this rather than re-deciding it, and
-    # `Contract.optional_pagination/2` relies on it too).
+    # (the Emitter's get clause asserts this rather than re-deciding it).
     pagination_type =
       if list_read? do
         action_pagination_type(maction)
@@ -450,7 +449,8 @@ defmodule AshSwift.Codegen.Reader do
     # Optional pagination (required?: false but offset?/keyset? supported) on a
     # list read. These don't change the bare `[T]` function; they gain a second,
     # *overloaded* paginated function (see method_specs/2). Get actions and
-    # required-pagination actions are excluded — :none means "no overload".
+    # required-pagination actions are excluded — :none means "no overload"
+    # (`Contract.optional_pagination/2` relies on :none for gets).
     optional_pagination_type =
       if list_read? do
         optional_action_pagination_type(maction)
