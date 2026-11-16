@@ -28,6 +28,9 @@ defmodule AshSwift.Test.Domain do
       # Destroy actions with arguments (issue #102).
       rpc_action(:archive_todo, :archive)
       rpc_action(:discard_todo, :discard)
+      # Accepted attributes under `require_attributes` (issue #113).
+      rpc_action(:rename_todo, :rename)
+      rpc_action(:remove_titled_todo, :remove_titled)
       # Create/update actions with arguments (issue #83).
       rpc_action(:create_todo_with_args, :create_with_args)
       rpc_action(:retitle_todo, :retitle)

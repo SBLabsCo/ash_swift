@@ -180,6 +180,22 @@ defmodule AshSwift.Test.Todo do
       argument :hard, :boolean, allow_nil?: true, default: false
     end
 
+    # Issue #113: accepted attributes named in `require_attributes` are required on
+    # update and destroy; the rest of the accept list stays optional.
+    update :rename do
+      accept [:title, :priority]
+      require_attributes [:title]
+    end
+
+    destroy :remove_titled do
+      # `accept` only takes effect on a soft destroy.
+      soft? true
+      require_atomic? false
+      accept [:title]
+      require_attributes [:title]
+      change set_attribute(:completed, true)
+    end
+
     # Create/update actions with action *arguments* (issue #83). The manifest folds
     # arguments and accepted attributes into one `inputs` list; codegen must emit a
     # field for each argument, typed the way a generic-action argument would be:

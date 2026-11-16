@@ -1316,8 +1316,9 @@ defmodule AshSwift.Codegen.Reader do
   #     argument of an unmappable type is omitted with a warning rather than
   #     String-guessed. Arguments are checked first: an argument named like a
   #     public attribute is still an argument on the wire, with the argument's type.
-  #   * an accepted public attribute maps via attribute_swift_type/3. All update
-  #     attribute fields are optional because update is always a partial operation.
+  #   * an accepted public attribute maps via attribute_swift_type/3. Update and
+  #     destroy attribute fields are optional (a partial operation) unless the
+  #     action lists them in `require_attributes`.
   #   * anything else (an accepted non-public attribute) is omitted with a warning.
   defp collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types) do
     resource = mres.module
@@ -1328,6 +1329,7 @@ defmodule AshSwift.Codegen.Reader do
       |> Map.new(fn attr -> {attr.name, attr} end)
 
     argument_names = action_argument_names(resource, maction.name)
+    required_attributes = action_required_attributes(resource, maction)
 
     {fields, structs} =
       Enum.reduce(maction.inputs, {[], []}, fn input, {fields_acc, structs_acc} ->
@@ -1373,7 +1375,10 @@ defmodule AshSwift.Codegen.Reader do
             case attribute_swift_type(attr, formatted_name, type_name) do
               {:ok, swift_type, _enum} ->
                 required? =
-                  maction.type == :create and not attr.allow_nil? and not attr.has_default?
+                  case maction.type do
+                    :create -> not attr.allow_nil? and not attr.has_default?
+                    _update_or_destroy -> MapSet.member?(required_attributes, input.name)
+                  end
 
                 field = %{name: formatted_name, swift_type: swift_type, required?: required?}
                 {[field | fields_acc], structs_acc}
@@ -1423,6 +1428,23 @@ defmodule AshSwift.Codegen.Reader do
                 inspect(other)
     end
   end
+
+  # The accepted attributes an update or destroy action lists in
+  # `require_attributes` — they must be supplied even though the action is
+  # otherwise partial (ash_typescript: `optional = field_name not in
+  # action.require_attributes`). The manifest's per-input `allow_nil?` can't
+  # carry this (an update leaves a non-nullable attribute optional), so — like
+  # action_argument_names/2, and under the same ADR-0009 deviation — it is read
+  # from the action. Creates derive requiredness from the attribute instead.
+  defp action_required_attributes(resource, %{type: type, name: name})
+       when type in [:update, :destroy] do
+    case Ash.Resource.Info.action(resource, name) do
+      %{require_attributes: names} -> MapSet.new(names)
+      _ -> MapSet.new()
+    end
+  end
+
+  defp action_required_attributes(_resource, _maction), do: MapSet.new()
 
   # snake_case to PascalCase (e.g. create_todo → CreateTodo).
   defp pascal_case(name) do
