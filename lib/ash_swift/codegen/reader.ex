@@ -408,9 +408,11 @@ defmodule AshSwift.Codegen.Reader do
          has_sortable_fields?,
          {actions_acc, structs_acc}
        ) do
+    ash_facts = ash_action_facts(resource, maction)
+
     get =
       if maction.type == :read do
-        build_get_info(maction, rpc_action, resource, formatter, mres)
+        build_get_info(maction, rpc_action, resource, formatter, ash_facts)
       end
 
     pagination_type =
@@ -469,8 +471,7 @@ defmodule AshSwift.Codegen.Reader do
     action_inputs =
       case maction.type do
         :read ->
-          lookup_fields = native_get_by_fields(resource, maction)
-          Enum.reject(maction.inputs, &(&1.name in lookup_fields))
+          Enum.reject(maction.inputs, &(&1.name in ash_facts.get_by))
 
         type when type in [:create, :update, :destroy] ->
           maction.inputs
@@ -489,7 +490,8 @@ defmodule AshSwift.Codegen.Reader do
           mres,
           type_name,
           formatter,
-          types
+          types,
+          ash_facts
         )
       end
 
@@ -1251,13 +1253,11 @@ defmodule AshSwift.Codegen.Reader do
   #   - `:pure` — pure get? (no lookup channel; the action narrows itself
   #     through its own arguments)
   #   - `nil` — not a get
-  defp build_get_info(maction, rpc_action, resource, formatter, mres) do
-    # The native get_by fields come from the Ash action itself. The manifest
-    # surfaces them as ordinary inputs (`get_by :id` → an `id` input) mixed in with
-    # any real arguments the read declares (issue #87), and carries no `get_by`
-    # field of its own — so the inputs can't tell a lookup field from an argument.
-    # A pure `get?` action has no get_by and takes no lookup params.
-    native_get_by = native_get_by_fields(mres.module, maction)
+  defp build_get_info(maction, rpc_action, resource, formatter, ash_facts) do
+    # The native get_by fields come from the Ash action facts (see
+    # ash_action_facts/2). A pure `get?` action has no get_by and takes no lookup
+    # params.
+    native_get_by = ash_facts.get_by
     rpc_get_by = Map.get(rpc_action, :get_by) || []
     rpc_get? = Map.get(rpc_action, :get?, false)
 
@@ -1282,19 +1282,6 @@ defmodule AshSwift.Codegen.Reader do
         nil
     end
   end
-
-  # A read action's native `get_by` field names (empty for a non-get read or a
-  # pure `get?`). Read from `Ash.Resource.Info` — the same deliberate ADR-0009
-  # deviation as action_argument_names/2, for the same reason: the manifest folds
-  # these into `inputs` with nothing marking them as lookup fields.
-  defp native_get_by_fields(resource, %{get?: true, name: name}) do
-    case Ash.Resource.Info.action(resource, name) do
-      %{get_by: get_by} -> List.wrap(get_by)
-      _ -> []
-    end
-  end
-
-  defp native_get_by_fields(_resource, _maction), do: []
 
   # Maps a list of field atoms to the %{name, swift_type} shapes method_spec uses.
   defp build_get_by_params(fields, resource, formatter) do
@@ -1326,7 +1313,7 @@ defmodule AshSwift.Codegen.Reader do
   #     additionally optional when the attribute is nullable or has a default,
   #     matching ash_typescript even if `require_attributes` lists it.
   #   * anything else (an accepted non-public attribute) is omitted with a warning.
-  defp collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types) do
+  defp collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types, ash_facts) do
     resource = mres.module
 
     attrs_map =
@@ -1334,7 +1321,7 @@ defmodule AshSwift.Codegen.Reader do
       |> manifest_attributes(types)
       |> Map.new(fn attr -> {attr.name, attr} end)
 
-    argument_names = action_argument_names(resource, maction.name)
+    argument_names = ash_facts.argument_names
 
     {fields, structs} =
       Enum.reduce(maction.inputs, {[], []}, fn input, {fields_acc, structs_acc} ->
@@ -1417,29 +1404,41 @@ defmodule AshSwift.Codegen.Reader do
     {Enum.sort_by(fields, & &1.name), structs}
   end
 
-  # The names of an action's PUBLIC arguments — exactly the argument entries the
-  # manifest puts in `inputs` (it drops private ones unless
-  # `include_private_arguments?`), so membership here can only ever match an
-  # argument the manifest actually surfaced. (Ash itself also removes an attribute
-  # from an action's effective `accept` when an argument shares its name, so an
-  # accepted attribute can't be shadowed by a private argument either way.)
+  # The one place the Reader reads a live Ash action (`Ash.Resource.Info.action/2`)
+  # instead of the manifest. Looked up once per rpc action and passed to the
+  # helpers that need it, so there is one lookup, one failure policy (raise) and one
+  # comment to delete when the manifest grows the missing fields.
   #
-  # Deliberate ADR-0009 deviation: this is the one action-input detail read from
-  # `Ash.Resource.Info` instead of the manifest. `Ash.Info.Manifest.Action.inputs`
-  # merges accepted attributes and arguments into one list of `Argument` structs
-  # with no discriminator, and an argument may share an attribute's name, so the
-  # manifest alone can't tell them apart. Remove this once the manifest carries a
-  # per-input source flag (e.g. `kind: :argument | :attribute`). Until then, fail
-  # loudly if the action can't be found rather than silently treating every
+  # Deliberate ADR-0009 deviation. `Ash.Info.Manifest.Action.inputs` merges
+  # accepted attributes and arguments into one list of `Argument` structs with no
+  # discriminator, and carries no `get_by` of its own, so the manifest alone can't
+  # tell:
+  #
+  #   * `argument_names` — the action's PUBLIC argument names (exactly the argument
+  #     entries the manifest puts in `inputs`; it drops private ones unless
+  #     `include_private_arguments?`). An argument may share an attribute's name.
+  #     Remove once the manifest carries a per-input source flag (e.g.
+  #     `kind: :argument | :attribute`).
+  #   * `get_by` — a read's native `get_by` field names (`get_by :id` surfaces as an
+  #     ordinary `id` input mixed in with real arguments, issue #87); `[]` for a
+  #     non-get read or a pure `get?`. Remove once the manifest carries `get_by`.
+  #
+  # Fails loudly if the action can't be found rather than silently treating every
   # argument as an attribute.
-  defp action_argument_names(resource, action_name) do
-    case Ash.Resource.Info.action(resource, action_name) do
-      %{arguments: arguments} ->
-        arguments |> Enum.filter(& &1.public?) |> MapSet.new(& &1.name)
+  defp ash_action_facts(resource, maction) do
+    case Ash.Resource.Info.action(resource, maction.name) do
+      %{arguments: arguments} = action ->
+        get_by =
+          if maction.get?, do: action |> Map.get(:get_by) |> List.wrap(), else: []
+
+        %{
+          argument_names: arguments |> Enum.filter(& &1.public?) |> MapSet.new(& &1.name),
+          get_by: get_by
+        }
 
       other ->
         raise "AshSwift: expected Ash.Resource.Info.action(#{inspect(resource)}, " <>
-                "#{inspect(action_name)}) to return an action with arguments, got: " <>
+                "#{inspect(maction.name)}) to return an action with arguments, got: " <>
                 inspect(other)
     end
   end
