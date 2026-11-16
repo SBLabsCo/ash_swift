@@ -11,11 +11,16 @@ defmodule AshSwift.Test.SwiftConsumer do
   `ExUnit.after_suite/1` in `test_helper.exs`).
 
   `run_swift_test!/2` writes a test's Swift file into the shared test target and
-  removes it again when the test exits, so the target only ever holds the running
-  test's file and one test's compile error can never fail another. The generated
+  removes it again when the test exits, so the target holds only the shared harness
+  (`StubTransport.swift`) plus the running test's file, and one test's compile error
+  can never fail another. The generated
   client is compiled once (`swift build`, memoized after the first success); if
   that fails the message says the *shared generated client* failed to compile,
   not the test.
+
+  Swift tests build an `AshRpc` with `stubRpc(...)` (canned response) or capture
+  request bodies with `capturingRpc(name, response)`; the Elixir side replays the
+  captured bodies with `replay/1`.
 
   Tests that need different generated output (the sort-less resource check) use
   `fresh_package/2` and own their build.
@@ -49,10 +54,10 @@ defmodule AshSwift.Test.SwiftConsumer do
             Path.join(sources, "ConsumerCheck.swift")
           )
 
-          # The capture half of the capture-and-replay harness (see `replay/2`).
+          # The capture half of the capture-and-replay harness (see `replay/1`).
           File.cp!(
-            Path.join(File.cwd!(), "test/support/swift/CapturingTransport.swift"),
-            Path.join(tests_dir(tmp), "CapturingTransport.swift")
+            Path.join(File.cwd!(), "test/support/swift/StubTransport.swift"),
+            Path.join(tests_dir(tmp), "StubTransport.swift")
           )
         catch
           kind, reason ->
@@ -154,12 +159,12 @@ defmodule AshSwift.Test.SwiftConsumer do
 
   @doc """
   Replays a request body captured by the Swift `capturingRpc(name, response)`
-  factory (`test/support/swift/CapturingTransport.swift`) through the real RPC
+  factory (`test/support/swift/StubTransport.swift`) through the real RPC
   pipeline. Returns `{decoded_body, result}`.
   """
-  def replay(name, tmp \\ shared_package()) do
+  def replay(name) do
     body =
-      tmp
+      shared_package()
       |> Path.join("captured_bodies")
       |> Path.join("#{name}.json")
       |> File.read!()

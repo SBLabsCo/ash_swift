@@ -557,8 +557,6 @@ defmodule AshSwift.E2ETest do
   end
 
   test "read/destroy action arguments: the generated functions' request bodies carry them (issues #87, #102)" do
-    File.rm_rf!(Path.join(SwiftConsumer.shared_package(), "captured_bodies"))
-
     # A fresh owner with one completed and one open todo. The ETS table is shared
     # across this module's tests, so every assertion below is scoped to these rows
     # (by owner, by a unique title token, or by id).
@@ -607,53 +605,49 @@ defmodule AshSwift.E2ETest do
         private let offsetPage = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"offset":0,"count":null}}"#
         private let keysetPage = #"{"success":true,"data":{"results":[],"hasMore":false,"limit":5,"after":null,"before":null,"nextPage":null,"previousPage":null,"count":null}}"#
 
-        private func rpc(_ name: String, _ response: String) -> AshRpc {
-            capturingRpc(name, response)
-        }
-
         func testCaptureReadBodies() async throws {
             let ownerId = "#{owner.id}"
             let openId = "#{open.id}"
 
             // Plain list read: no input, owner only, owner + completedOnly.
-            let _ = try await rpc("search_none", list).searchTodos(fields: ["id"])
-            let _ = try await rpc("search_owner", list).searchTodos(
+            let _ = try await capturingRpc("search_none", list).searchTodos(fields: ["id"])
+            let _ = try await capturingRpc("search_owner", list).searchTodos(
                 input: SearchTodosInput(userId: ownerId), fields: ["id"])
-            let _ = try await rpc("search_owner_done", list).searchTodos(
+            let _ = try await capturingRpc("search_owner_done", list).searchTodos(
                 input: SearchTodosInput(completedOnly: true, userId: ownerId), fields: ["id"])
 
             // Required-pagination read with a REQUIRED argument.
-            let _ = try await rpc("paged", offsetPage).searchTodosPaged(
+            let _ = try await capturingRpc("paged", offsetPage).searchTodosPaged(
                 input: SearchTodosPagedInput(titleContains: "#{token}-done"), fields: ["id"])
 
             // Optional-pagination read: both overloads carry input.
-            let _ = try await rpc("keyset_bare", list).searchTodosKeysetOptional(
+            let _ = try await capturingRpc("keyset_bare", list).searchTodosKeysetOptional(
                 input: SearchTodosKeysetOptionalInput(completedOnly: true), fields: ["id"])
-            let _ = try await rpc("keyset_page", keysetPage).searchTodosKeysetOptional(
+            let _ = try await capturingRpc("keyset_page", keysetPage).searchTodosKeysetOptional(
                 input: SearchTodosKeysetOptionalInput(completedOnly: true),
                 page: KeysetPageParams(limit: 500), fields: ["id"])
 
             // Native get_by + argument: both share the one `input` object.
-            let _ = try await rpc("get_open", record).getTodoScoped(id: openId, fields: ["id"])
-            let _ = try await rpc("get_open_done_only", record).getTodoScoped(
+            let _ = try await capturingRpc("get_open", record).getTodoScoped(id: openId, fields: ["id"])
+            let _ = try await capturingRpc("get_open_done_only", record).getTodoScoped(
                 id: openId, input: GetTodoScopedInput(completedOnly: true), fields: ["id"])
 
             // RPC-level get_by: lookup under `getBy`, arguments under `input`.
-            let _ = try await rpc("find_done_owner", record).findTodoScoped(
+            let _ = try await capturingRpc("find_done_owner", record).findTodoScoped(
                 title: "#{token}-done", input: FindTodoScopedInput(userId: ownerId), fields: ["id"])
-            let _ = try await rpc("find_open_done_only", record).findTodoScoped(
+            let _ = try await capturingRpc("find_open_done_only", record).findTodoScoped(
                 title: "#{token}-open", input: FindTodoScopedInput(completedOnly: true), fields: ["id"])
         }
 
         func testCaptureDestroyBodies() async throws {
             let ok = #"{"success":true,"data":{}}"#
-            try await rpc("archive", ok).archiveTodo(
+            try await capturingRpc("archive", ok).archiveTodo(
                 id: "#{archived.id}", input: ArchiveTodoInput(reason: "done"))
-            try await rpc("veto", ok).archiveTodo(
+            try await capturingRpc("veto", ok).archiveTodo(
                 id: "#{vetoed.id}", input: ArchiveTodoInput(reason: "veto"))
-            try await rpc("discard", ok).discardTodo(
+            try await capturingRpc("discard", ok).discardTodo(
                 id: "#{discarded.id}", input: DiscardTodoInput(default: "x", hard: true))
-            try await rpc("discard_bare", ok).discardTodo(id: "#{plain.id}")
+            try await capturingRpc("discard_bare", ok).discardTodo(id: "#{plain.id}")
         }
     }
     """
@@ -661,7 +655,6 @@ defmodule AshSwift.E2ETest do
     SwiftConsumer.run_swift_test!("E2EReadArgumentsTest", e2e_swift)
 
     # Step 2 (Elixir): replay each captured body through the real RPC pipeline.
-    run = &SwiftConsumer.replay/1
 
     ids = fn %{"success" => true, "data" => data} ->
       rows = if is_map(data) and Map.has_key?(data, "results"), do: data["results"], else: data
@@ -671,25 +664,25 @@ defmodule AshSwift.E2ETest do
     mine = MapSet.new([done.id, open.id])
 
     # No input → no `input` key on the wire, and both of the owner's todos.
-    {body, result} = run.("search_none")
+    {body, result} = SwiftConsumer.replay("search_none")
     refute Map.has_key?(body, "input")
     assert MapSet.subset?(mine, ids.(result))
 
     # The owner argument narrows to exactly the owner's todos…
-    {body, result} = run.("search_owner")
+    {body, result} = SwiftConsumer.replay("search_owner")
     assert body["input"] == %{"userId" => owner.id}
     assert ids.(result) == mine
 
     # …and adding completedOnly narrows further.
-    {_body, result} = run.("search_owner_done")
+    {_body, result} = SwiftConsumer.replay("search_owner_done")
     assert ids.(result) == MapSet.new([done.id])
 
-    {body, result} = run.("paged")
+    {body, result} = SwiftConsumer.replay("paged")
     assert body["input"] == %{"titleContains" => "#{token}-done"}
     assert ids.(result) == MapSet.new([done.id])
 
     for name <- ["keyset_bare", "keyset_page"] do
-      {body, result} = run.(name)
+      {body, result} = SwiftConsumer.replay(name)
       assert body["input"] == %{"completedOnly" => true}
       assert MapSet.member?(ids.(result), done.id)
       refute MapSet.member?(ids.(result), open.id)
@@ -697,21 +690,21 @@ defmodule AshSwift.E2ETest do
 
     # get_by: lookup field and argument travel in one `input` object; the
     # argument turns a hit into a miss.
-    {body, result} = run.("get_open")
+    {body, result} = SwiftConsumer.replay("get_open")
     assert body["input"] == %{"id" => open.id}
     assert result["data"]["id"] == open.id
 
-    {body, result} = run.("get_open_done_only")
+    {body, result} = SwiftConsumer.replay("get_open_done_only")
     assert body["input"] == %{"id" => open.id, "completedOnly" => true}
     assert result["success"] == false
 
     # RPC-level get_by: `getBy` carries the lookup, `input` the arguments.
-    {body, result} = run.("find_done_owner")
+    {body, result} = SwiftConsumer.replay("find_done_owner")
     assert body["getBy"] == %{"title" => "#{token}-done"}
     assert body["input"] == %{"userId" => owner.id}
     assert result["data"]["id"] == done.id
 
-    {_body, result} = run.("find_open_done_only")
+    {_body, result} = SwiftConsumer.replay("find_open_done_only")
     assert result["success"] == false
 
     # Destroy arguments (#102): they ride under `input`, the record under `identity`.
@@ -720,7 +713,7 @@ defmodule AshSwift.E2ETest do
     end
 
     # The argument rides under `input`, the record under `identity`.
-    {body, result} = run.("archive")
+    {body, result} = SwiftConsumer.replay("archive")
     assert body["identity"] == archived.id
     assert body["input"] == %{"reason" => "done"}
     assert result["success"] == true
@@ -728,19 +721,19 @@ defmodule AshSwift.E2ETest do
 
     # The action actually received the argument: a vetoing reason is refused and
     # the record survives.
-    {body, result} = run.("veto")
+    {body, result} = SwiftConsumer.replay("veto")
     assert body["input"] == %{"reason" => "veto"}
     assert result["success"] == false
     assert exists?.(vetoed)
 
     # Optional arguments: a keyword-named one reaches the wire under its own key.
-    {body, result} = run.("discard")
+    {body, result} = SwiftConsumer.replay("discard")
     assert body["input"] == %{"default" => "x", "hard" => true}
     assert result["success"] == true
     refute exists?.(discarded)
 
     # No input → no `input` key at all, and an all-optional destroy still succeeds.
-    {body, result} = run.("discard_bare")
+    {body, result} = SwiftConsumer.replay("discard_bare")
     refute Map.has_key?(body, "input")
     assert result["success"] == true
     refute exists?.(plain)
@@ -763,25 +756,6 @@ defmodule AshSwift.E2ETest do
     // generated AshRpc client, and that {"success":false} responses surface as a
     // thrown AshRpcError.server value with the decoded server errors.
     final class E2EHeadersAndErrorsTest: XCTestCase {
-        // Stub transport used in both tests: captures the outgoing request and
-        // returns a caller-supplied canned response.
-        private struct StubTransport: Transport {
-            let status: Int
-            let body: Data
-            let onRequest: @Sendable (URLRequest) -> Void
-
-            func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-                onRequest(request)
-                let http = HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: status,
-                    httpVersion: nil,
-                    headerFields: nil
-                )!
-                return (body, http)
-            }
-        }
-
         private final class CapturedRequest: @unchecked Sendable {
             var value: URLRequest?
         }
@@ -792,15 +766,9 @@ defmodule AshSwift.E2ETest do
         func testAuthHeaderForwardedOnGeneratedListCall() async throws {
             let captured = CapturedRequest()
             let stub = StubTransport(
-                status: 200,
                 body: Data(#"{"success":true,"data":[]}"#.utf8)
             ) { captured.value = $0 }
-
-            let config = AshRpcConfig(
-                baseURL: URL(string: "https://example.com")!,
-                headers: ["Authorization": "Bearer secret-token"]
-            )
-            let rpc = AshRpc(client: AshRpcClient(config: config, transport: stub))
+            let rpc = stubRpc(stub, headers: ["Authorization": "Bearer secret-token"])
 
             let _: [Todo] = try await rpc.listTodos(fields: ["id"])
 
@@ -823,10 +791,7 @@ defmodule AshSwift.E2ETest do
         // in a do/catch block and inspect the typed server errors.
         func testBackendErrorSurfacesAsTypedAshRpcError() async {
             let errorBody = Data(#"{"success":false,"errors":[{"type":"unauthorized","message":"not allowed"}]}"#.utf8)
-            let stub = StubTransport(status: 200, body: errorBody) { _ in }
-
-            let config = AshRpcConfig(baseURL: URL(string: "https://example.com")!)
-            let rpc = AshRpc(client: AshRpcClient(config: config, transport: stub))
+            let rpc = stubRpc(body: errorBody)
 
             do {
                 let _: [Todo] = try await rpc.listTodos(fields: ["id"])
@@ -879,25 +844,9 @@ defmodule AshSwift.E2ETest do
     // the generated client, proving an error's payload survives the decode
     // boundary rather than being dropped (issue #81).
     final class E2EErrorVarsTest: XCTestCase {
-        private struct StubTransport: Transport {
-            let body: Data
-
-            func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-                let http = HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: nil
-                )!
-                return (body, http)
-            }
-        }
-
         func testRealBackendErrorSurfacesItsVars() async throws {
             let json = #{inspect(json, binaries: :as_strings)}
-            let stub = StubTransport(body: Data(json.utf8))
-            let config = AshRpcConfig(baseURL: URL(string: "https://example.com")!)
-            let rpc = AshRpc(client: AshRpcClient(config: config, transport: stub))
+            let rpc = stubRpc(body: Data(json.utf8))
 
             do {
                 // The request body is irrelevant here — the stub replays the real
