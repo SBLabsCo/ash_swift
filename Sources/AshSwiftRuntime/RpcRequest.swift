@@ -95,8 +95,8 @@ public struct GetBody: Encodable, Sendable {
 ///   object the arguments' synthesized `encode(to:)` already started rather than
 ///   replacing it (pinned by `RpcRequestTests`).
 /// - The two key sets are disjoint. Codegen guarantees it: a get's native get_by
-///   fields are excluded from its generated arguments struct (`native_get_by_fields/2`
-///   in `reader.ex`), so an argument can never carry a lookup key. If they ever did
+///   fields are excluded from its generated arguments struct (the `get_by` key of
+///   `ash_action_facts/2` in `reader.ex`), so an argument can never carry a lookup key. If they ever did
 ///   overlap, the lookup value would win (it is encoded last) — the right tie-break,
 ///   since it identifies the record. A runtime check isn't practical: the arguments
 ///   are type-erased, so their keys aren't known without encoding them twice.
