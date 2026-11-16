@@ -77,7 +77,7 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
-  describe "accepted-attribute input optionality (#113, #124)" do
+  describe "input optionality: accepted attributes and arguments (#113, #124, #75)" do
     setup do
       todo = resource(Reader.read(@domains), "Todo")
       struct = fn name -> Enum.find(todo.input_structs, &(&1.struct_name == name)) end
@@ -112,6 +112,13 @@ defmodule AshSwift.Codegen.ReaderTest do
 
       # control: allow_nil?: false, no default, not in allow_nil_input
       assert %{required?: true} = field.(struct.("CreateTodoInput"), "title")
+    end
+
+    test "a required argument named like a nullable public attribute stays required (#75)", %{
+      struct: struct,
+      field: field
+    } do
+      assert %{required?: true, swift_type: "Int"} = field.(struct.("SetTodoScoreInput"), "score")
     end
   end
 

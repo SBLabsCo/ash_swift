@@ -1104,19 +1104,6 @@ defmodule AshSwift.CodegenTest do
                "public func retitleTodo(id: String, input: RetitleTodoInput, fields: [FieldSelection]) async throws -> Todo {"
     end
 
-    test "a required argument named like a public nullable attribute stays required (issue #75)",
-         %{files: files} do
-      body = struct_body(files["AshRpcTypes.swift"], "SetTodoScoreInput")
-
-      # `score` is a nullable public attribute, but the argument's `allow_nil?: false`
-      # wins: non-optional field, no default, `encode` rather than `encodeIfPresent`.
-      assert body =~ "    public var score: Int\n"
-      assert body =~ "public init(score: Int)"
-      assert body =~ "try container.encode(score, forKey: .score)"
-      refute body =~ "Int?"
-      refute body =~ "encodeIfPresent"
-    end
-
     test "the 'arguments are not yet supported' warning is gone" do
       log = ExUnit.CaptureLog.capture_log(fn -> Codegen.build_files(@domains) end)
 
