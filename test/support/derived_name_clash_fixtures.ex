@@ -7,6 +7,9 @@
 #     its own `sort_field` enum attribute also generates.
 #   * InputStructClashDomain: `Gizmo`'s create action derives `CreateGizmoInput`,
 #     which the resource with type_name "CreateGizmoInput" also declares.
+#   * SameResourceInputClashDomain: one resource's generic actions `upload`
+#     (argument `start_clips`) and `upload_start` (argument `clips`) both derive the
+#     nested input struct `UploadStartClipsItem`.
 
 defmodule AshSwift.Test.Widget do
   @moduledoc false
@@ -202,5 +205,64 @@ defmodule AshSwift.Test.InputStructClashDomain do
   resources do
     resource AshSwift.Test.Gizmo
     resource AshSwift.Test.CreateGizmoInputResource
+  end
+end
+
+defmodule AshSwift.Test.Uploader do
+  @moduledoc false
+
+  use Ash.Resource,
+    domain: AshSwift.Test.SameResourceInputClashDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("Uploader")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id
+  end
+
+  actions do
+    defaults [:read]
+
+    action :upload, :string do
+      argument :start_clips, {:array, :map},
+        constraints: [items: [fields: [label: [type: :string, allow_nil?: false]]]]
+
+      run fn _input, _ctx -> {:ok, "ok"} end
+    end
+
+    action :upload_start, :string do
+      argument :clips, {:array, :map},
+        constraints: [items: [fields: [url: [type: :string, allow_nil?: false]]]]
+
+      run fn _input, _ctx -> {:ok, "ok"} end
+    end
+  end
+end
+
+defmodule AshSwift.Test.SameResourceInputClashDomain do
+  @moduledoc false
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.Uploader do
+      rpc_action(:upload, :upload)
+      rpc_action(:upload_start, :upload_start)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.Uploader
   end
 end

@@ -714,9 +714,13 @@ defmodule AshSwift.Codegen.ReaderTest do
                    ~r/not unique: "CreateGizmoInput" \(AshSwift\.Test\.CreateGizmoInputResource struct, AshSwift\.Test\.Gizmo input struct\)/,
                    fn -> Reader.read([AshSwift.Test.InputStructClashDomain]) end
     end
-  end
 
-  describe "type-name collisions between different resource modules (#156)" do
+    test "two declarations of one input struct name inside one resource are a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/not unique: "UploadStartClipsItem" \(AshSwift\.Test\.Uploader input struct, AshSwift\.Test\.Uploader input struct\)/,
+                   fn -> Reader.read([AshSwift.Test.SameResourceInputClashDomain]) end
+    end
+
     test "a related destination sharing a primary's type name is a codegen error" do
       assert_raise Mix.Error,
                    ~r/not unique: "Clash" \(AshSwift\.Test\.ClashPrimary struct, AshSwift\.Test\.ClashRelated struct\)/,

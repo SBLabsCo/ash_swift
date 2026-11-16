@@ -21,7 +21,7 @@ defmodule AshSwift.DeterminismTest do
   # One entry per fixture domain set worth pinning — the primary resources,
   # map-only resources, tags, and a
   # resource reachable only as a generic-action return. CollisionDomain is
-  # excluded by design: build_files/1 raises on its name collision (pinned in codegen_test).
+  # excluded by design: build_files/1 raises on its name collision (pinned in reader_test).
   @matrix %{
     "domain" => [AshSwift.Test.Domain],
     "map_only_domain" => [AshSwift.Test.MapOnlyDomain],

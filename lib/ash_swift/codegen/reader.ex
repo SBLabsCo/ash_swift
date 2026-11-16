@@ -22,7 +22,7 @@ defmodule AshSwift.Codegen.Reader do
         resource_module: module | nil,        # nil for a related-only entry
         domain:          module | nil,        # nil for a related-only entry (ADR-0009: read
                                               # straight off the IR, not Ash.Resource.Info.domain/1)
-        type_name:       "Todo",                # validated plain Swift identifier, unique per resource module across all_resources (Reader raises otherwise)
+        type_name:       "Todo",                # validated plain Swift identifier; see the uniqueness invariant below
         fields:          [field],                 # attributes + relationships + derived; see Field below
         enums:           [%{enum_name, cases: [%{name, raw}]}],  # raw: wire string, nil when equal to name
         actions:         [action],                # [] for a related-only entry
@@ -30,6 +30,12 @@ defmodule AshSwift.Codegen.Reader do
         sort_field:      %{type_name, fields} | nil,   # fields: [name_string]; nil when no sortable surface
         filter_struct:   %{type_name, fields} | nil    # fields: [%{name, swift_type}]; nil when no filterable surface
       }
+
+  **Uniqueness invariant.** Every top-level Swift name the entries declare
+  (`type_name`, each `enum_name`, each input/result `struct_name`,
+  `sort_field.type_name`, `filter_struct.type_name`) has exactly one owner across
+  `all_resources`; `assert_unique_swift_names!/1` raises otherwise. Consumers
+  (the Emitter, `Contract`) may rely on it.
 
   ### Field
 
@@ -1108,13 +1114,14 @@ defmodule AshSwift.Codegen.Reader do
   # declarations of one name would otherwise not compile (or, for two resource
   # modules sharing a type name, silently share one struct). Entries are the
   # primary resources plus the related ones, which only carry a model struct and
-  # enums; related destinations are keyed by module, so an unexposed module
-  # reached twice is one owner, not a collision.
+  # enums; each module appears once (`expand_with_related/2` keys related
+  # entries by module), so a name that occurs twice is a real collision, even
+  # when both occurrences come from the same resource (two actions or fields
+  # deriving the same struct name).
   defp assert_unique_swift_names!(resources) do
     collisions =
       resources
       |> Enum.flat_map(&swift_name_owners/1)
-      |> Enum.uniq()
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
       |> Enum.filter(fn {_name, owners} -> length(owners) > 1 end)
       |> Enum.sort()
@@ -1139,7 +1146,10 @@ defmodule AshSwift.Codegen.Reader do
 
     [{type_name, owner.("struct")}] ++
       Enum.map(Map.get(resource, :enums, []), &{&1.enum_name, owner.("enum")}) ++
-      Enum.map(Map.get(resource, :input_structs, []), &{&1.struct_name, owner.("input struct")}) ++
+      Enum.map(Map.get(resource, :input_structs, []), fn struct ->
+        {struct.struct_name,
+         owner.(if Map.get(struct, :decodable?, false), do: "result struct", else: "input struct")}
+      end) ++
       for(%{type_name: name} <- [resource[:sort_field]], do: {name, owner.("sort field")}) ++
       for(%{type_name: name} <- [resource[:filter_struct]], do: {name, owner.("filter")})
   end
