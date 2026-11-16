@@ -201,6 +201,10 @@ defmodule AshSwift.Test.SharedTarget do
 
   attributes do
     uuid_primary_key :id
+
+    # Unsupported (nested array): the Reader warns about it, and the warning
+    # test counts how often, since this resource is reached via two relationships.
+    attribute :matrix, {:array, {:array, :string}}, public?: true
   end
 
   actions do

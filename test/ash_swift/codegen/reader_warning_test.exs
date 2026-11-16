@@ -17,4 +17,11 @@ defmodule AshSwift.Codegen.ReaderWarningTest do
     # other primaries; the warning must not repeat per visit.
     assert length(String.split(log, "attribute AshSwift.Test.Todo.matrix")) == 2
   end
+
+  test "an unexposed resource reached through several relationships is collected once" do
+    log = capture_log(fn -> Reader.read([AshSwift.Test.SharedDestinationDomain]) end)
+
+    # SharedTarget is reached via SharedHolder's :first and :second.
+    assert length(String.split(log, "attribute AshSwift.Test.SharedTarget.matrix")) == 2
+  end
 end
