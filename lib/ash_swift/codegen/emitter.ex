@@ -464,10 +464,11 @@ defmodule AshSwift.Codegen.Emitter do
   # not_found_error? true → return T (throws on missing).
   # not_found_error? false → return T? (nil on missing).
   #
-  # The Reader guarantees `sortable?` / `filterable?` are false for gets (they
-  # are list-read flags), so this clause matches on both: an IR that says
-  # otherwise is rejected by the guarded raising clause below rather than being
-  # quietly re-decided here (ADR-0010: one owner per decision).
+  # The Reader guarantees `sortable?` / `filterable?` are false and both
+  # pagination types are `:none` for gets (they are list-read concerns), so this
+  # clause matches on all four: an IR that says otherwise is rejected by the
+  # guarded raising clause below rather than being quietly re-decided here
+  # (ADR-0010: one owner per decision).
   defp method_spec(
          %{
            rpc_name: rpc_name,
@@ -475,7 +476,9 @@ defmodule AshSwift.Codegen.Emitter do
            get: get,
            not_found_error?: not_found_error?,
            sortable?: false,
-           filterable?: false
+           filterable?: false,
+           pagination_type: :none,
+           optional_pagination_type: :none
          } = action,
          type_name
        )
@@ -526,13 +529,20 @@ defmodule AshSwift.Codegen.Emitter do
            action_type: :read,
            get: get,
            sortable?: sortable?,
-           filterable?: filterable?
+           filterable?: filterable?,
+           pagination_type: pagination_type,
+           optional_pagination_type: optional_pagination_type
          },
          _type_name
        )
-       when not is_nil(get) and (sortable? != false or filterable? != false) do
+       when not is_nil(get) and
+              (sortable? != false or filterable? != false or pagination_type != :none or
+                 optional_pagination_type != :none) do
     raise "AshSwift: get action #{inspect(rpc_name)} has sortable?: #{inspect(sortable?)}, " <>
-            "filterable?: #{inspect(filterable?)}; the Reader must set both false for gets"
+            "filterable?: #{inspect(filterable?)}, " <>
+            "pagination_type: #{inspect(pagination_type)}, " <>
+            "optional_pagination_type: #{inspect(optional_pagination_type)}; " <>
+            "the Reader must set sortable?/filterable? false and both pagination types :none for gets"
   end
 
   # Create actions: typed input struct + returns the created record.
