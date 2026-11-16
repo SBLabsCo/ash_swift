@@ -558,34 +558,6 @@ defmodule AshSwift.Codegen.ContractTest do
       assert action.filterable == true
     end
 
-    # Mirrors the Reader's "one generated Swift name, one owner" check
-    # (reader_test.exs): `dedupe_by_name!/2` is the same naming-collision
-    # guard, exercised here directly against hand-built IR rather than a real
-    # (and harder to construct) colliding Ash resource pair.
-    test "two same-named resources with different fields raise a Mix.Error naming collision" do
-      widget_a = base_resource(%{fields: [%{name: "name", swift_type: "String"}]})
-      widget_b = base_resource(%{fields: [%{name: "name", swift_type: "Int"}]})
-
-      assert_raise Mix.Error,
-                   ~r/type name "Widget" maps to multiple, different definitions/,
-                   fn ->
-                     Contract.build_from_ir(%{
-                       primary_resources: [],
-                       all_resources: [widget_a, widget_b]
-                     })
-                   end
-    end
-
-    test "two same-named resources with identical content dedupe silently to one entry (no regression)" do
-      widget_a = base_resource()
-      widget_b = base_resource()
-
-      doc =
-        Contract.build_from_ir(%{primary_resources: [], all_resources: [widget_a, widget_b]})
-
-      assert Enum.count(doc.types, &(&1.name == "Widget" and &1.kind == "resource")) == 1
-    end
-
     defp fields_of(types, name) do
       types |> Enum.find(&(&1.name == name and &1.kind == "resource")) |> Map.fetch!(:fields)
     end
