@@ -63,8 +63,6 @@ public struct NullableEquatableOperators<T: Encodable & Sendable>: Encodable, Se
     }
 }
 
-// NOTE: `CiStringOperators` / `NullableCiStringOperators` below mirror this
-// pair field for field; update them together.
 /// Equality + membership operators for a non-null attribute. Used for the
 /// equality-and-`in` group: enums, strings, UUIDs, and the default fallback.
 public struct EnumOperators<T: Encodable & Sendable>: Encodable, Sendable {
@@ -95,38 +93,16 @@ public struct NullableEnumOperators<T: Encodable & Sendable>: Encodable, Sendabl
 }
 
 /// Equality + membership operators for a non-null case-insensitive string
-/// attribute (Ash `:ci_string`). Structurally identical to `EnumOperators` and
-/// encoded identically: values are sent unmodified. The backend compares
+/// attribute (Ash `:ci_string`). An alias of `EnumOperators`, so it encodes
+/// identically: values are sent unmodified. The backend compares
 /// `eq` / `notEq` / `in` case-insensitively, so `eq: "Coach@Example.com"`
 /// matches `coach@example.com`. No client-side case normalization is done.
-public struct CiStringOperators<T: Encodable & Sendable>: Encodable, Sendable {
-    public var eq: T?
-    public var notEq: T?
-    public var `in`: [T]?
-
-    public init(eq: T? = nil, notEq: T? = nil, in: [T]? = nil) {
-        self.eq = eq
-        self.notEq = notEq
-        self.`in` = `in`
-    }
-}
+public typealias CiStringOperators<T: Encodable & Sendable> = EnumOperators<T>
 
 /// `CiStringOperators` plus `isNil`, for a nullable case-insensitive string
-/// attribute. Comparisons are case-insensitive on the backend; values are sent
-/// unmodified.
-public struct NullableCiStringOperators<T: Encodable & Sendable>: Encodable, Sendable {
-    public var eq: T?
-    public var notEq: T?
-    public var `in`: [T]?
-    public var isNil: Bool?
-
-    public init(eq: T? = nil, notEq: T? = nil, in: [T]? = nil, isNil: Bool? = nil) {
-        self.eq = eq
-        self.notEq = notEq
-        self.`in` = `in`
-        self.isNil = isNil
-    }
-}
+/// attribute. An alias of `NullableEnumOperators`; comparisons are
+/// case-insensitive on the backend and values are sent unmodified.
+public typealias NullableCiStringOperators<T: Encodable & Sendable> = NullableEnumOperators<T>
 
 /// Equality, membership, and ordering operators for a non-null comparable
 /// attribute (numeric and date/datetime types).

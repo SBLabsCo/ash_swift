@@ -2,13 +2,15 @@
 
 ## Unreleased
 
-### Breaking
+### Changed
 
 - Filter fields for `:ci_string` attributes are now typed
-  `CiStringOperators<String>` / `NullableCiStringOperators<String>` instead of
-  `EnumOperators<String>` / `NullableEnumOperators<String>` (same operators,
-  same wire format). Call sites that spell `NullableEnumOperators(eq: "x")` for
-  such a field must switch to `NullableCiStringOperators(eq: "x")` or `.init(eq: "x")`. (#58)
+  `NullableCiStringOperators<String>` / `CiStringOperators<String>`, documented
+  aliases of `NullableEnumOperators` / `EnumOperators` (same operators, same
+  wire format; the backend compares case-insensitively). Existing call sites
+  keep compiling. (#58)
+
+### Breaking
 
 - Create input structs now make attributes listed in the action's
   `allow_nil_input` optional (`T?`, `= nil` in the init), where a non-null

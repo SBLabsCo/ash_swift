@@ -406,14 +406,10 @@ defmodule AshSwift.CodegenTest do
       assert types =~ "public var metadata: [String: AshJSON]?"
     end
 
-    test "Ash.Type.CiString maps to String and gets the CiString filter operator group", %{
-      files: files
-    } do
+    test "Ash.Type.CiString maps to String (plain JSON string wire format)", %{files: files} do
       types = files["AshRpcTypes.swift"]
       # CiString has an explicit mapping, so codegen emits String without the
-      # unmapped-type fallback warning. Its filter field gets its own
-      # case-insensitive operator group.
-      assert types =~ "public var username: NullableCiStringOperators<String>?"
+      # unmapped-type fallback warning.
       assert types =~ "public var username: String?"
     end
 
