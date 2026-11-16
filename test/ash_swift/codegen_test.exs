@@ -1428,7 +1428,7 @@ defmodule AshSwift.CodegenTest do
     end
   end
 
-  describe "stale_files/2 (the --check staleness guard)" do
+  describe "generate/2 and stale_files/2 against a temp dir" do
     setup do
       dir = Path.join(System.tmp_dir!(), "ash_swift_stale_#{System.unique_integer([:positive])}")
       on_exit(fn -> File.rm_rf!(dir) end)
@@ -1451,23 +1451,13 @@ defmodule AshSwift.CodegenTest do
 
       assert Codegen.stale_files(@domains, dir) == ["AshRpcTypes.swift"]
     end
-  end
 
-  describe "generate/2 write-skip" do
-    test "regenerating with no schema change produces no diff" do
-      sources =
-        Path.join(
-          System.tmp_dir!(),
-          "ash_swift_determinism_#{System.unique_integer([:positive])}"
-        )
-
-      on_exit(fn -> File.rm_rf!(sources) end)
-
-      assert {:ok, first} = Codegen.generate(@domains, sources)
+    test "regenerating with no schema change writes nothing", %{dir: dir} do
+      assert {:ok, first} = Codegen.generate(@domains, dir)
       assert "AshRpcTypes.swift" in first
 
       # Second run sees identical content and writes nothing — no diff, no churn.
-      assert {:ok, []} = Codegen.generate(@domains, sources)
+      assert {:ok, []} = Codegen.generate(@domains, dir)
     end
   end
 end
