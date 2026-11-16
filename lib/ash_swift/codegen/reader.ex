@@ -36,7 +36,8 @@ defmodule AshSwift.Codegen.Reader do
   Every `action` is a map with these keys. CRUD (`:read | :create | :update |
   :destroy`) and generic (`:action`) actions share the uniform keys.
   `input_required?` is present on CRUD actions only (always `false` outside a
-  read or destroy with a required argument) and `generic_return` on
+  read or destroy with a required input: an argument, or an accepted attribute
+  a soft destroy lists in `require_attributes`) and `generic_return` on
   generic actions only;
   every other key is present on every kind. A `[read only]` tag below means the
   value is *meaningful* only on reads, not that the key is absent elsewhere.
@@ -54,7 +55,8 @@ defmodule AshSwift.Codegen.Reader do
                                                # destroy) accepts attributes (#102);
                                                # generic: set only when it has inputs
         input_required?: boolean,              # [CRUD only; absent on generic] meaningful only for reads and destroys: whether
-                                               # `input:` must be supplied (some argument is required); false otherwise
+                                               # `input:` must be supplied (some input is required: an argument, or an
+                                               # accepted attribute a soft destroy lists in `require_attributes`); false otherwise
         primary_key_params: [%{name, swift_type}],  # update/destroy: the resource's PK params; [] for create/read/generic.
                                                # The identity that addresses the record; the emitter sends it as `identity`
         pagination_type: :offset | :keyset | :none,           # required pagination => paginated return
@@ -505,7 +507,8 @@ defmodule AshSwift.Codegen.Reader do
       not_found_error?: not_found_error?,
       input_struct_name: input_struct_name,
       # Read and destroy actions: whether the `input:` parameter is required (some
-      # argument must be supplied) or an optional `= nil` (issues #87, #102).
+      # input must be supplied: an argument, or an accepted attribute a soft
+      # destroy lists in `require_attributes`) or an optional `= nil` (issues #87, #102).
       input_required?: input_required?,
       primary_key_params: primary_key_params,
       pagination_type: pagination_type,
@@ -1316,8 +1319,11 @@ defmodule AshSwift.Codegen.Reader do
   #     argument of an unmappable type is omitted with a warning rather than
   #     String-guessed. Arguments are checked first: an argument named like a
   #     public attribute is still an argument on the wire, with the argument's type.
-  #   * an accepted public attribute maps via attribute_swift_type/3. All update
-  #     attribute fields are optional because update is always a partial operation.
+  #   * an accepted public attribute maps via attribute_swift_type/3. Create
+  #     optionality derives from the attribute; update and destroy fields are
+  #     optional (a partial operation) unless the manifest's `input.required?`
+  #     says otherwise — it reflects the action's `require_attributes` and
+  #     `allow_nil_input`.
   #   * anything else (an accepted non-public attribute) is omitted with a warning.
   defp collect_action_inputs(maction, rpc_action, mres, type_name, formatter, types) do
     resource = mres.module
@@ -1367,13 +1373,17 @@ defmodule AshSwift.Codegen.Reader do
             # about it once for this resource, so this drop stays quiet.
             #
             # Unlike the model field, dropping here is only safe for an OPTIONAL
-            # attribute: a required one (create, `allow_nil?: false`, no default) still
-            # yields an input struct that compiles, and the create then fails
-            # server-side at run time rather than at build time. Tracked in issue #79.
+            # attribute: a required one (create: `allow_nil?: false` with no default;
+            # update / soft destroy: listed in `require_attributes`) still yields an
+            # input struct that compiles, and the action then fails server-side at run
+            # time rather than at build time. Tracked in issue #79.
             case attribute_swift_type(attr, formatted_name, type_name) do
               {:ok, swift_type, _enum} ->
                 required? =
-                  maction.type == :create and not attr.allow_nil? and not attr.has_default?
+                  case maction.type do
+                    :create -> not attr.allow_nil? and not attr.has_default?
+                    _update_or_destroy -> input.required? == true
+                  end
 
                 field = %{name: formatted_name, swift_type: swift_type, required?: required?}
                 {[field | fields_acc], structs_acc}

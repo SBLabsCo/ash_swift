@@ -53,6 +53,9 @@ and a TypeScript client stay wire-identical by construction.
   fully typed (`async throws -> [T]` with field selection); get actions reflect
   `get?` / `get_by` / `not_found_error?` and return `T` or `T?` accordingly;
   create/update/destroy take compiler-enforced typed input structs.
+- **`require_attributes`** — on an update (or soft destroy), accepted attributes
+  are optional in the input struct, except those the action lists in
+  `require_attributes`, which are non-optional (matching ash_typescript).
 - **Action arguments** — an action's declared `argument`s generate typed input
   fields alongside (or instead of) its accepted attributes, mapped the same way
   as generic-action arguments, and independent of any same-named attribute's
