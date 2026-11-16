@@ -45,52 +45,6 @@ defmodule AshSwift.Test.BadActionNameDomain do
   end
 end
 
-defmodule AshSwift.Test.UnderscoreDigitActionName do
-  @moduledoc "Fixture resource with a hostile name (#142)."
-
-  use Ash.Resource,
-    domain: AshSwift.Test.UnderscoreDigitActionNameDomain,
-    data_layer: Ash.DataLayer.Ets,
-    extensions: [AshTypescript.Resource]
-
-  typescript do
-    type_name("UnderscoreDigitActionName")
-  end
-
-  ets do
-    private? true
-  end
-
-  attributes do
-    uuid_primary_key :id, public?: true
-  end
-
-  actions do
-    defaults [:read]
-  end
-end
-
-defmodule AshSwift.Test.UnderscoreDigitActionNameDomain do
-  @moduledoc "Fixture domain exposing `AshSwift.Test.UnderscoreDigitActionName` (#142)."
-
-  use Ash.Domain,
-    otp_app: :ash_swift,
-    extensions: [AshTypescript.Rpc],
-    validate_config_inclusion?: false
-
-  typescript_rpc do
-    resource AshSwift.Test.UnderscoreDigitActionName do
-      # Not `:_1st`: ash_typescript's own verifier warns on `_<digit>` names, and CI compiles
-      # with --warnings-as-errors. `:"1st"` reaches the same lower-camel check.
-      rpc_action(:"1st", :read)
-    end
-  end
-
-  resources do
-    resource AshSwift.Test.UnderscoreDigitActionName
-  end
-end
-
 defmodule AshSwift.Test.BadFieldName do
   @moduledoc "Fixture resource with a hostile name (#142)."
 

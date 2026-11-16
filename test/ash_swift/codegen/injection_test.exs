@@ -44,17 +44,12 @@ defmodule AshSwift.Codegen.InjectionTest do
       end
     end
 
-    test "rejects an rpc_action name whose lower-camelled Swift name is not an identifier (:\"1st\")" do
-      assert_raise Mix.Error, ~r/rpc_action name .* is not a valid Swift identifier/s, fn ->
-        Reader.read([AshSwift.Test.UnderscoreDigitActionNameDomain])
+    test "rejects an rpc_action name that passes the raw identifier check but lower-camels to a non-identifier (:_1st)" do
+      # `_1st` is a valid raw identifier, but Swift sees the lower-camelled `1st`, so this
+      # fails only if the Reader validates the lower-camelled form.
+      assert_raise Mix.Error, ~r/rpc_action name "1st" .* is not a valid Swift identifier/s, fn ->
+        Reader.read([underscore_digit_domain()])
       end
-    end
-
-    test "the rpc_action check runs on the lower-camelled name, which can differ from the raw atom" do
-      # `_1st` is a valid raw identifier but lower-camels to `1st`. The Reader validates the
-      # lower-camelled form (what Swift sees), so this is the case a raw-name check would miss.
-      # It can't be a fixture domain because ash_typescript's verifier warns on `_<digit>` names.
-      assert AshSwift.Codegen.Naming.lower_camel(:_1st) == "1st"
     end
 
     test "rejects a field name that is not a Swift identifier" do
@@ -109,5 +104,60 @@ defmodule AshSwift.Codegen.InjectionTest do
       files = Codegen.build_files([AshSwift.Test.KeywordGetByDomain])
       assert files["AshRpcFunctions.swift"] =~ ~S|"default": `default`|
     end
+  end
+
+  # The `:_1st` fixture is compiled here at test time rather than living in test/support:
+  # ash_typescript's verifier warns on `_<digit>` rpc names, which would fail CI's
+  # `mix compile --warnings-as-errors`. The warning is captured, not printed.
+  defp underscore_digit_domain do
+    domain = AshSwift.Test.UnderscoreDigitActionNameDomain
+
+    unless Code.ensure_loaded?(domain) do
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        Code.compile_string("""
+        defmodule AshSwift.Test.UnderscoreDigitActionName do
+          use Ash.Resource,
+            domain: AshSwift.Test.UnderscoreDigitActionNameDomain,
+            data_layer: Ash.DataLayer.Ets,
+            extensions: [AshTypescript.Resource]
+
+          typescript do
+            type_name "UnderscoreDigitActionName"
+          end
+
+          ets do
+            private? true
+          end
+
+          attributes do
+            uuid_primary_key :id, public?: true
+          end
+
+          actions do
+            defaults [:read]
+          end
+        end
+
+        defmodule AshSwift.Test.UnderscoreDigitActionNameDomain do
+          use Ash.Domain,
+            otp_app: :ash_swift,
+            extensions: [AshTypescript.Rpc],
+            validate_config_inclusion?: false
+
+          typescript_rpc do
+            resource AshSwift.Test.UnderscoreDigitActionName do
+              rpc_action :_1st, :read
+            end
+          end
+
+          resources do
+            resource AshSwift.Test.UnderscoreDigitActionName
+          end
+        end
+        """)
+      end)
+    end
+
+    domain
   end
 end
