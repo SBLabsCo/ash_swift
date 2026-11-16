@@ -205,11 +205,7 @@ public struct RawRequest: RpcRequest {
 /// shape unchanged.
 public struct ListRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = [T]
-    let action: String
-    let input: AnyEncodable?
-    let filter: AnyEncodable?
-    let sort: String?
-    let fields: [FieldSelection]
+    let body: ActionFieldsBody
 
     public init(
         action: String,
@@ -218,16 +214,11 @@ public struct ListRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
         sort: String? = nil,
         fields: [FieldSelection] = []
     ) {
-        self.action = action
-        self.input = input
-        self.filter = filter
-        self.sort = sort
-        self.fields = fields
+        self.body = ActionFieldsBody(
+            action: action, fields: fields, input: input, sort: sort, filter: filter)
     }
 
-    public func makeBody() -> ActionFieldsBody {
-        ActionFieldsBody(action: action, fields: fields, input: input, sort: sort, filter: filter)
-    }
+    public func makeBody() -> ActionFieldsBody { body }
 }
 
 /// An offset-paginated read action: decodes the `data` object into
@@ -341,59 +332,39 @@ public struct GetOptionalRequest<T: Decodable & Sendable>: DataEnvelopeRequest {
 /// into `T`.
 public struct CreateRequest<T: Decodable & Sendable, I: Encodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = T
-    let action: String
-    let input: I
-    let fields: [FieldSelection]
+    let body: CreateBody<I>
 
     public init(action: String, input: I, fields: [FieldSelection] = []) {
-        self.action = action
-        self.input = input
-        self.fields = fields
+        self.body = CreateBody(action: action, input: input, fields: fields)
     }
 
-    public func makeBody() -> CreateBody<I> {
-        CreateBody(action: action, input: input, fields: fields)
-    }
+    public func makeBody() -> CreateBody<I> { body }
 }
 
 /// An update action: sends `identity` (the primary-key string, per ADR-0003)
 /// plus the typed `input`, and decodes the updated record into `T`.
 public struct UpdateRequest<T: Decodable & Sendable, I: Encodable & Sendable>: DataEnvelopeRequest {
     public typealias Output = T
-    let action: String
-    let identity: String
-    let input: I
-    let fields: [FieldSelection]
+    let body: UpdateBody<I>
 
     public init(action: String, identity: String, input: I, fields: [FieldSelection] = []) {
-        self.action = action
-        self.identity = identity
-        self.input = input
-        self.fields = fields
+        self.body = UpdateBody(action: action, identity: identity, input: input, fields: fields)
     }
 
-    public func makeBody() -> UpdateBody<I> {
-        UpdateBody(action: action, identity: identity, input: input, fields: fields)
-    }
+    public func makeBody() -> UpdateBody<I> { body }
 }
 
 /// A destroy action: sends `identity` (plus `input` when the action declares
 /// arguments) and returns nothing on success.
 public struct DestroyRequest: RpcRequest {
     public typealias Output = Void
-    let action: String
-    let identity: String
-    let input: AnyEncodable?
+    let body: DestroyBody
 
     public init(action: String, identity: String, input: AnyEncodable? = nil) {
-        self.action = action
-        self.identity = identity
-        self.input = input
+        self.body = DestroyBody(action: action, identity: identity, input: input)
     }
 
-    public func makeBody() -> DestroyBody {
-        DestroyBody(action: action, identity: identity, input: input)
-    }
+    public func makeBody() -> DestroyBody { body }
 
     public func decode(from data: Data, using decoder: JSONDecoder) throws {
         // Success is already validated by `execute`; destroy returns no record.
@@ -411,19 +382,13 @@ public struct GenericActionRequest<O: Decodable & Sendable, I: Encodable & Senda
     DataEnvelopeRequest
 {
     public typealias Output = O
-    let action: String
-    let input: I?
-    let fields: [FieldSelection]?
+    let body: GenericActionBody<I>
 
     public init(action: String, input: I? = nil, fields: [FieldSelection]? = nil) {
-        self.action = action
-        self.input = input
-        self.fields = fields
+        self.body = GenericActionBody(action: action, input: input, fields: fields)
     }
 
-    public func makeBody() -> GenericActionBody<I> {
-        GenericActionBody(action: action, input: input, fields: fields)
-    }
+    public func makeBody() -> GenericActionBody<I> { body }
 }
 
 /// A generic (`:action`-type) action that returns nothing (an Ash action with no
