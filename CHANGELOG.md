@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- String literals in generated Swift are now escaped, and codegen stops with an
+  error when a resource `type_name`, rpc action name, field or argument name, or
+  enum value is not a plain Swift identifier. Previously such names produced
+  Swift that did not compile (or could inject declarations). (#142)
+
 ### Changed
 
 - Filter fields for `:ci_string` attributes are now typed

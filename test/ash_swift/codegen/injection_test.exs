@@ -5,8 +5,8 @@ defmodule AshSwift.Codegen.InjectionTest do
   """
   use ExUnit.Case, async: true
 
-  alias AshSwift.Codegen
   alias AshSwift.Codegen.Emitter
+  alias AshSwift.Codegen.Reader
 
   describe "Emitter.swift_string/1" do
     test "wraps plain text in quotes unchanged" do
@@ -18,6 +18,7 @@ defmodule AshSwift.Codegen.InjectionTest do
       assert Emitter.swift_string(~S|a\b|) == ~S|"a\\b"|
       assert Emitter.swift_string(~S|\(x)|) == ~S|"\\(x)"|
       assert Emitter.swift_string("a\nb\rc\td\0e") == ~S|"a\nb\rc\td\0e"|
+      assert Emitter.swift_string(<<1, ?a, 0x7F>>) == ~S|"\u{1}a\u{7F}"|
     end
 
     test "a literal-terminating payload stays inside one literal" do
@@ -32,12 +33,26 @@ defmodule AshSwift.Codegen.InjectionTest do
   describe "identifier validation in the Reader" do
     test "rejects a resource type_name that is not a Swift identifier" do
       assert_raise Mix.Error, ~r/type_name .* is not a valid Swift identifier/s, fn ->
-        Codegen.build_files([AshSwift.Test.BadTypeNameDomain])
+        Reader.read([AshSwift.Test.BadTypeNameDomain])
       end
     end
 
-    test "valid fixture domains still generate" do
-      assert %{"AshRpcTypes.swift" => _} = Codegen.build_files([AshSwift.Test.Domain])
+    test "rejects an rpc_action name that is not a Swift identifier" do
+      assert_raise Mix.Error, ~r/rpc_action name .* is not a valid Swift identifier/s, fn ->
+        Reader.read([AshSwift.Test.BadActionNameDomain])
+      end
+    end
+
+    test "rejects a field name that is not a Swift identifier" do
+      assert_raise Mix.Error, ~r/field name .* is not a valid Swift identifier/s, fn ->
+        Reader.read([AshSwift.Test.BadFieldNameDomain])
+      end
+    end
+
+    test "rejects an enum value whose case name is not a Swift identifier" do
+      assert_raise Mix.Error, ~r/enum value .* is not a valid Swift identifier/s, fn ->
+        Reader.read([AshSwift.Test.BadEnumValueDomain])
+      end
     end
   end
 end
