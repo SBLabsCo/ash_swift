@@ -1010,11 +1010,11 @@ defmodule AshSwift.Codegen.Reader do
        )
        when not is_nil(module) do
     case model_struct_target(module, manifest_resources) do
-      {:ok, type_name} ->
+      {:ok, type_name, _mres} ->
         swift_type = if allow_nil?, do: type_name <> "?", else: type_name
         {{:typed_record, swift_type}, [], module}
 
-      :error ->
+      :none ->
         :unsupported
     end
   end
@@ -1055,15 +1055,17 @@ defmodule AshSwift.Codegen.Reader do
     end
   end
 
-  # A resource's model struct is emitted only when it has a Swift type name and is
-  # present in the manifest. Shared by the generic-return gate and
-  # expand_with_related/2 so the two can't drift.
+  # The single predicate for "this resource's model struct can be referenced":
+  # it has a Swift type name and is present in the manifest. Returns
+  # `{:ok, type_name, manifest_resource}` or `:none`. Shared by the
+  # generic-return gate and expand_with_related/2 so the two can't drift; any
+  # new feature that references a resource type should go through it too.
   defp model_struct_target(module, manifest_resources) do
     with {:ok, type_name} <- ResourceInfo.typescript_type_name(module),
-         true <- Map.has_key?(manifest_resources, module) do
-      {:ok, type_name}
+         {:ok, mres} <- Map.fetch(manifest_resources, module) do
+      {:ok, type_name, mres}
     else
-      _ -> :error
+      _ -> :none
     end
   end
 
@@ -1208,9 +1210,9 @@ defmodule AshSwift.Codegen.Reader do
           # Skip when the destination has no Swift type name (or isn't in the
           # manifest; model_struct_target/2 checks both) or is already a primary
           # resource. Each case yields no extra related struct.
-          with {:ok, type_name} <- model_struct_target(destination, manifest.resources),
+          with {:ok, type_name, dest_mres} <-
+                 model_struct_target(destination, manifest.resources),
                false <- MapSet.member?(primary_type_names, type_name) do
-            dest_mres = Map.fetch!(manifest.resources, destination)
             {fields, enums} = collect_fields(dest_mres, type_name, manifest.types)
             [%{type_name: type_name, fields: fields, enums: enums}]
           else
