@@ -96,10 +96,11 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert %{required?: true} = field.(struct.("RemoveTitledTodoInput"), "title")
     end
 
-    test "allow_nil_input, nullable and defaulted attributes stay optional (#124)", %{
-      struct: struct,
-      field: field
-    } do
+    test "allow_nil_input, nullable and defaulted attributes stay optional; a plain allow_nil?: false one is required (#124)",
+         %{
+           struct: struct,
+           field: field
+         } do
       input = struct.("CreateLenientTodoInput")
 
       # allow_nil?: false, but in allow_nil_input
@@ -109,6 +110,7 @@ defmodule AshSwift.Codegen.ReaderTest do
       # has a default, in require_attributes
       assert %{required?: false} = field.(input, "completed")
 
+      # control: allow_nil?: false, no default, not in allow_nil_input
       assert %{required?: true} = field.(struct.("CreateTodoInput"), "title")
     end
   end
