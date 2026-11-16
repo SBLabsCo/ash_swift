@@ -31,6 +31,7 @@ defmodule AshSwift.Codegen.ContractTest do
   use ExUnit.Case, async: true
 
   alias AshSwift.Codegen.{Contract, Emitter, Reader}
+  alias AshSwift.Test.ActionIRKeys
 
   @domains [AshSwift.Test.Domain]
   @fixture_path Path.join(__DIR__, "../../fixtures/contract/test_domain.json")
@@ -352,21 +353,7 @@ defmodule AshSwift.Codegen.ContractTest do
           type_name: "Widget",
           fields: [%{name: "name", swift_type: "String"}],
           enums: [],
-          actions: [
-            %{
-              rpc_name: :list_widgets,
-              action: :read,
-              action_type: :read,
-              get: nil,
-              not_found_error?: false,
-              input_struct_name: nil,
-              primary_key_params: [],
-              pagination_type: :none,
-              optional_pagination_type: :none,
-              sortable?: false,
-              filterable?: false
-            }
-          ],
+          actions: [ActionIRKeys.crud_action(rpc_name: :list_widgets)],
           input_structs: [],
           sort_field: nil,
           filter_struct: nil
@@ -381,20 +368,11 @@ defmodule AshSwift.Codegen.ContractTest do
       unmodelled =
         base_resource(%{
           actions: [
-            %{
+            ActionIRKeys.generic_action(
               rpc_name: :do_thing,
               action: :do_thing,
-              action_type: :action,
-              generic_return: {:stream, "Thing"},
-              get: nil,
-              not_found_error?: false,
-              input_struct_name: nil,
-              primary_key_params: [],
-              pagination_type: :none,
-              optional_pagination_type: :none,
-              sortable?: false,
-              filterable?: false
-            }
+              generic_return: {:stream, "Thing"}
+            )
           ]
         })
 
@@ -468,19 +446,12 @@ defmodule AshSwift.Codegen.ContractTest do
       resource =
         base_resource(%{
           actions: [
-            %{
+            ActionIRKeys.crud_action(
               rpc_name: :create_widget,
               action: :create,
               action_type: :create,
-              get: nil,
-              not_found_error?: false,
-              input_struct_name: "CreateWidgetInput",
-              primary_key_params: [],
-              pagination_type: :none,
-              optional_pagination_type: :none,
-              sortable?: false,
-              filterable?: false
-            }
+              input_struct_name: "CreateWidgetInput"
+            )
           ],
           input_structs: [
             %{
@@ -523,19 +494,7 @@ defmodule AshSwift.Codegen.ContractTest do
       resource =
         base_resource(%{
           actions: [
-            %{
-              rpc_name: :list_widgets,
-              action: :read,
-              action_type: :read,
-              get: nil,
-              not_found_error?: false,
-              input_struct_name: nil,
-              primary_key_params: [],
-              pagination_type: :none,
-              optional_pagination_type: :offset,
-              sortable?: false,
-              filterable?: false
-            }
+            ActionIRKeys.crud_action(rpc_name: :list_widgets, optional_pagination_type: :offset)
           ]
         })
 
@@ -588,19 +547,7 @@ defmodule AshSwift.Codegen.ContractTest do
       resource =
         base_resource(%{
           actions: [
-            %{
-              rpc_name: :list_widgets,
-              action: :read,
-              action_type: :read,
-              get: nil,
-              not_found_error?: false,
-              input_struct_name: nil,
-              primary_key_params: [],
-              pagination_type: :none,
-              optional_pagination_type: :none,
-              sortable?: true,
-              filterable?: true
-            }
+            ActionIRKeys.crud_action(rpc_name: :list_widgets, sortable?: true, filterable?: true)
           ]
         })
 

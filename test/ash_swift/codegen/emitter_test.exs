@@ -8,9 +8,9 @@ defmodule AshSwift.Codegen.EmitterTest do
   keyword-named field), a filter struct and a sort-field enum, plus a second
   resource that has neither a filter predicate nor a sort surface.
 
-  Hand-built IR must follow the shape in the Reader's moduledoc (see
-  `generic_action/1` for generic actions); the "carries exactly the Reader's key
-  sets" test enforces it for actions.
+  Hand-built IR must follow the shape in the Reader's moduledoc (the
+  action shape lives in `AshSwift.Test.ActionIRKeys.crud_action/1` and
+  `generic_action/1`; `AshSwift.Test.ActionIRKeysTest` enforces it).
 
   What the Reader decides (which actions are sortable, how a manifest type maps)
   is *input* here; these tests pin only how the Emitter renders it.
@@ -19,53 +19,6 @@ defmodule AshSwift.Codegen.EmitterTest do
 
   alias AshSwift.Codegen.Emitter
   alias AshSwift.Test.ActionIRKeys
-
-  # Overrides use `Map.replace!/3`, so a typo'd key or one the Reader never emits
-  # for this action kind raises instead of silently rendering an impossible shape.
-  defp override!(base, overrides) do
-    Enum.reduce(overrides, base, fn {k, v}, acc -> Map.replace!(acc, k, v) end)
-  end
-
-  defp action(overrides) do
-    override!(
-      %{
-        rpc_name: :list_todos,
-        action: :read,
-        action_type: :read,
-        get: nil,
-        not_found_error?: false,
-        input_struct_name: nil,
-        input_required?: false,
-        primary_key_params: [],
-        pagination_type: :none,
-        optional_pagination_type: :none,
-        sortable?: false,
-        filterable?: false
-      },
-      overrides
-    )
-  end
-
-  # Shaped exactly like the Reader's generic-action IR: no `input_required?`
-  # (CRUD only), plus `generic_return` and `generic_return_resource`.
-  defp generic_action(overrides) do
-    %{
-      rpc_name: :ping,
-      action: :ping,
-      action_type: :action,
-      get: nil,
-      not_found_error?: false,
-      input_struct_name: nil,
-      primary_key_params: [],
-      pagination_type: :none,
-      optional_pagination_type: :none,
-      sortable?: false,
-      filterable?: false,
-      generic_return: :void,
-      generic_return_resource: nil
-    }
-    |> override!(overrides)
-  end
 
   defp todo(actions) do
     %{
@@ -125,11 +78,6 @@ defmodule AshSwift.Codegen.EmitterTest do
       sort_field: nil,
       filter_struct: %{type_name: "BareFilter", fields: []}
     }
-  end
-
-  test "hand-built action IR carries exactly the Reader's key sets (#154)" do
-    assert MapSet.new(Map.keys(action([]))) == ActionIRKeys.crud()
-    assert MapSet.new(Map.keys(generic_action([]))) == ActionIRKeys.generic()
   end
 
   describe "render_types/1" do
@@ -317,7 +265,7 @@ defmodule AshSwift.Codegen.EmitterTest do
     end
 
     test "a plain list read takes filter, sort and fields and returns [T]" do
-      out = functions([action(sortable?: true, filterable?: true)])
+      out = functions([ActionIRKeys.crud_action(sortable?: true, filterable?: true)])
 
       assert out =~
                "public func listTodos(filter: TodoFilter? = nil, sort: [SortField<TodoSortField>] = [], fields: [FieldSelection]) async throws -> [Todo] {"
@@ -327,7 +275,7 @@ defmodule AshSwift.Codegen.EmitterTest do
     end
 
     test "a list read with sort and filter disabled has only fields" do
-      out = functions([action([])])
+      out = functions([ActionIRKeys.crud_action()])
 
       assert out =~ "public func listTodos(fields: [FieldSelection]) async throws -> [Todo] {"
       assert out =~ ~s[ListRequest(action: "list_todos", fields: fields)]
@@ -336,8 +284,8 @@ defmodule AshSwift.Codegen.EmitterTest do
     end
 
     test "sort and filter can be disabled independently" do
-      no_sort = functions([action(filterable?: true)])
-      no_filter = functions([action(sortable?: true)])
+      no_sort = functions([ActionIRKeys.crud_action(filterable?: true)])
+      no_filter = functions([ActionIRKeys.crud_action(sortable?: true)])
 
       assert no_sort =~
                "public func listTodos(filter: TodoFilter? = nil, fields: [FieldSelection])"
@@ -353,7 +301,7 @@ defmodule AshSwift.Codegen.EmitterTest do
     test "an offset-paginated read threads page before filter and sort" do
       out =
         functions([
-          action(
+          ActionIRKeys.crud_action(
             rpc_name: :list_todos_offset,
             pagination_type: :offset,
             sortable?: true,
@@ -371,7 +319,7 @@ defmodule AshSwift.Codegen.EmitterTest do
     test "a keyset-paginated read threads page before filter and sort" do
       out =
         functions([
-          action(
+          ActionIRKeys.crud_action(
             rpc_name: :list_todos_keyset,
             pagination_type: :keyset,
             sortable?: true,
@@ -389,7 +337,7 @@ defmodule AshSwift.Codegen.EmitterTest do
     test "create takes a typed input and returns the record" do
       out =
         functions([
-          action(
+          ActionIRKeys.crud_action(
             rpc_name: :create_todo,
             action_type: :create,
             input_struct_name: "CreateTodoInput"
@@ -406,7 +354,7 @@ defmodule AshSwift.Codegen.EmitterTest do
     test "update takes the primary key, sent as identity, plus a typed input" do
       out =
         functions([
-          action(
+          ActionIRKeys.crud_action(
             rpc_name: :update_todo,
             action_type: :update,
             input_struct_name: "UpdateTodoInput",
@@ -424,7 +372,7 @@ defmodule AshSwift.Codegen.EmitterTest do
     test "destroy takes the primary key and has a void return" do
       out =
         functions([
-          action(
+          ActionIRKeys.crud_action(
             rpc_name: :destroy_todo,
             action_type: :destroy,
             primary_key_params: [%{name: "id", swift_type: "String"}]
@@ -441,14 +389,14 @@ defmodule AshSwift.Codegen.EmitterTest do
 
     test "destroy without a primary key raises" do
       assert_raise RuntimeError, ~r/destroy codegen requires a primary key/, fn ->
-        functions([action(rpc_name: :destroy_todo, action_type: :destroy)])
+        functions([ActionIRKeys.crud_action(rpc_name: :destroy_todo, action_type: :destroy)])
       end
     end
 
     test "a get returns T or T? by not_found_error?, and sends lookups as input or getBy" do
       get = fn overrides ->
         functions([
-          action(
+          ActionIRKeys.crud_action(
             [
               rpc_name: :get_todo,
               get: {:input, [%{name: "id", swift_type: "String"}]},
@@ -480,24 +428,32 @@ defmodule AshSwift.Codegen.EmitterTest do
             optional_pagination_type: :keyset
           ] do
         assert_raise RuntimeError, ~r/the Reader must set sortable\?\/filterable\? false/, fn ->
-          functions([action([{:rpc_name, :get_todo}, {:get, :pure}, {flag, value}])])
+          functions([
+            ActionIRKeys.crud_action([{:rpc_name, :get_todo}, {:get, :pure}, {flag, value}])
+          ])
         end
       end
     end
 
     test "a pure get takes no lookup param" do
-      out = functions([action(rpc_name: :fetch_todo, get: :pure, not_found_error?: true)])
+      out =
+        functions([
+          ActionIRKeys.crud_action(rpc_name: :fetch_todo, get: :pure, not_found_error?: true)
+        ])
 
       assert out =~ "public func fetchTodo(fields: [FieldSelection]) async throws -> Todo {"
       assert out =~ ~s[GetRequest(action: "fetch_todo", fields: fields)]
     end
 
     test "a read with an optional input struct takes `input: T? = nil`; a required one is bare" do
-      optional = functions([action(rpc_name: :list_todos, input_struct_name: "ListTodosInput")])
+      optional =
+        functions([
+          ActionIRKeys.crud_action(rpc_name: :list_todos, input_struct_name: "ListTodosInput")
+        ])
 
       required =
         functions([
-          action(
+          ActionIRKeys.crud_action(
             rpc_name: :list_todos,
             input_struct_name: "ListTodosInput",
             input_required?: true
@@ -511,7 +467,10 @@ defmodule AshSwift.Codegen.EmitterTest do
     end
 
     test "optional pagination emits the bare overload plus a paginated one with required page" do
-      out = functions([action(rpc_name: :list_todos_opt, optional_pagination_type: :offset)])
+      out =
+        functions([
+          ActionIRKeys.crud_action(rpc_name: :list_todos_opt, optional_pagination_type: :offset)
+        ])
 
       assert out =~ "public func listTodosOpt(fields: [FieldSelection]) async throws -> [Todo] {"
 
@@ -522,7 +481,7 @@ defmodule AshSwift.Codegen.EmitterTest do
     test "optional keyset pagination gains a keyset overload with a KeysetPageRequest" do
       out =
         functions([
-          action(
+          ActionIRKeys.crud_action(
             rpc_name: :list_todos_keyset_optional,
             optional_pagination_type: :keyset,
             sortable?: true,
@@ -540,7 +499,11 @@ defmodule AshSwift.Codegen.EmitterTest do
     test "sort and filter appear on both the bare and the paginated overload when enabled" do
       out =
         functions([
-          action(optional_pagination_type: :offset, sortable?: true, filterable?: true)
+          ActionIRKeys.crud_action(
+            optional_pagination_type: :offset,
+            sortable?: true,
+            filterable?: true
+          )
         ])
 
       assert out =~
@@ -554,7 +517,10 @@ defmodule AshSwift.Codegen.EmitterTest do
     end
 
     test "required pagination emits a single function, with no bare overload" do
-      out = functions([action(rpc_name: :list_todos_offset, pagination_type: :offset)])
+      out =
+        functions([
+          ActionIRKeys.crud_action(rpc_name: :list_todos_offset, pagination_type: :offset)
+        ])
 
       assert length(String.split(out, "public func listTodosOffset(")) == 2
       refute out =~ "-> [Todo]"
@@ -563,9 +529,9 @@ defmodule AshSwift.Codegen.EmitterTest do
     test "generic actions: void and typed returns, with and without input" do
       out =
         functions([
-          generic_action(rpc_name: :ping, generic_return: :void),
-          generic_action(rpc_name: :count, generic_return: {:typed, "Int"}),
-          generic_action(
+          ActionIRKeys.generic_action(rpc_name: :ping, generic_return: :void),
+          ActionIRKeys.generic_action(rpc_name: :count, generic_return: {:typed, "Int"}),
+          ActionIRKeys.generic_action(
             rpc_name: :rename,
             input_struct_name: "RenameInput",
             generic_return: {:typed_record, "Todo"}
@@ -584,20 +550,25 @@ defmodule AshSwift.Codegen.EmitterTest do
     end
 
     test "Swift keyword function names are backtick-escaped" do
-      out = functions([action(rpc_name: :init)])
+      out = functions([ActionIRKeys.crud_action(rpc_name: :init)])
 
       assert out =~ "public func `init`("
       refute out =~ "public func init("
     end
 
     test "snake_case rpc names become lowerCamelCase function names" do
-      out = functions([action(rpc_name: :list_open_todos)])
+      out = functions([ActionIRKeys.crud_action(rpc_name: :list_open_todos)])
       assert out =~ "public func listOpenTodos("
       assert out =~ ~s[action: "list_open_todos"]
     end
 
     test "methods are emitted in the order given, separated by a blank line" do
-      out = functions([action(rpc_name: :b_first), action(rpc_name: :a_second)])
+      out =
+        functions([
+          ActionIRKeys.crud_action(rpc_name: :b_first),
+          ActionIRKeys.crud_action(rpc_name: :a_second)
+        ])
+
       {b, _} = :binary.match(out, "func bFirst")
       {a, _} = :binary.match(out, "func aSecond")
       assert b < a
