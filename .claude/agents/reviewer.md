@@ -111,6 +111,13 @@ findings and relays them to the fixer, so prose around them is lost:
   nit), `where` (`file:line`), `problem` (the defect in one sentence and the
   concrete failure it causes), `fix` (what you'd make), and `verified` (true
   only if you verified it; otherwise false, i.e. PLAUSIBLE).
+- `category` on every finding — a kebab-case slug naming the *kind* of
+  mistake, not the feature (`stale-doc-comment`, `ir-decision-split`,
+  `duplicated-test-harness`). Use a slug from
+  `docs/agents/finding-categories.md`; coin a new one only when none
+  fits, general enough that the same mistake elsewhere gets the same slug.
+  `bin/findings-retro` groups findings by it across PRs and turns the ones
+  that recur into implementer guidance.
 - `probed_clean` — what you checked and found sound. Load-bearing: it tells
   the workflow what needs no re-review.
 - `followups` — problems the diff exposed but didn't cause, each `{title,

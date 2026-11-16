@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+#
+# bin/findings-retro — gather the ship-ticket run records of recently merged PRs and group
+# their pre-PR review findings by category and lens, so the findings-retro skill can turn
+# the mistakes that keep coming back into guidance the implementer reads. Read-only: it
+# edits nothing and posts nothing.
+#
+#     bin/findings-retro                       # PRs merged since the last retro PR merged
+#     bin/findings-retro --last 15             # the newest 15 merged PRs carrying a record
+#     bin/findings-retro --prs 106,107,111      # exactly these PRs
+#     bin/findings-retro --min-prs 3           # recurring = raised on >= 3 PRs (default 2)
+#
+# Run it in the repository the PRs belong to (or pass --repo owner/name).
+#
+# The window: a retro's own PR is titled "Findings retro: ..." (the skill opens it that
+# way), and the default window is every PR merged after the newest merged one. With no
+# retro merged yet it falls back to --last 20. Retro PRs are never read as work.
+#
+# Output contract — stdout is always one JSON object, stderr is for humans:
+#
+#   {"ok":true,
+#    "window":{"mode":"since|last|prs","since":<mergedAt|null>,"retro_pr":<n|null>,"prs":[...]},
+#    "records":[{"pr","issue","v","outcome","findings"}],   # the PRs that carried a record
+#    "skipped":[{"pr","reason":"no_record"}],               # merged PRs in the window without one
+#    "categories":[{"category","pr_count","prs","recurring","lenses":{lens:n},
+#                   "severities":{...},"outcomes":{"fixed","declined","open"},
+#                   "findings":[{"pr","issue","id","source","severity","where","outcome",
+#                                "problem","rationale"}]}],  # most-recurring first
+#    "declined_recurring":[...same shape, only declined findings, only recurring...],
+#    "uncategorized":{"count":n,"v1_prs":[...]},            # v1 records carry no category
+#    "followups":[{"pr","title"}],                          # the records' follow-ups
+#    "open_followup_issues":[{"number","title","pr"}]}       # those still open as issues
+#   failure: {"ok":false,"reason":"...","message":"..."}
+#
+# The record format (v1 and v2) is docs/agents/ship-ticket.md; a v1 record's findings have no
+# `problem` or `category`, so they are only counted (`uncategorized`). How and when to run
+# a retro is in the same section; the judgment half is the findings-retro skill.
+#
+# Exit codes (bin/cli-lib.sh): 0 ok, 1 a domain no (no records in the window), 2 usage
+# (nothing on stdout), 3 a tool failure (gh or jq missing or failing, an unparseable
+# response).
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=./cli-lib.sh
+. "$REPO_ROOT/bin/cli-lib.sh"
+# shellcheck source=./pr-record-lib.sh
+. "$REPO_ROOT/bin/pr-record-lib.sh"
+# shellcheck source=./findings-retro-lib.sh
+. "$REPO_ROOT/bin/findings-retro-lib.sh"
+cli_init findings-retro
+
+usage() {
+  sed -n '3,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//;s/^#$//'
+}
+
+die_usage() {
+  cli_usage_error "$1" "usage: bin/findings-retro [--last <n> | --prs <n,n,...>] [--min-prs <n>] [--repo <owner/name>]"
+}
+
+mode=since
+last=20
+prs_arg=""
+min=2
+repo=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage; exit 0 ;;
+    --last) [[ $# -ge 2 ]] && cli_valid_number "$2" || die_usage "--last needs a positive number"
+            mode=last; last="$2"; shift 2 ;;
+    --prs) [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]] || die_usage "--prs needs a comma-separated list of PR numbers"
+           mode=prs; prs_arg="$2"; shift 2 ;;
+    --min-prs) [[ $# -ge 2 ]] && cli_valid_number "$2" || die_usage "--min-prs needs a positive number"
+               min="$2"; shift 2 ;;
+    --repo) [[ $# -ge 2 ]] || die_usage "--repo needs owner/name"; repo="$2"; shift 2 ;;
+    *) die_usage "unknown argument '$1'" ;;
+  esac
+done
+
+cli_require_tools gh jq
+CLI_CONTEXT='{}'
+cli_repo "$repo"
+
+# 1. Which PRs.
+if [[ "$mode" == prs ]]; then
+  window="$(jq -cn --arg p "$prs_arg" '{mode: "prs", since: null, retro_pr: null, candidates: ($p | split(",") | map(tonumber))}')"
+else
+  cli_gh_json_or_fail merged --shape 'type == "array"' pr list --repo "$CLI_REPO" --state merged \
+    --limit 200 --json number,title,mergedAt
+  window="$(findings_retro_window "$merged" "$mode")" || cli_fail "$CLI_TOOL" bad_response "unexpected merged-PR list"
+  [[ "$mode" != since || "$(jq -r .mode <<<"$window")" == since ]] || cli_say "no merged retro PR yet; reading the newest $last records"
+fi
+eff_mode="$(jq -r .mode <<<"$window")"
+
+# 2. Their records. In `last` mode, walk newest-first until <last> records are found.
+records="[]"
+skipped="[]"
+for pr in $(jq -r '.candidates[]' <<<"$window"); do
+  if [[ "$eff_mode" == last && "$(jq length <<<"$records")" -ge "$last" ]]; then break; fi
+  cli_gh_json_or_fail pages --shape 'type == "array"' api "repos/$CLI_REPO/issues/$pr/comments" --paginate --slurp
+  found="$(pr_record_latest_trusted "$(pr_record_matching "$(jq -c 'add // []' <<<"$pages")" "$pr")")" \
+    || cli_fail "$CLI_TOOL" bad_response "unexpected comments response on PR #$pr"
+  if [[ "$found" == null ]]; then
+    skipped="$(jq -c --argjson pr "$pr" '. + [{pr: $pr, reason: "no_record"}]' <<<"$skipped")"
+  else
+    records="$(jq -c --argjson r "$(jq -c .record <<<"$found")" '. + [$r]' <<<"$records")"
+  fi
+done
+read_prs="$(jq -c 'map(.pr)' <<<"$records")"
+[[ "$read_prs" != "[]" ]] || cli_fail "$CLI_NO" no_records "no merged PR in the window carries a run record"
+cli_say "read $(jq length <<<"$records") run record(s): $(jq -r 'map("#\(.)") | join(" ")' <<<"$read_prs")"
+
+# 3. The follow-up issues those PRs filed that are still open.
+cli_gh_json_or_fail issues --shape 'type == "array"' issue list --repo "$CLI_REPO" --state open \
+  --limit 200 --json number,title,body
+open_followups="$(findings_retro_open_followups "$issues" "$read_prs")" \
+  || cli_fail "$CLI_TOOL" bad_response "unexpected issue list"
+
+# 4. The report.
+report="$(findings_retro_report "$records" "$min")" || cli_fail "$CLI_TOOL" bad_response "could not fold the records"
+jq -cn --argjson w "$window" --argjson prs "$read_prs" --argjson skipped "$skipped" \
+  --argjson rep "$report" --argjson open "$open_followups" '
+  {ok: true, window: ($w | del(.candidates) + {prs: $prs})} + {records: $rep.records, skipped: $skipped}
+  + ($rep | del(.records)) + {open_followup_issues: $open}'

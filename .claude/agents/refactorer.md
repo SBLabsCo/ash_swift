@@ -177,6 +177,13 @@ The `ship-ticket` workflow asks for structured output (its `FINDINGS` schema,
   `verified` (true only if you verified it; otherwise false, i.e. PLAUSIBLE).
 - Tests to delete or merge are findings too, each naming the test it
   duplicates. Deleting a test is a legitimate, valued outcome.
+- `category` on every finding — a kebab-case slug naming the *kind* of
+  mistake, not the feature (`stale-doc-comment`, `ir-decision-split`,
+  `duplicated-test-harness`). Use a slug from
+  `docs/agents/finding-categories.md`; coin a new one only when none
+  fits, general enough that the same mistake elsewhere gets the same slug.
+  `bin/findings-retro` groups findings by it across PRs and turns the ones
+  that recur into implementer guidance.
 - `followups` — wider opportunities, each `{title, body}` ready to file.
 - `probed_clean` — what you checked and found sound.
 - `verdict`: **CLEAN**, **CLEAN AFTER FIXES**, or **RESHAPE** (the diff's
