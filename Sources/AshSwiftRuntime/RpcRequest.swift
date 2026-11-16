@@ -96,10 +96,11 @@ public struct GetBody: Encodable, Sendable {
 ///   replacing it (pinned by `RpcRequestTests`).
 /// - The two key sets are disjoint. Codegen guarantees it: a get's native get_by
 ///   fields are excluded from its generated arguments struct (the `get_by` key of
-///   `ash_action_facts/2` in `reader.ex`), so an argument can never carry a lookup key. If they ever did
-///   overlap, the lookup value would win (it is encoded last) — the right tie-break,
-///   since it identifies the record. A runtime check isn't practical: the arguments
-///   are type-erased, so their keys aren't known without encoding them twice.
+///   `ash_action_facts/2` in `reader.ex`), so an argument can never carry a
+///   lookup key. If they ever did overlap, the lookup value would win (it is
+///   encoded last) — the right tie-break, since it identifies the record. A
+///   runtime check isn't practical: the arguments are type-erased, so their keys
+///   aren't known without encoding them twice.
 public struct GetInput: Encodable, Sendable {
     let arguments: AnyEncodable?
     let lookup: [String: String]
