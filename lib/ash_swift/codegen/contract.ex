@@ -127,6 +127,12 @@ defmodule AshSwift.Codegen.Contract do
   rendered Swift: a test can hand this a small resource map, then a copy with
   one field added or one action removed, without compiling a real Ash resource
   for every case.
+
+  Precondition: every generated Swift type and enum name in `all_resources` has
+  one owner, the invariant `Reader.read/1` enforces with
+  `assert_unique_swift_names!/1`. Hand-built IR must keep it too; this function
+  does not re-check it, so a duplicate name yields a duplicate `types` / `enums`
+  entry rather than an error.
   """
   @spec build_from_ir(%{primary_resources: [map()], all_resources: [map()]}) :: map()
   def build_from_ir(%{primary_resources: primary, all_resources: all}) do
@@ -325,7 +331,6 @@ defmodule AshSwift.Codegen.Contract do
         end
       end)
 
-    # Names are unique by the Reader invariant (`assert_unique_swift_names!/1`).
     (resource_types ++ struct_types ++ filter_types)
     |> Enum.sort_by(& &1.name)
   end
@@ -405,7 +410,6 @@ defmodule AshSwift.Codegen.Contract do
         end
       end)
 
-    # Names are unique by the Reader invariant (`assert_unique_swift_names!/1`).
     (domain_enums ++ sort_field_enums)
     |> Enum.sort_by(& &1.name)
   end
