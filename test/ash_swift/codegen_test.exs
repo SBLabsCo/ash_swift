@@ -12,9 +12,16 @@ defmodule AshSwift.CodegenTest do
   @domains [AshSwift.Test.Domain]
 
   # The generated files are immutable strings; build them once for the whole
-  # module. Tests that need a different domain call `Codegen.build_files/1`.
+  # module. The MapOnly domain is built once too; other domains call `Codegen.build_files/1`.
+  # setup_all runs outside the per-test process, so capture_log: true does not
+  # apply; capture the skip warnings here to keep passing runs quiet.
   setup_all do
-    %{files: Codegen.build_files(@domains)}
+    {files, _log} = ExUnit.CaptureLog.with_log(fn -> Codegen.build_files(@domains) end)
+
+    {map_only, _log} =
+      ExUnit.CaptureLog.with_log(fn -> Codegen.build_files([AshSwift.Test.MapOnlyDomain]) end)
+
+    %{files: files, map_only_files: map_only}
   end
 
   describe "build_files/1" do
@@ -99,15 +106,14 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "filter surface (issue #35)" do
-    test "a resource with no filterable attributes emits a valid filter struct with only combinators" do
+    test "a resource with no filterable attributes emits a valid filter struct with only combinators",
+         %{map_only_files: files} do
       # MapOnly's only public attribute is an Ash.Type.Map (excluded from
       # filtering) and its primary key is non-public, so the filterable read
       # produces a filter struct with no per-attribute predicates — only the
       # and/or/not combinators (#36) and the no-arg init. The struct must still be
       # valid, compilable Swift (an empty raw-value enum would not be — see the
       # sort-enum bug, issue #41 — but a struct of optional arrays is fine).
-      files = Codegen.build_files([AshSwift.Test.MapOnlyDomain])
-
       # The empty filter struct itself is pinned in reader_test (IR) and
       # emitter_test (rendering); here only that it reaches the output.
       assert files["AshRpcTypes.swift"] =~ "public struct MapOnlyFilter: Encodable, Sendable {"
@@ -120,14 +126,14 @@ defmodule AshSwift.CodegenTest do
   end
 
   describe "empty sort surface (issue #41)" do
-    test "a sortable read over a resource with no sortable attributes emits no SortField enum and no sort: param" do
+    test "a sortable read over a resource with no sortable attributes emits no SortField enum and no sort: param",
+         %{map_only_files: files} do
       # MapOnly's only public attribute is an Ash.Type.Map (excluded by
       # sortable_attribute?/1) and its primary key is non-public, so the
       # sort-enabled `list_map_onlys_sortable` read has zero sortable fields.
       # Codegen must drop the sort surface entirely rather than emit
       # `public enum MapOnlySortField: String, Sendable {}`, which does not compile
       # (an empty raw-value enum has no RawRepresentable conformance).
-      files = Codegen.build_files([AshSwift.Test.MapOnlyDomain])
       types = files["AshRpcTypes.swift"]
       functions = files["AshRpcFunctions.swift"]
 
@@ -148,8 +154,10 @@ defmodule AshSwift.CodegenTest do
     # Overload shapes are pinned in emitter_test over a hand-built IR, and the
     # classification (optional vs required, gets excluded) in reader_test; this
     # only confirms the fixture's optional-pagination read reaches the output.
-    test "an optional-pagination list read gains a paginated overload beside its bare form" do
-      functions = Codegen.build_files(@domains)["AshRpcFunctions.swift"]
+    test "an optional-pagination list read gains a paginated overload beside its bare form", %{
+      files: files
+    } do
+      functions = files["AshRpcFunctions.swift"]
 
       assert functions =~ "public func listTodos(filter: TodoFilter? = nil, sort:"
       assert functions =~ "public func listTodos(page: OffsetPageParams, filter:"

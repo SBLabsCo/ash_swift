@@ -14,9 +14,11 @@ defmodule AshSwift.Codegen.ReaderTest do
 
   @domains [AshSwift.Test.Domain]
 
-  # The IR is immutable data; read it once for the whole module.
+  # The IR is immutable data; read it once for the whole module. setup_all runs
+  # outside the per-test process, so capture the skip warnings here.
   setup_all do
-    %{ir: Reader.read(@domains)}
+    {ir, _log} = with_log(fn -> Reader.read(@domains) end)
+    %{ir: ir}
   end
 
   defp resource(ir, type_name), do: Enum.find(ir.all_resources, &(&1.type_name == type_name))
