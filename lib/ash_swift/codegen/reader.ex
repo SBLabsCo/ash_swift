@@ -36,7 +36,8 @@ defmodule AshSwift.Codegen.Reader do
   Every `action` is a map with these keys. CRUD (`:read | :create | :update |
   :destroy`) and generic (`:action`) actions share the uniform keys.
   `input_required?` is present on CRUD actions only (always `false` outside a
-  read or destroy with a required argument) and `generic_return` on
+  read or destroy with a required input: an argument, or an accepted attribute
+  a soft destroy lists in `require_attributes`) and `generic_return` on
   generic actions only;
   every other key is present on every kind. A `[read only]` tag below means the
   value is *meaningful* only on reads, not that the key is absent elsewhere.
@@ -1372,9 +1373,10 @@ defmodule AshSwift.Codegen.Reader do
             # about it once for this resource, so this drop stays quiet.
             #
             # Unlike the model field, dropping here is only safe for an OPTIONAL
-            # attribute: a required one (create, `allow_nil?: false`, no default) still
-            # yields an input struct that compiles, and the create then fails
-            # server-side at run time rather than at build time. Tracked in issue #79.
+            # attribute: a required one (create: `allow_nil?: false` with no default;
+            # update / soft destroy: listed in `require_attributes`) still yields an
+            # input struct that compiles, and the action then fails server-side at run
+            # time rather than at build time. Tracked in issue #79.
             case attribute_swift_type(attr, formatted_name, type_name) do
               {:ok, swift_type, _enum} ->
                 required? =
