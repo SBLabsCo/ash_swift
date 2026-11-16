@@ -30,7 +30,7 @@ Non-obvious patterns earlier implement / address-review runs got wrong are captu
 
 ## Checklist before committing
 
-Every implementer (the local `implementer` agent and the `claude-implement` Action) walks this against its diff. The pre-PR review kept catching these; the `findings-retro` skill maintains the list.
+Every implementer (the local `implementer` agent and the `claude-implement` Action) walks this against its diff. The pre-PR review kept catching these; the `findings-retro` skill (#125) maintains the list.
 
 - **Docs match the code.** For every function, IR key or value whose behaviour you changed, grep `lib/`, `test/`, `README.md` and `docs/agents/lessons.md` for its name and fix each comment, moduledoc (above all the IR key list in `reader.ex`) and test comment it makes false or only partly true. When a comment gives a reason or cites an ADR or issue, check that the source says so.
 - **One decision, one place.** Make each IR decision once, in the Reader. The Emitter and `Contract` dispatch on an IR key the same way, with explicit guards rather than clause order.
