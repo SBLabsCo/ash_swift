@@ -815,7 +815,7 @@ defmodule AshSwift.Codegen.ReaderTest do
       used = Enum.uniq(conformances ++ ["CodingKey"] ++ encode_param_types ++ scalar_types)
       assert "String" in used and "Date" in used
       assert "Encoder" in used and "Sendable" in used and "Codable" in used
-      assert used -- Reader.reserved_builtin_type_names() == []
+      assert used -- Emitter.reserved_builtin_type_names() == []
     end
 
     test "the reserved runtime type names match the public types in Sources/AshSwiftRuntime" do
