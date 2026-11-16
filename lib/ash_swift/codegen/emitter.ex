@@ -150,18 +150,13 @@ defmodule AshSwift.Codegen.Emitter do
   defp render_enum(%{enum_name: name, cases: cases}) do
     cases_block =
       cases
-      |> Enum.sort_by(&to_string/1)
-      |> Enum.map_join("\n", fn c ->
-        str = to_string(c)
-        swift_case = Naming.lower_camel(str)
+      |> Enum.sort_by(&(&1.raw || &1.name))
+      |> Enum.map_join("\n", fn
+        %{name: name, raw: nil} ->
+          "    case #{escape_swift_keyword(name)}"
 
-        safe_name = escape_swift_keyword(swift_case)
-
-        if swift_case == str do
-          "    case #{safe_name}"
-        else
-          "    case #{safe_name} = #{swift_string(str)}"
-        end
+        %{name: name, raw: raw} ->
+          "    case #{escape_swift_keyword(name)} = #{swift_string(raw)}"
       end)
 
     """

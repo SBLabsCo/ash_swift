@@ -45,6 +45,50 @@ defmodule AshSwift.Test.BadActionNameDomain do
   end
 end
 
+defmodule AshSwift.Test.LeadingUnderscoreActionName do
+  @moduledoc "Fixture resource with a hostile name (#142)."
+
+  use Ash.Resource,
+    domain: AshSwift.Test.LeadingUnderscoreActionNameDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("LeadingUnderscoreActionName")
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id, public?: true
+  end
+
+  actions do
+    defaults [:read]
+  end
+end
+
+defmodule AshSwift.Test.LeadingUnderscoreActionNameDomain do
+  @moduledoc "Fixture domain exposing `AshSwift.Test.LeadingUnderscoreActionName` (#142)."
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.LeadingUnderscoreActionName do
+      rpc_action(:_1, :read)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.LeadingUnderscoreActionName
+  end
+end
+
 defmodule AshSwift.Test.BadFieldName do
   @moduledoc "Fixture resource with a hostile name (#142)."
 

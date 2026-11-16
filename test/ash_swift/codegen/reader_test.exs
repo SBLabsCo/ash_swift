@@ -132,7 +132,12 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert "TodoStatus" in enum_names
 
       priority = Enum.find(todo.enums, &(&1.enum_name == "TodoPriority"))
-      assert priority.cases == [:low, :medium, :high]
+
+      assert priority.cases == [
+               %{name: "low", raw: nil},
+               %{name: "medium", raw: nil},
+               %{name: "high", raw: nil}
+             ]
     end
   end
 
@@ -276,7 +281,7 @@ defmodule AshSwift.Codegen.ReaderTest do
       assert attr_type(todo, "labels") == "[TodoLabels]"
 
       labels = Enum.find(todo.enums, &(&1.enum_name == "TodoLabels"))
-      assert labels.cases == [:red, :green]
+      assert labels.cases == [%{name: "red", raw: nil}, %{name: "green", raw: nil}]
     end
 
     test "element nullability comes from nil_items?, not the attribute's allow_nil?" do

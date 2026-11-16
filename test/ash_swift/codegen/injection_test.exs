@@ -44,6 +44,12 @@ defmodule AshSwift.Codegen.InjectionTest do
       end
     end
 
+    test "rejects an rpc_action name whose lower-camelled form is not a Swift identifier" do
+      assert_raise Mix.Error, ~r/rpc_action name .* is not a valid Swift identifier/s, fn ->
+        Reader.read([AshSwift.Test.LeadingUnderscoreActionNameDomain])
+      end
+    end
+
     test "rejects a field name that is not a Swift identifier" do
       assert_raise Mix.Error, ~r/field name .* is not a valid Swift identifier/s, fn ->
         Reader.read([AshSwift.Test.BadFieldNameDomain])

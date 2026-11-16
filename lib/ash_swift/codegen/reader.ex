@@ -24,7 +24,7 @@ defmodule AshSwift.Codegen.Reader do
                                               # straight off the IR, not Ash.Resource.Info.domain/1)
         type_name:       "Todo",                # validated plain Swift identifier (Reader raises otherwise)
         fields:          [%{name, swift_type}],   # attributes + relationships + derived
-        enums:           [%{enum_name, cases}],
+        enums:           [%{enum_name, cases: [%{name, raw}]}],  # raw: wire string, nil when equal to name
         actions:         [action],                # [] for a related-only entry
         input_structs:   [%{struct_name, fields, decodable?}],  # decodable? true => Decodable result struct, else Encodable input
         sort_field:      %{type_name, fields} | nil,   # fields: [name_string]; nil when no sortable surface
@@ -43,7 +43,7 @@ defmodule AshSwift.Codegen.Reader do
   value is *meaningful* only on reads, not that the key is absent elsewhere.
 
       %{
-        rpc_name:        atom,                 # RPC action name; the Swift method name source (validated plain Swift identifier; Reader raises otherwise)
+        rpc_name:        atom,                 # RPC action name; the Swift method name source (its lower-camelled form is validated as a Swift identifier; Reader raises otherwise)
         action:          atom,                 # the underlying Ash action name
         action_type:     :read | :create | :update | :destroy | :action,
         get:             nil | :pure | {:input, [param]} | {:get_by, [param]},  # see below; param is %{name, swift_type}
@@ -357,7 +357,12 @@ defmodule AshSwift.Codegen.Reader do
       {actions_unsorted, input_structs_unsorted} =
         Enum.reduce(rpc_actions, {[], []}, fn rpc_action, {actions_acc, structs_acc} ->
           maction = Map.fetch!(manifest.actions, {resource, rpc_action.action})
-          assert_swift_identifier!(to_string(rpc_action.name), "rpc_action name", resource)
+          # Swift sees the lower-camelled `func` name and the pascal-cased
+          # `{Rpc}Input`/`{Rpc}Result` struct names, both rooted in the same first
+          # non-empty segment, so validating the lower-camel form covers all three.
+          rpc_action.name
+          |> Naming.lower_camel()
+          |> assert_swift_identifier!("rpc_action name", resource)
 
           # Generic (`:action`-type) actions are shaped differently from CRUD —
           # their inputs are action *arguments* (not attributes) and their return
@@ -1101,15 +1106,20 @@ defmodule AshSwift.Codegen.Reader do
   # Enum cases are emitted as `case <lowerCamel(value)>`, so the lower-camelled
   # value must itself be an identifier (the raw value is emitted via
   # `Emitter.swift_string/1`, which escapes it).
+  # Returns the IR shape `%{name, raw}`: `name` is the validated Swift case name,
+  # `raw` the wire string, or nil when it equals `name` (no explicit raw value
+  # needed). The Emitter only renders this.
   defp check_enum_cases!(cases, resource) do
-    Enum.each(cases, fn c ->
-      c
-      |> to_string()
-      |> Naming.lower_camel()
-      |> assert_swift_identifier!("enum value", resource)
-    end)
+    Enum.map(cases, fn c ->
+      raw = to_string(c)
 
-    cases
+      name =
+        raw
+        |> Naming.lower_camel()
+        |> assert_swift_identifier!("enum value", resource)
+
+      %{name: name, raw: if(name == raw, do: nil, else: raw)}
+    end)
   end
 
   # `ResourceInfo.typescript_type_name/1` with the identifier check applied.
