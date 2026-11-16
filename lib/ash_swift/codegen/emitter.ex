@@ -466,8 +466,9 @@ defmodule AshSwift.Codegen.Emitter do
   #
   # The Reader guarantees `sortable?` / `filterable?` are false and both
   # pagination types are `:none` for gets (they are list-read concerns), so this
-  # clause matches on all four: an IR that says otherwise is rejected by the guarded raising clause below rather than being
-  # quietly re-decided here (ADR-0010: one owner per decision).
+  # clause matches on all four: an IR that says otherwise is rejected by the
+  # guarded raising clause below rather than being quietly re-decided here
+  # (ADR-0010: one owner per decision).
   defp method_spec(
          %{
            rpc_name: rpc_name,
@@ -534,7 +535,9 @@ defmodule AshSwift.Codegen.Emitter do
          },
          _type_name
        )
-       when not is_nil(get) do
+       when not is_nil(get) and
+              (sortable? != false or filterable? != false or pagination_type != :none or
+                 optional_pagination_type != :none) do
     raise "AshSwift: get action #{inspect(rpc_name)} has sortable?: #{inspect(sortable?)}, " <>
             "filterable?: #{inspect(filterable?)}, " <>
             "pagination_type: #{inspect(pagination_type)}, " <>

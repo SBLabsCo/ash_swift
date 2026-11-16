@@ -449,6 +449,25 @@
       "sortable": false
     },
     {
+      "action": "list_offset_paginated",
+      "action_type": "read",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "String"
+        }
+      ],
+      "name": "find_todo_offset_by_title",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
       "action": "search",
       "action_type": "read",
       "domain": "AshSwift.Test.Domain",

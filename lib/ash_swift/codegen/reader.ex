@@ -428,10 +428,12 @@ defmodule AshSwift.Codegen.Reader do
         build_get_info(maction, rpc_action, resource, formatter, ash_facts.get_by)
       end
 
+    list_read? = maction.type == :read and is_nil(get)
+
     # A get returns a single record, so it is never paginated: `:none` for gets
     # (the Emitter's get clause asserts this rather than re-deciding it).
     pagination_type =
-      if maction.type == :read and is_nil(get) do
+      if list_read? do
         action_pagination_type(maction)
       else
         :none
@@ -442,7 +444,7 @@ defmodule AshSwift.Codegen.Reader do
     # *overloaded* paginated function (see method_specs/2). Get actions and
     # required-pagination actions are excluded — :none means "no overload".
     optional_pagination_type =
-      if maction.type == :read and is_nil(get) do
+      if list_read? do
         optional_action_pagination_type(maction)
       else
         :none
@@ -459,15 +461,13 @@ defmodule AshSwift.Codegen.Reader do
     # drops the sort: parameter so a forbidden sort is a compile error.
     # Also requires the resource to actually have sortable fields — a sort
     # over an empty SortField enum is meaningless and won't compile (#41).
-    sortable? =
-      maction.type == :read and is_nil(get) and sort_enabled?(rpc_action) and
-        has_sortable_fields?
+    sortable? = list_read? and sort_enabled?(rpc_action) and has_sortable_fields?
 
     # Filtering is offered on the same surface as sorting — list (non-get)
     # read actions whose RPC action leaves `enable_filter?` at its default
     # of true. A false flag drops the filter: parameter so a forbidden
     # filter is a compile error, not a silently-ignored argument.
-    filterable? = maction.type == :read and is_nil(get) and filter_enabled?(rpc_action)
+    filterable? = list_read? and filter_enabled?(rpc_action)
 
     # A create addresses no existing record, so it has no identity params. A
     # primary key the caller supplies arrives through the accepted input fields
