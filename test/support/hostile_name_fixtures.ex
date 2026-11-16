@@ -45,16 +45,16 @@ defmodule AshSwift.Test.BadActionNameDomain do
   end
 end
 
-defmodule AshSwift.Test.LeadingUnderscoreActionName do
+defmodule AshSwift.Test.UnderscoreDigitActionName do
   @moduledoc "Fixture resource with a hostile name (#142)."
 
   use Ash.Resource,
-    domain: AshSwift.Test.LeadingUnderscoreActionNameDomain,
+    domain: AshSwift.Test.UnderscoreDigitActionNameDomain,
     data_layer: Ash.DataLayer.Ets,
     extensions: [AshTypescript.Resource]
 
   typescript do
-    type_name("LeadingUnderscoreActionName")
+    type_name("UnderscoreDigitActionName")
   end
 
   ets do
@@ -70,8 +70,8 @@ defmodule AshSwift.Test.LeadingUnderscoreActionName do
   end
 end
 
-defmodule AshSwift.Test.LeadingUnderscoreActionNameDomain do
-  @moduledoc "Fixture domain exposing `AshSwift.Test.LeadingUnderscoreActionName` (#142)."
+defmodule AshSwift.Test.UnderscoreDigitActionNameDomain do
+  @moduledoc "Fixture domain exposing `AshSwift.Test.UnderscoreDigitActionName` (#142)."
 
   use Ash.Domain,
     otp_app: :ash_swift,
@@ -79,13 +79,13 @@ defmodule AshSwift.Test.LeadingUnderscoreActionNameDomain do
     validate_config_inclusion?: false
 
   typescript_rpc do
-    resource AshSwift.Test.LeadingUnderscoreActionName do
-      rpc_action(:"1st", :read)
+    resource AshSwift.Test.UnderscoreDigitActionName do
+      rpc_action(:_1st, :read)
     end
   end
 
   resources do
-    resource AshSwift.Test.LeadingUnderscoreActionName
+    resource AshSwift.Test.UnderscoreDigitActionName
   end
 end
 

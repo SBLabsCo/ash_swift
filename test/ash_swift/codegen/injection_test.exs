@@ -44,9 +44,9 @@ defmodule AshSwift.Codegen.InjectionTest do
       end
     end
 
-    test "rejects an rpc_action name that starts with a digit (not a Swift identifier)" do
+    test "rejects an rpc_action name that passes the raw identifier check but lower-camels to a non-identifier (:_1st)" do
       assert_raise Mix.Error, ~r/rpc_action name .* is not a valid Swift identifier/s, fn ->
-        Reader.read([AshSwift.Test.LeadingUnderscoreActionNameDomain])
+        Reader.read([AshSwift.Test.UnderscoreDigitActionNameDomain])
       end
     end
 
