@@ -34,10 +34,10 @@ defmodule AshSwift.Codegen.Reader do
   **Uniqueness invariant.** Every top-level Swift name the entries declare
   (`type_name`, each `enum_name`, each input/result `struct_name`,
   `sort_field.type_name`, `filter_struct.type_name`, plus the Emitter's fixed
-  client struct `client_struct_name/0`, `AshRpc`) has exactly one owner across
+  client struct `Emitter.client_struct_name/0`, `AshRpc`) has exactly one owner across
   `all_resources`, and none is a name the generated files already resolve to a
   runtime or built-in type (`reserved_runtime_type_names/0`,
-  `reserved_builtin_type_names/0`); `assert_unique_swift_names!/1` raises
+  `Emitter.reserved_builtin_type_names/0`); `assert_unique_swift_names!/1` raises
   otherwise. Consumers (the Emitter, `Contract`) may rely on it.
 
   ### Field
@@ -117,6 +117,7 @@ defmodule AshSwift.Codegen.Reader do
 
   alias Ash.Info.Manifest
   alias Ash.Info.Manifest.Resource, as: ManifestResource
+  alias AshSwift.Codegen.Emitter
   alias AshSwift.Codegen.Naming
   alias AshSwift.Codegen.TypeMap
   alias AshTypescript.FieldFormatter
@@ -1122,12 +1123,6 @@ defmodule AshSwift.Codegen.Reader do
     end
   end
 
-  # The Emitter's fixed top-level client struct; it owns this name like any resource.
-  @client_struct_name "AshRpc"
-
-  @doc false
-  def client_struct_name, do: @client_struct_name
-
   # Public types of the AshSwiftRuntime package (`Sources/AshSwiftRuntime`) that
   # the generated files import, so a generated declaration of the same name would
   # shadow them. Kept sorted; `test/ash_swift/codegen/reader_test.exs` scans the
@@ -1147,25 +1142,8 @@ defmodule AshSwift.Codegen.Reader do
     URLSessionTransport UpdateBody UpdateRequest VoidActionRequest
   )
 
-  # Swift standard-library and Foundation names the generated files resolve to,
-  # so a generated declaration of the same name would shadow or break them:
-  #   * `TypeMap` scalar results: String Bool Int Double Date
-  #   * protocols and types the Emitter templates write: Sendable Codable
-  #     Encodable Decodable Equatable CodingKey Encoder Optional Void
-  #   * Data URL UUID: not written by the Emitter (TypeMap maps UUID to String);
-  #     reserved defensively because the runtime and consuming apps use them.
-  # `reader_test.exs` scans the generated Swift for conformances and fails when
-  # a template names one that is missing here.
-  @builtin_type_names ~w(
-    Bool Codable CodingKey Data Date Decodable Double Encodable Encoder
-    Equatable Int Optional Sendable String URL UUID Void
-  )
-
   @doc false
   def reserved_runtime_type_names, do: @runtime_type_names
-
-  @doc false
-  def reserved_builtin_type_names, do: @builtin_type_names
 
   # The single "one generated Swift name, one owner" rule (#156, #164). Collects
   # every top-level Swift name the IR will make the Emitter declare — resource
@@ -1178,16 +1156,16 @@ defmodule AshSwift.Codegen.Reader do
   # enums; each module appears once (`expand_with_related/2` keys related
   # entries by module), so a name that occurs twice is a real collision, even
   # when both occurrences come from the same resource (two actions or fields
-  # deriving the same struct name). The Emitter's fixed `client_struct_name/0`
+  # deriving the same struct name). The Emitter's fixed `Emitter.client_struct_name/0`
   # (`AshRpc`), the AshSwiftRuntime public types and the built-in types the
   # generated files use are seeded as one more owner each, so no resource may
   # declare them (#171).
   defp assert_unique_swift_names!(resources) do
     collisions =
       [
-        {@client_struct_name, "AshSwift generated client"}
+        {Emitter.client_struct_name(), "AshSwift generated client"}
         | Enum.map(@runtime_type_names, &{&1, "AshSwiftRuntime"}) ++
-            Enum.map(@builtin_type_names, &{&1, "Swift/Foundation"}) ++
+            Enum.map(Emitter.reserved_builtin_type_names(), &{&1, "Swift/Foundation"}) ++
             Enum.flat_map(resources, &swift_name_owners/1)
       ]
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
