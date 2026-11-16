@@ -35,8 +35,10 @@ defmodule AshSwift.Codegen.Reader do
   (`type_name`, each `enum_name`, each input/result `struct_name`,
   `sort_field.type_name`, `filter_struct.type_name`, plus the Emitter's fixed
   client struct `client_struct_name/0`, `AshRpc`) has exactly one owner across
-  `all_resources`; `assert_unique_swift_names!/1` raises otherwise. Consumers
-  (the Emitter, `Contract`) may rely on it.
+  `all_resources`, and none is a name the generated files already resolve to a
+  runtime or built-in type (`reserved_runtime_type_names/0`,
+  `reserved_builtin_type_names/0`); `assert_unique_swift_names!/1` raises
+  otherwise. Consumers (the Emitter, `Contract`) may rely on it.
 
   ### Field
 
@@ -1116,6 +1118,45 @@ defmodule AshSwift.Codegen.Reader do
   @doc false
   def client_struct_name, do: @client_struct_name
 
+  # Public types of the AshSwiftRuntime package (`Sources/AshSwiftRuntime`) that
+  # the generated files import, so a generated declaration of the same name would
+  # shadow them. Kept sorted; `test/ash_swift/codegen/reader_test.exs` scans the
+  # Sources directory and fails when this list drifts from the public
+  # declarations there. (The Sources are not shipped in the Hex package, so the
+  # list cannot be derived at compile time.)
+  @runtime_type_names ~w(
+    ActionFieldsBody AnyEncodable AshJSON AshRpcClient AshRpcConfig AshRpcError
+    AshRpcServerError CiStringOperators ComparableOperators CreateBody
+    CreateRequest DataEnvelopeRequest DestroyBody DestroyRequest
+    EmptyActionInput EnumOperators EquatableOperators FieldSelection
+    GenericActionBody GenericActionRequest GetBody GetInput GetOptionalRequest
+    GetRequest KeysetPage KeysetPageParams KeysetPageRequest ListRequest
+    NullableCiStringOperators NullableComparableOperators NullableEnumOperators
+    NullableEquatableOperators OffsetPage OffsetPageParams OffsetPageRequest
+    PagedBody RawRequest RpcRequest SortDirection SortField Transport
+    URLSessionTransport UpdateBody UpdateRequest VoidActionRequest
+  )
+
+  # Swift standard-library and Foundation names the generated files resolve to,
+  # so a generated declaration of the same name would shadow or break them:
+  #   * `TypeMap` scalar results: String Bool Int Double Date
+  #   * protocols and types the Emitter templates write: Sendable Codable
+  #     Encodable Decodable Equatable CodingKey Encoder Optional Void
+  #   * Data URL UUID: not written by the Emitter (TypeMap maps UUID to String);
+  #     reserved defensively because the runtime and consuming apps use them.
+  # `reader_test.exs` scans the generated Swift for conformances and fails when
+  # a template names one that is missing here.
+  @builtin_type_names ~w(
+    Bool Codable CodingKey Data Date Decodable Double Encodable Encoder
+    Equatable Int Optional Sendable String URL UUID Void
+  )
+
+  @doc false
+  def reserved_runtime_type_names, do: @runtime_type_names
+
+  @doc false
+  def reserved_builtin_type_names, do: @builtin_type_names
+
   # The single "one generated Swift name, one owner" rule (#156, #164). Collects
   # every top-level Swift name the IR will make the Emitter declare — resource
   # structs, enums, `{Type}Filter` structs, `{Type}SortField` enums and input /
@@ -1128,12 +1169,16 @@ defmodule AshSwift.Codegen.Reader do
   # entries by module), so a name that occurs twice is a real collision, even
   # when both occurrences come from the same resource (two actions or fields
   # deriving the same struct name). The Emitter's fixed `client_struct_name/0`
-  # (`AshRpc`) is seeded as one more owner, so no resource may declare it.
+  # (`AshRpc`), the AshSwiftRuntime public types and the built-in types the
+  # generated files use are seeded as one more owner each, so no resource may
+  # declare them (#171).
   defp assert_unique_swift_names!(resources) do
     collisions =
       [
         {@client_struct_name, "AshSwift generated client"}
-        | Enum.flat_map(resources, &swift_name_owners/1)
+        | Enum.map(@runtime_type_names, &{&1, "AshSwiftRuntime"}) ++
+            Enum.map(@builtin_type_names, &{&1, "Swift/Foundation"}) ++
+            Enum.flat_map(resources, &swift_name_owners/1)
       ]
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
       |> Enum.filter(fn {_name, owners} -> length(owners) > 1 end)

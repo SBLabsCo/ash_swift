@@ -10,6 +10,7 @@ defmodule AshSwift.Codegen.ReaderTest do
 
   import ExUnit.CaptureLog
 
+  alias AshSwift.Codegen.Emitter
   alias AshSwift.Codegen.Reader
   alias AshSwift.Test.ActionIRKeys
 
@@ -740,8 +741,76 @@ defmodule AshSwift.Codegen.ReaderTest do
 
     test "a resource named like the generated client struct is a codegen error" do
       assert_raise Mix.Error,
-                   ~r/not unique: "AshRpc" \(AshSwift generated client, AshSwift\.Test\.ClientNameResource struct\)/,
-                   fn -> Reader.read([AshSwift.Test.ClientNameClashDomain]) end
+                   ~r/"AshRpc" \(AshSwift generated client, AshSwift\.Test\.ClientNameResource struct\)/,
+                   fn -> Reader.read([AshSwift.Test.ReservedNameClashDomain]) end
+    end
+
+    test "a resource named like an AshSwiftRuntime public type is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/"AshRpcClient" \(AshSwift\.Test\.RuntimeNameResource struct, AshSwiftRuntime\)/,
+                   fn -> Reader.read([AshSwift.Test.ReservedNameClashDomain]) end
+    end
+
+    test "a resource named like a Foundation type the generated files use is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/"Date" \(AshSwift\.Test\.BuiltinNameResource struct, Swift\/Foundation\)/,
+                   fn -> Reader.read([AshSwift.Test.ReservedNameClashDomain]) end
+    end
+
+    test "a resource named like a protocol the generated declarations conform to is a codegen error" do
+      assert_raise Mix.Error,
+                   ~r/"Sendable" \(AshSwift\.Test\.ProtocolNameResource struct, Swift\/Foundation\)/,
+                   fn -> Reader.read([AshSwift.Test.ReservedNameClashDomain]) end
+    end
+
+    test "the reserved built-in names cover every conformance, encode signature and scalar field type the Emitter writes",
+         %{ir: ir} do
+      swift = Emitter.render_types(ir.all_resources) <> Emitter.render_functions(ir.all_resources)
+
+      conformances =
+        ~r/^\s*public (?:struct|enum) \w+: ([\w, ]+) \{/m
+        |> Regex.scan(swift, capture: :all_but_first)
+        |> Enum.flat_map(fn [list] -> String.split(list, ", ") end)
+
+      encode_param_types =
+        ~r/func \w+\(\w+ \w+: (\w+)\)/
+        |> Regex.scan(swift, capture: :all_but_first)
+        |> List.flatten()
+
+      declared =
+        ~r/public (?:struct|enum) (\w+)/
+        |> Regex.scan(swift, capture: :all_but_first)
+        |> List.flatten()
+
+      # Base names of every field type the IR writes (`[Date]?`, `[String: Int]`, ...), minus
+      # the names generated declarations or AshSwiftRuntime own: what is left resolves to Swift/Foundation.
+      scalar_types =
+        ir.all_resources
+        |> Enum.flat_map(&(&1.fields ++ Enum.flat_map(&1.input_structs, fn s -> s.fields end)))
+        |> Enum.flat_map(&Regex.scan(~r/[A-Za-z_]\w*/, &1.swift_type))
+        |> List.flatten()
+        |> Enum.uniq()
+        |> Kernel.--(declared ++ Reader.reserved_runtime_type_names())
+
+      used = Enum.uniq(conformances ++ ["CodingKey"] ++ encode_param_types ++ scalar_types)
+      assert "String" in used and "Date" in used
+      assert "Encoder" in used and "Sendable" in used and "Codable" in used
+      assert used -- Reader.reserved_builtin_type_names() == []
+    end
+
+    test "the reserved runtime type names match the public types in Sources/AshSwiftRuntime" do
+      declared =
+        "Sources/AshSwiftRuntime/*.swift"
+        |> Path.wildcard()
+        |> Enum.flat_map(fn file ->
+          ~r/^public (?:indirect |final )?(?:struct|enum|protocol|typealias|class|actor) (\w+)/m
+          |> Regex.scan(File.read!(file), capture: :all_but_first)
+          |> List.flatten()
+        end)
+        |> Enum.sort()
+
+      assert declared != []
+      assert Reader.reserved_runtime_type_names() == declared
     end
 
     test "a related destination sharing a primary's type name is a codegen error" do
