@@ -10,6 +10,10 @@
   type and the field (e.g. `StudentGuideResultStatus`). Previously the whole
   generic action was skipped. An enum argument on a create/update/read/destroy
   action, previously omitted from its input struct, is generated the same way.
+  Such an argument enum is named `<RpcAction><Argument>` and can now collide
+  with another generated name (e.g. an rpc action `todo` with a `status`
+  argument and a `Todo.status` attribute both make `TodoStatus`); codegen then
+  stops with a "not unique" error, so rename the rpc action or the argument.
   (#182)
 - Two different resources that map to the same Swift type name (for example a
   related, unexposed resource sharing a primary's `type_name`) are now a codegen
