@@ -589,6 +589,88 @@ defmodule AshSwift.Codegen.ReaderTest do
     end
   end
 
+  describe "enum-typed generic-action fields and arguments (#182)" do
+    defp enum_cases(ir, name) do
+      todo = resource(ir, "Todo")
+      enum = Enum.find(todo.enums, &(&1.enum_name == name))
+      assert enum, "expected a generated #{name} enum"
+      enum.cases
+    end
+
+    test "the action is generated rather than skipped", %{ir: ir} do
+      guide = Enum.find(resource(ir, "Todo").actions, &(&1.rpc_name == :guide))
+      assert guide, "a generic action with enum fields must not be skipped"
+      assert guide.generic_return == {:typed_record, "GuideResult"}
+      assert guide.input_struct_name == "GuideInput"
+    end
+
+    test "an inline one_of atom result field is typed with a <Result><Field> enum, required per allow_nil?",
+         %{ir: ir} do
+      result = input_struct(ir, "GuideResult")
+
+      assert %{swift_type: "GuideResultStatus", required?: true} = input_field(result, "status")
+
+      assert enum_cases(ir, "GuideResultStatus") == [
+               %{name: "none", raw: nil},
+               %{name: "building", raw: nil},
+               %{name: "ready", raw: nil}
+             ]
+    end
+
+    test "a named Ash.Type.Enum result field gets its own per-use-site enum, like an attribute",
+         %{ir: ir} do
+      result = input_struct(ir, "GuideResult")
+
+      assert %{swift_type: "GuideResultPhase", required?: false} = input_field(result, "phase")
+      # Same values as the `status` attribute's `TodoStatus` (also StatusType),
+      # Swift keywords (`default`, `case`) included — escaped by the emitter.
+      assert Enum.map(enum_cases(ir, "GuideResultPhase"), & &1.name) ==
+               ~w(pending active archived default case)
+    end
+
+    test "an array-of-enum result field is an array of the generated enum", %{ir: ir} do
+      result = input_struct(ir, "GuideResult")
+      assert %{swift_type: "[GuideResultHistory]"} = input_field(result, "history")
+      assert length(enum_cases(ir, "GuideResultHistory")) == 3
+    end
+
+    test "an enum field inside an array-of-map item is named from the item struct", %{ir: ir} do
+      item = input_struct(ir, "GuideResultCuesItem")
+
+      assert %{swift_type: "GuideResultCuesItemKind", required?: true} =
+               input_field(item, "kind")
+
+      # A snake_case value keeps its wire string as the raw value.
+      assert enum_cases(ir, "GuideResultCuesItemKind") == [
+               %{name: "drill", raw: nil},
+               %{name: "practiceItem", raw: "practice_item"}
+             ]
+    end
+
+    test "enum arguments, and an array of a named enum argument, are named <Rpc><Field>", %{
+      ir: ir
+    } do
+      input = input_struct(ir, "GuideInput")
+
+      assert %{swift_type: "GuideLevel", required?: true} = input_field(input, "level")
+      assert %{swift_type: "[GuidePhases]", required?: false} = input_field(input, "phases")
+      assert length(enum_cases(ir, "GuideLevel")) == 2
+      assert length(enum_cases(ir, "GuidePhases")) == 5
+    end
+
+    test "an enum argument on a CRUD action is generated instead of omitted", %{ir: ir} do
+      input = input_struct(ir, "ReprioritizeTodoInput")
+
+      assert %{swift_type: "ReprioritizeTodoUrgency", required?: true} =
+               input_field(input, "urgency")
+
+      assert enum_cases(ir, "ReprioritizeTodoUrgency") == [
+               %{name: "low", raw: nil},
+               %{name: "high", raw: nil}
+             ]
+    end
+  end
+
   describe "aggregates (#51)" do
     test "public aggregates are typed from their resolved type", %{ir: ir} do
       user = resource(ir, "User")

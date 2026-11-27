@@ -361,9 +361,11 @@ defmodule AshSwift.Codegen.Reader do
       sortable_fields = collect_sortable_fields(mres, formatter, manifest.types)
       has_sortable_fields? = not Enum.empty?(sortable_fields)
 
-      # Build actions and, in the same pass, collect the input structs to emit.
-      {actions_unsorted, input_structs_unsorted} =
-        Enum.reduce(rpc_actions, {[], []}, fn rpc_action, {actions_acc, structs_acc} ->
+      # Build actions and, in the same pass, collect the input structs to emit and
+      # the enums the actions' enum-typed arguments and result fields generate (#182).
+      {actions_unsorted, input_structs_unsorted, action_enums} =
+        Enum.reduce(rpc_actions, {[], [], []}, fn rpc_action,
+                                                  {actions_acc, structs_acc, enums_acc} ->
           maction = Map.fetch!(manifest.actions, {resource, rpc_action.action})
           # Swift sees the lower-camelled `func` name and the pascal-cased
           # `{Rpc}Input`/`{Rpc}Result` struct names, both rooted in the same first
@@ -382,8 +384,8 @@ defmodule AshSwift.Codegen.Reader do
               rpc_action,
               resource,
               formatter,
-              manifest.resources,
-              {actions_acc, structs_acc}
+              manifest,
+              {actions_acc, structs_acc, enums_acc}
             )
           else
             collect_crud_action(
@@ -395,7 +397,7 @@ defmodule AshSwift.Codegen.Reader do
               formatter,
               manifest.types,
               has_sortable_fields?,
-              {actions_acc, structs_acc}
+              {actions_acc, structs_acc, enums_acc}
             )
           end
         end)
@@ -407,7 +409,7 @@ defmodule AshSwift.Codegen.Reader do
         domain,
         type_name,
         fields,
-        enums,
+        Enum.sort_by(enums ++ action_enums, & &1.enum_name),
         mres,
         formatter,
         manifest.types,
@@ -429,7 +431,7 @@ defmodule AshSwift.Codegen.Reader do
          formatter,
          types,
          has_sortable_fields?,
-         {actions_acc, structs_acc}
+         {actions_acc, structs_acc, enums_acc}
        ) do
     ash_facts = ash_action_facts(resource, maction)
 
@@ -506,9 +508,9 @@ defmodule AshSwift.Codegen.Reader do
           []
       end
 
-    {arg_inputs, arg_nested_structs} =
+    {arg_inputs, arg_nested_structs, arg_enums} =
       if action_inputs == [] and maction.type not in [:create, :update] do
-        {[], []}
+        {[], [], []}
       else
         collect_action_inputs(
           %{maction | inputs: action_inputs},
@@ -552,7 +554,7 @@ defmodule AshSwift.Codegen.Reader do
         []
       end
 
-    {[action | actions_acc], new_struct ++ structs_acc}
+    {[action | actions_acc], new_struct ++ structs_acc, arg_enums ++ enums_acc}
   end
 
   # Per-action collector for generic (`:action`-type) actions (#54). Inputs are
@@ -566,20 +568,20 @@ defmodule AshSwift.Codegen.Reader do
          rpc_action,
          resource,
          formatter,
-         manifest_resources,
-         {actions_acc, structs_acc} = acc
+         manifest,
+         {actions_acc, structs_acc, enums_acc} = acc
        ) do
-    with {gen_return, result_structs, return_resource} <-
+    with {gen_return, result_structs, result_enums, return_resource} <-
            generic_action_return(
              maction.returns,
              rpc_action.name,
              resource,
              formatter,
-             manifest_resources,
+             manifest,
              ash_action_facts(resource, maction).allow_nil?
            ),
-         {:ok, inputs, nested_structs} <-
-           collect_generic_action_inputs(maction, rpc_action, resource, formatter) do
+         {:ok, inputs, nested_structs, input_enums} <-
+           collect_generic_action_inputs(maction, rpc_action, resource, formatter, manifest.types) do
       input_struct_name = if inputs == [], do: nil, else: pascal_case(rpc_action.name) <> "Input"
 
       action = %{
@@ -607,7 +609,8 @@ defmodule AshSwift.Codegen.Reader do
           do: [%{struct_name: input_struct_name, fields: inputs} | nested_structs],
           else: nested_structs
 
-      {[action | actions_acc], input_structs ++ result_structs ++ structs_acc}
+      {[action | actions_acc], input_structs ++ result_structs ++ structs_acc,
+       input_enums ++ result_enums ++ enums_acc}
     else
       # A return that maps to no supported Swift type, or an argument
       # of an unmappable type (e.g. a list/array arg) — skip the whole action with
@@ -642,109 +645,154 @@ defmodule AshSwift.Codegen.Reader do
   # Maps a generic action's arguments to input-struct fields. Unlike create/update
   # inputs (resolved against resource attributes), a generic action's inputs are
   # action arguments carrying their own manifest type. A scalar or map argument
-  # maps directly via TypeMap.generic_swift_type/1; an **array** argument maps its
-  # element type — an array of a scalar becomes `[Scalar]`, an array of a
-  # constrained map (a typed record, e.g. `clips`) becomes `[ActionArgItem]` plus a
-  # generated nested input struct. Optionality comes from `input.required?`. If ANY
-  # argument has an unmappable type (an unconstrained array element, struct, …) the
-  # whole action is unsupported — returning {:unsupported, name} so the caller skips
-  # it, symmetric with the return-type gate. Otherwise returns {:ok, fields,
-  # nested_structs} with fields sorted by name.
-  defp collect_generic_action_inputs(maction, rpc_action, resource, formatter) do
+  # maps directly via TypeMap.generic_swift_type/1; an enum argument becomes a
+  # generated Swift enum (#182); an **array** argument maps its element type — an
+  # array of a scalar becomes `[Scalar]`, an array of an enum `[ActionArg]`, an
+  # array of a constrained map (a typed record, e.g. `clips`) becomes
+  # `[ActionArgItem]` plus a generated nested input struct. Optionality comes from
+  # `input.required?`. If ANY argument has an unmappable type (an unconstrained
+  # array element, struct, …) the whole action is unsupported — returning
+  # {:unsupported, name} so the caller skips it, symmetric with the return-type
+  # gate. Otherwise returns {:ok, fields, nested_structs, enums} with fields sorted
+  # by name.
+  defp collect_generic_action_inputs(maction, rpc_action, resource, formatter, types) do
     maction.inputs
-    |> Enum.reduce_while({:ok, [], []}, fn input, {:ok, fields_acc, structs_acc} ->
+    |> Enum.reduce_while({:ok, [], [], []}, fn input, {:ok, fields_acc, structs_acc, enums_acc} ->
       case generic_field_swift_type(
              input.type,
              pascal_case(rpc_action.name),
              input.name,
              resource,
-             formatter
+             formatter,
+             types
            ) do
-        {:ok, swift_type, nested_structs} ->
+        {:ok, swift_type, nested_structs, nested_enums} ->
           field = %{
             name: format_name!(input.name, resource, formatter),
             swift_type: swift_type,
             required?: input.required?
           }
 
-          # Accumulation order of nested_structs doesn't matter: collect_query_surface
-          # sorts all input_structs by struct name, so output stays deterministic.
-          {:cont, {:ok, [field | fields_acc], nested_structs ++ structs_acc}}
+          # Accumulation order of nested_structs / enums doesn't matter:
+          # collect_query_surface sorts all input_structs by struct name and
+          # collect_resources/2 sorts enums by name, so output stays deterministic.
+          {:cont,
+           {:ok, [field | fields_acc], nested_structs ++ structs_acc, nested_enums ++ enums_acc}}
 
         :unsupported ->
           {:halt, {:unsupported, input.name}}
       end
     end)
     |> case do
-      {:ok, fields, structs} -> {:ok, Enum.sort_by(fields, & &1.name), structs}
+      {:ok, fields, structs, enums} -> {:ok, Enum.sort_by(fields, & &1.name), structs, enums}
       unsupported -> unsupported
     end
   end
 
   # The Swift type for one generic-action field — an argument (input side) or a
-  # typed-`:map` return's field (output side) — plus any nested structs it
-  # generates. `name_prefix` is the already-pascal-cased struct-name root
+  # typed-`:map` return's field (output side) — plus any nested structs and enums
+  # it generates, as `{:ok, swift_type, nested_structs, enums}` or :unsupported.
+  # `name_prefix` is the already-pascal-cased struct-name root
   # (`UploadStart` for an argument, `UploadStartResult` for a return field), which
-  # keeps an argument's and a return's nested struct names distinct even when both
+  # keeps an argument's and a return's nested type names distinct even when both
   # carry a `clips` array (no `UploadStartClipsItem` collision). An array of a
   # constrained map generates a nested struct; everything else maps via
-  # element_swift_type/1 (array of a scalar → `[Scalar]`, scalar → its Swift type,
-  # map → `[String: AshJSON]`).
+  # element_swift_type/5 (array of a scalar → `[Scalar]`, scalar → its Swift type,
+  # map → `[String: AshJSON]`, enum or array of an enum → a generated
+  # `<name_prefix><Field>` enum).
   defp generic_field_swift_type(
          %{kind: :array, item_type: %{kind: :map, fields: [_ | _] = item_fields}},
          name_prefix,
          field_name,
          resource,
-         formatter
+         formatter,
+         types
        ) do
     # An array of a constrained map = a typed record list. Generate a named nested
     # struct (e.g. `UploadStartClipsItem` / `UploadStartResultClipsItem`) so the
     # element is compiler-checked rather than an untyped `[[String: AshJSON]]`.
-    case map_constraint_fields(item_fields, name_prefix, resource, formatter,
+    # The item struct's name is the prefix its own enum fields are named from
+    # (`UploadStartResultClipsItemStatus`); it can carry no nested struct.
+    struct_name = name_prefix <> pascal_case(field_name) <> "Item"
+
+    case map_constraint_fields(item_fields, struct_name, resource, formatter, types,
            allow_nested?: false
          ) do
-      {:ok, struct_fields, []} ->
+      {:ok, struct_fields, [], enums} ->
         # Built from the raw field atom (not the formatted client name), which
         # `field_names` can map to a clean name while the raw one stays hostile,
         # so the derived struct name is checked on its own (#142). Checked only
         # here so an unsupported item is skipped rather than raising.
-        struct_name =
-          assert_swift_identifier!(
-            name_prefix <> pascal_case(field_name) <> "Item",
-            "struct name",
-            resource
-          )
+        assert_swift_identifier!(struct_name, "struct name", resource)
 
-        {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}]}
+        {:ok, "[#{struct_name}]", [%{struct_name: struct_name, fields: struct_fields}], enums}
 
       :unsupported ->
         :unsupported
     end
   end
 
-  defp generic_field_swift_type(type, _name_prefix, _field_name, _resource, _formatter) do
-    case element_swift_type(type) do
-      {:ok, swift} -> {:ok, swift, []}
+  defp generic_field_swift_type(type, name_prefix, field_name, resource, _formatter, types) do
+    case element_swift_type(type, name_prefix, field_name, resource, types) do
+      {:ok, swift, enums} -> {:ok, swift, [], enums}
       :unsupported -> :unsupported
     end
   end
 
-  # The Swift type of a field that generates no nested struct: an array of a scalar
-  # (or an unconstrained map) maps element-wise, anything else defers to
-  # TypeMap.generic_swift_type/1. An array of a typed record needs a generated
-  # struct that only generic_field_swift_type/5 builds, so a doubly nested one is
-  # unsupported here.
-  defp element_swift_type(%{kind: :array, item_type: %{kind: :map, fields: [_ | _]}}),
-    do: :unsupported
+  # The Swift type of a field that generates no nested struct, plus the enums it
+  # generates: an array maps element-wise, anything else via value_swift_type/5. An
+  # array of a typed record needs a generated struct that only
+  # generic_field_swift_type/6 builds, so a doubly nested one is unsupported here.
+  defp element_swift_type(
+         %{kind: :array, item_type: %{kind: :map, fields: [_ | _]}},
+         _name_prefix,
+         _field_name,
+         _resource,
+         _types
+       ),
+       do: :unsupported
 
-  defp element_swift_type(%{kind: :array, item_type: item}) when not is_nil(item) do
-    case TypeMap.generic_swift_type(item) do
-      {:ok, swift} -> {:ok, "[#{swift}]"}
+  defp element_swift_type(
+         %{kind: :array, item_type: item},
+         name_prefix,
+         field_name,
+         resource,
+         types
+       )
+       when not is_nil(item) do
+    case value_swift_type(item, name_prefix, field_name, resource, types) do
+      {:ok, swift, enums} -> {:ok, "[#{swift}]", enums}
       :unsupported -> :unsupported
     end
   end
 
-  defp element_swift_type(type), do: TypeMap.generic_swift_type(type)
+  defp element_swift_type(type, name_prefix, field_name, resource, types),
+    do: value_swift_type(type, name_prefix, field_name, resource, types)
+
+  # The Swift type of one non-array generic-action value, plus the enums it
+  # generates. An enum (an inline `Ash.Type.Atom` with `one_of`, or a named
+  # `Ash.Type.Enum`, both read by manifest_enum_values/2 exactly as for an
+  # attribute) becomes a generated String-backed Swift enum named from the
+  # enclosing type and the field, `<name_prefix><Field>` (e.g.
+  # `StudentGuideResultStatus`); like an attribute enum, a named `Ash.Type.Enum`
+  # gets one Swift enum per use site. The name is built from the raw field atom and
+  # checked on its own, like an `…Item` struct name (#142). Anything else maps via
+  # TypeMap.generic_swift_type/1, which refuses to String-guess.
+  defp value_swift_type(type, name_prefix, field_name, resource, types) do
+    case manifest_enum_values(type, types) do
+      values when is_list(values) ->
+        enum_name =
+          assert_swift_identifier!(name_prefix <> pascal_case(field_name), "enum name", resource)
+
+        {:ok, enum_name, [%{enum_name: enum_name, cases: check_enum_cases!(values, resource)}]}
+
+      nil ->
+        case TypeMap.generic_swift_type(type) do
+          {:ok, swift} -> {:ok, swift, []}
+          :unsupported -> :unsupported
+        end
+    end
+  end
 
   # The fields of a map-constraint struct, the one place that decides how a
   # constrained-map field becomes a struct field: its name is format_name!/3, its
@@ -752,46 +800,59 @@ defmodule AshSwift.Codegen.Reader do
   # explicitly `false` — map-constraint fields are nullable by default, so an unset
   # (`nil`) `allow_nil?` is an optional Swift property. Used for the element of an
   # array-of-map argument or field (item structs) and for a typed `:map` return's
-  # fields (result structs). Returns {:ok, fields_sorted_by_name, nested_structs}
-  # or :unsupported when any field's type maps to no Swift type, which makes the
-  # whole struct — and so the action — unsupported.
+  # fields (result structs). Returns {:ok, fields_sorted_by_name, nested_structs,
+  # enums} or :unsupported when any field's type maps to no Swift type, which makes
+  # the whole struct — and so the action — unsupported. `name_prefix` is the name
+  # of the struct being built: its enum fields are named `<name_prefix><Field>`.
   #
-  # With `allow_nested?: true` each field maps via generic_field_swift_type/5, so an
+  # With `allow_nested?: true` each field maps via generic_field_swift_type/6, so an
   # array-of-record field becomes `[<name_prefix><Field>Item]` plus a nested struct
   # (returned in `nested_structs`, named from `name_prefix`). With `false` it maps
-  # via element_swift_type/1, where an array-of-record field is unsupported (no
+  # via element_swift_type/5, where an array-of-record field is unsupported (no
   # doubly nested item structs yet) and `nested_structs` is always `[]`.
-  defp map_constraint_fields(fields, name_prefix, resource, formatter,
+  defp map_constraint_fields(fields, name_prefix, resource, formatter, types,
          allow_nested?: allow_nested?
        ) do
     fields
-    |> Enum.reduce_while({:ok, [], []}, fn field, {:ok, fields_acc, structs_acc} ->
-      case map_constraint_field_type(field, name_prefix, resource, formatter, allow_nested?) do
-        {:ok, swift_type, nested_structs} ->
+    |> Enum.reduce_while({:ok, [], [], []}, fn field, {:ok, fields_acc, structs_acc, enums_acc} ->
+      case map_constraint_field_type(
+             field,
+             name_prefix,
+             resource,
+             formatter,
+             types,
+             allow_nested?
+           ) do
+        {:ok, swift_type, nested_structs, nested_enums} ->
           struct_field = %{
             name: format_name!(field.name, resource, formatter),
             swift_type: swift_type,
             required?: field.allow_nil? == false
           }
 
-          {:cont, {:ok, [struct_field | fields_acc], nested_structs ++ structs_acc}}
+          {:cont,
+           {:ok, [struct_field | fields_acc], nested_structs ++ structs_acc,
+            nested_enums ++ enums_acc}}
 
         :unsupported ->
           {:halt, :unsupported}
       end
     end)
     |> case do
-      {:ok, struct_fields, structs} -> {:ok, Enum.sort_by(struct_fields, & &1.name), structs}
-      :unsupported -> :unsupported
+      {:ok, struct_fields, structs, enums} ->
+        {:ok, Enum.sort_by(struct_fields, & &1.name), structs, enums}
+
+      :unsupported ->
+        :unsupported
     end
   end
 
-  defp map_constraint_field_type(field, name_prefix, resource, formatter, true),
-    do: generic_field_swift_type(field.type, name_prefix, field.name, resource, formatter)
+  defp map_constraint_field_type(field, name_prefix, resource, formatter, types, true),
+    do: generic_field_swift_type(field.type, name_prefix, field.name, resource, formatter, types)
 
-  defp map_constraint_field_type(field, _name_prefix, _resource, _formatter, false) do
-    case element_swift_type(field.type) do
-      {:ok, swift} -> {:ok, swift, []}
+  defp map_constraint_field_type(field, name_prefix, resource, _formatter, types, false) do
+    case element_swift_type(field.type, name_prefix, field.name, resource, types) do
+      {:ok, swift, enums} -> {:ok, swift, [], enums}
       :unsupported -> :unsupported
     end
   end
@@ -1038,23 +1099,26 @@ defmodule AshSwift.Codegen.Reader do
     {fields, sorted_enums}
   end
 
-  # Classifies a generic action's return, returning `{gen_return, structs}` on
-  # success (or bare `:unsupported` on failure, so the caller's `with` skips the
-  # whole action):
+  # Classifies a generic action's return, returning
+  # `{gen_return, result_structs, result_enums, target_module | nil}` on success
+  # (or bare `:unsupported` on failure, so the caller's `with` skips the whole
+  # action):
   #
-  #   * `nil`                       -> {:void, []}        (a side-effecting action)
-  #   * a **constrained** `:map`    -> {{:typed_record, "<Rpc>Result"}, [result struct | nested]}
+  #   * `nil`                       -> {:void, [], [], nil}  (a side-effecting action)
+  #   * a **constrained** `:map`    -> {{:typed_record, "<Rpc>Result"}, [result struct | nested], enums, nil}
   #     (a `:map` carrying `fields:` constraints, e.g. SwingClips' upload_start
   #     manifest) — generate a typed Decodable struct so the caller gets
   #     `UploadStartResult { videoId, clips: [UploadStartResultClipsItem] }` instead
   #     of an untyped `[String: AshJSON]`. An `{:array, :map}` field rides the same
-  #     nested-struct machinery as an array-of-record argument (issue #70). Tagged
-  #     `:typed_record` (not `:typed`) because the RPC pipeline requires a `fields:`
-  #     selection for it, so the emitter threads a `fields:` argument (issue #73).
-  #   * an **unconstrained** `:map` -> {{:typed, "[String: AshJSON]"}, []}
+  #     nested-struct machinery as an array-of-record argument (issue #70); an enum
+  #     field (or an array of one) becomes a generated `<Rpc>Result<Field>` enum
+  #     (#182). Tagged `:typed_record` (not `:typed`) because the RPC pipeline
+  #     requires a `fields:` selection for it, so the emitter threads a `fields:`
+  #     argument (issue #73).
+  #   * an **unconstrained** `:map` -> {{:typed, "[String: AshJSON]"}, [], [], nil}
   #     (no `fields:` — the action opted out of typing, keys are the caller's)
-  #   * a scalar                    -> {{:typed, t}, []}
-  #   * a **resource** / `:struct` with `instance_of` a resource -> {{:typed_record, "T"}, [], module}
+  #   * a scalar                    -> {{:typed, t}, [], [], nil}
+  #   * a **resource** / `:struct` with `instance_of` a resource -> {{:typed_record, "T"}, [], [], module}
   #     (issue #56). Decoded into the resource's generated model type through the
   #     same field-selected path as the typed map. The manifest drops the action's
   #     `allow_nil?` (Ash default false: a nil return is rejected unless the action
@@ -1062,28 +1126,26 @@ defmodule AshSwift.Codegen.Reader do
   #     `"T?"` only when the action allows nil, else a non-optional `"T"`. The
   #     target must have a type name and be present in the manifest (see
   #     model_struct_target/2), else the model struct would never be emitted —
-  #     then :unsupported. The third element is the target module, so
+  #     then :unsupported. The target module is returned so
   #     expand_with_related/2 can emit its model struct.
-  #   * anything else               -> :unsupported (array-of-resource returns
-  #     included)
-  #
-  # Every supported clause returns {gen_return, result_structs, target_module | nil}.
-  defp generic_action_return(nil, _rpc_name, _resource, _formatter, _manifest_resources, _nil?),
-    do: {:void, [], nil}
+  #   * anything else               -> :unsupported (array-of-resource returns and
+  #     a bare enum return included)
+  defp generic_action_return(nil, _rpc_name, _resource, _formatter, _manifest, _nil?),
+    do: {:void, [], [], nil}
 
   defp generic_action_return(
          %{kind: :resource, resource_module: module},
          _rpc_name,
          _resource,
          _formatter,
-         manifest_resources,
+         manifest,
          allow_nil?
        )
        when not is_nil(module) do
-    case model_struct_target(module, manifest_resources) do
+    case model_struct_target(module, manifest.resources) do
       {:ok, type_name, _mres} ->
         swift_type = if allow_nil?, do: type_name <> "?", else: type_name
-        {{:typed_record, swift_type}, [], module}
+        {{:typed_record, swift_type}, [], [], module}
 
       :none ->
         :unsupported
@@ -1095,20 +1157,20 @@ defmodule AshSwift.Codegen.Reader do
          rpc_name,
          resource,
          formatter,
-         _manifest_resources,
+         manifest,
          _allow_nil?
        )
        when is_list(fields) and fields != [] do
     result_struct_name = pascal_case(rpc_name) <> "Result"
 
-    # map_constraint_fields/5 with nested structs allowed: an array-of-constrained-map
+    # map_constraint_fields/6 with nested structs allowed: an array-of-constrained-map
     # field becomes `[<Result><Field>Item]` + a nested struct, an array-of-scalar
-    # `[Scalar]`, a plain map `[String: AshJSON]`. Any unmappable field makes the
-    # whole return, and so the action, unsupported.
-    case map_constraint_fields(fields, result_struct_name, resource, formatter,
+    # `[Scalar]`, a plain map `[String: AshJSON]`, an enum `<Result><Field>`. Any
+    # unmappable field makes the whole return, and so the action, unsupported.
+    case map_constraint_fields(fields, result_struct_name, resource, formatter, manifest.types,
            allow_nested?: true
          ) do
-      {:ok, struct_fields, nested_structs} ->
+      {:ok, struct_fields, nested_structs, enums} ->
         result_struct = %{struct_name: result_struct_name, fields: struct_fields}
 
         # `:typed_record` (not `:typed`) so the emitter knows this return is a
@@ -1117,16 +1179,16 @@ defmodule AshSwift.Codegen.Reader do
         # Every result-side struct is `decodable?: true` so the emitter renders it as a
         # Decodable result struct, not an Encodable input struct.
         structs = Enum.map([result_struct | nested_structs], &Map.put(&1, :decodable?, true))
-        {{:typed_record, result_struct_name}, structs, nil}
+        {{:typed_record, result_struct_name}, structs, enums, nil}
 
       :unsupported ->
         :unsupported
     end
   end
 
-  defp generic_action_return(type, _rpc_name, _resource, _formatter, _manifest_resources, _nil?) do
+  defp generic_action_return(type, _rpc_name, _resource, _formatter, _manifest, _nil?) do
     case TypeMap.generic_swift_type(type) do
-      {:ok, swift_type} -> {{:typed, swift_type}, [], nil}
+      {:ok, swift_type} -> {{:typed, swift_type}, [], [], nil}
       :unsupported -> :unsupported
     end
   end
@@ -1511,15 +1573,16 @@ defmodule AshSwift.Codegen.Reader do
   end
 
   # Collects the input fields for a create or update action, mapping each to its
-  # Swift type and whether it is required. Returns {fields, nested_structs}.
+  # Swift type and whether it is required. Returns {fields, nested_structs, enums}.
   #
   # The manifest normalizes an action's inputs into one list holding both its
   # accepted attributes and its action *arguments* (issue #83), so each input is
   # routed by what it is:
   #
   #   * an action argument maps from its own manifest type through the same
-  #     generic_field_swift_type/5 path generic actions use (scalar, map, array,
-  #     array-of-record → nested `<Action><Arg>Item` struct), with optionality from
+  #     generic_field_swift_type/6 path generic actions use (scalar, map, array,
+  #     array-of-record → nested `<Action><Arg>Item` struct, enum → generated
+  #     `<Action><Arg>` enum, #182), with optionality from
   #     the argument's `required?` presence flag — on update too, since a required
   #     argument must be supplied even though the update itself is partial. An
   #     argument of an unmappable type is omitted with a warning rather than
@@ -1542,8 +1605,8 @@ defmodule AshSwift.Codegen.Reader do
 
     argument_names = ash_facts.argument_names
 
-    {fields, structs} =
-      Enum.reduce(maction.inputs, {[], []}, fn input, {fields_acc, structs_acc} ->
+    {fields, structs, enums} =
+      Enum.reduce(maction.inputs, {[], [], []}, fn input, {fields_acc, structs_acc, enums_acc} ->
         formatted_name = format_name!(input.name, resource, formatter)
 
         cond do
@@ -1553,16 +1616,17 @@ defmodule AshSwift.Codegen.Reader do
                    pascal_case(rpc_action.name),
                    input.name,
                    resource,
-                   formatter
+                   formatter,
+                   types
                  ) do
-              {:ok, swift_type, nested_structs} ->
+              {:ok, swift_type, nested_structs, nested_enums} ->
                 field = %{
                   name: formatted_name,
                   swift_type: swift_type,
                   required?: input.required? == true
                 }
 
-                {[field | fields_acc], nested_structs ++ structs_acc}
+                {[field | fields_acc], nested_structs ++ structs_acc, nested_enums ++ enums_acc}
 
               :unsupported ->
                 Logger.warning(
@@ -1571,7 +1635,7 @@ defmodule AshSwift.Codegen.Reader do
                     "generated input struct."
                 )
 
-                {fields_acc, structs_acc}
+                {fields_acc, structs_acc, enums_acc}
             end
 
           attr = Map.get(attrs_map, input.name) ->
@@ -1602,10 +1666,10 @@ defmodule AshSwift.Codegen.Reader do
                   end
 
                 field = %{name: formatted_name, swift_type: swift_type, required?: required?}
-                {[field | fields_acc], structs_acc}
+                {[field | fields_acc], structs_acc, enums_acc}
 
               :unsupported ->
-                {fields_acc, structs_acc}
+                {fields_acc, structs_acc, enums_acc}
             end
 
           true ->
@@ -1614,13 +1678,14 @@ defmodule AshSwift.Codegen.Reader do
                 "is not a public attribute and will be omitted from the generated input struct."
             )
 
-            {fields_acc, structs_acc}
+            {fields_acc, structs_acc, enums_acc}
         end
       end)
 
-    # Nested-struct order doesn't matter: collect_query_surface sorts all
-    # input_structs by struct name, so output stays deterministic.
-    {Enum.sort_by(fields, & &1.name), structs}
+    # Nested-struct and enum order doesn't matter: collect_query_surface sorts
+    # input_structs by struct name and collect_resources/2 sorts enums by name, so
+    # output stays deterministic.
+    {Enum.sort_by(fields, & &1.name), structs, enums}
   end
 
   # The one place the Reader reads a live Ash action (`Ash.Resource.Info.action/2`)

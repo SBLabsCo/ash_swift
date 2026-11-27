@@ -75,6 +75,12 @@ defmodule AshSwift.Codegen.InjectionTest do
         Reader.read([AshSwift.Test.BadStructNameReturnDomain])
       end
     end
+
+    test "rejects an enum name derived from a hostile raw enum-typed argument name (#182)" do
+      assert_raise Mix.Error, ~r/enum name .* is not a valid Swift identifier/s, fn ->
+        Reader.read([AshSwift.Test.BadEnumNameArgumentDomain])
+      end
+    end
   end
 
   describe "snake_case enum values (raw wire value pin)" do

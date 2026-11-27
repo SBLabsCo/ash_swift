@@ -51,7 +51,8 @@ defmodule AshSwift.Codegen.Contract do
   every generated `{Resource}Filter` (`kind: "filter"`, Encodable), fields
   listed alongside the `and`/`or`/`not` logical-combinator properties every
   filter carries. `enums` covers every generated Swift enum: resource-attribute
-  or derived-field enums alongside every generated `{Resource}SortField`
+  or derived-field enums, the enums an action's arguments or a generic action's
+  typed-result / item fields generate (#182), and every generated `{Resource}SortField`
   (its `values` are the sortable attribute names, exactly the enum's cases) —
   both render as a plain `public enum ...: String` declaration in the emitted
   Swift, so both belong in one list. A resource with no filterable (or

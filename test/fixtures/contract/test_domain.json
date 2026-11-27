@@ -559,6 +559,30 @@
       "sortable": false
     },
     {
+      "action": "guide",
+      "action_type": "action",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "level",
+          "required": true,
+          "type": "GuideLevel"
+        },
+        {
+          "name": "phases",
+          "required": false,
+          "type": "[GuidePhases]"
+        }
+      ],
+      "name": "guide",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "GuideResult",
+      "sortable": false
+    },
+    {
       "action": "read",
       "action_type": "read",
       "domain": "AshSwift.Test.Domain",
@@ -737,6 +761,30 @@
         }
       ],
       "name": "rename_todo",
+      "optional_pagination": null,
+      "resource": "Todo",
+      "resource_module": "AshSwift.Test.Todo",
+      "result_type": "Todo",
+      "sortable": false
+    },
+    {
+      "action": "reprioritize",
+      "action_type": "update",
+      "domain": "AshSwift.Test.Domain",
+      "filterable": false,
+      "inputs": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "name": "urgency",
+          "required": true,
+          "type": "ReprioritizeTodoUrgency"
+        }
+      ],
+      "name": "reprioritize_todo",
       "optional_pagination": null,
       "resource": "Todo",
       "resource_module": "AshSwift.Test.Todo",
@@ -1115,6 +1163,63 @@
   "ash_swift_version": "0.1.0",
   "contract_version": 1,
   "enums": [
+    {
+      "name": "GuideLevel",
+      "values": [
+        "advanced",
+        "beginner"
+      ]
+    },
+    {
+      "name": "GuidePhases",
+      "values": [
+        "active",
+        "archived",
+        "case",
+        "default",
+        "pending"
+      ]
+    },
+    {
+      "name": "GuideResultCuesItemKind",
+      "values": [
+        "drill",
+        "practice_item"
+      ]
+    },
+    {
+      "name": "GuideResultHistory",
+      "values": [
+        "building",
+        "none",
+        "ready"
+      ]
+    },
+    {
+      "name": "GuideResultPhase",
+      "values": [
+        "active",
+        "archived",
+        "case",
+        "default",
+        "pending"
+      ]
+    },
+    {
+      "name": "GuideResultStatus",
+      "values": [
+        "building",
+        "none",
+        "ready"
+      ]
+    },
+    {
+      "name": "ReprioritizeTodoUrgency",
+      "values": [
+        "high",
+        "low"
+      ]
+    },
     {
       "name": "TodoLabels",
       "values": [
@@ -1539,6 +1644,59 @@
     {
       "fields": [
         {
+          "name": "level",
+          "optional": false,
+          "type": "GuideLevel"
+        },
+        {
+          "name": "phases",
+          "optional": true,
+          "type": "[GuidePhases]"
+        }
+      ],
+      "kind": "input",
+      "name": "GuideInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "cues",
+          "optional": true,
+          "type": "[GuideResultCuesItem]"
+        },
+        {
+          "name": "history",
+          "optional": true,
+          "type": "[GuideResultHistory]"
+        },
+        {
+          "name": "phase",
+          "optional": true,
+          "type": "GuideResultPhase"
+        },
+        {
+          "name": "status",
+          "optional": false,
+          "type": "GuideResultStatus"
+        }
+      ],
+      "kind": "result",
+      "name": "GuideResult"
+    },
+    {
+      "fields": [
+        {
+          "name": "kind",
+          "optional": false,
+          "type": "GuideResultCuesItemKind"
+        }
+      ],
+      "kind": "result",
+      "name": "GuideResultCuesItem"
+    },
+    {
+      "fields": [
+        {
           "name": "title",
           "optional": false,
           "type": "String"
@@ -1562,6 +1720,17 @@
       ],
       "kind": "input",
       "name": "RenameTodoInput"
+    },
+    {
+      "fields": [
+        {
+          "name": "urgency",
+          "optional": false,
+          "type": "ReprioritizeTodoUrgency"
+        }
+      ],
+      "kind": "input",
+      "name": "ReprioritizeTodoInput"
     },
     {
       "fields": [

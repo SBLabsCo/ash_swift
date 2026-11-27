@@ -252,6 +252,15 @@ defmodule AshSwift.Test.Todo do
       change set_attribute(:score, arg(:score))
     end
 
+    # An enum-typed argument on a CRUD action (#182): CRUD arguments are typed the
+    # way generic-action arguments are, so an inline `one_of` atom becomes a
+    # generated `ReprioritizeTodoUrgency` enum rather than being omitted.
+    update :reprioritize do
+      accept []
+      argument :urgency, :atom, allow_nil?: false, constraints: [one_of: [:low, :high]]
+      change set_attribute(:priority, arg(:urgency))
+    end
+
     # Issue #84: argument-only update whose argument shares a name with a PRIVATE
     # attribute — the SwingClips `set_date_of_birth` shape.
     update :set_due_date do
@@ -436,6 +445,59 @@ defmodule AshSwift.Test.Todo do
                   ]
 
       run fn _input, _ctx -> {:ok, %{video_id: "v1", clips: []}} end
+    end
+
+    # Enum-typed generic-action fields and arguments (#182) — the SwingClips
+    # `student_guide` shape. In the typed `:map` return: an inline `one_of` atom
+    # (`status`, required), a named `Ash.Type.Enum` (`phase`, optional), an array
+    # of enums (`history`), and an enum inside an array-of-map item (`cues.kind`,
+    # snake_case value). As arguments: an inline `one_of` atom (`level`) and an
+    # array of a named enum (`phases`). Each generates a `<Struct><Field>` Swift
+    # enum (`GuideResultStatus`, `GuideResultCuesItemKind`, `GuideLevel`, …). The
+    # run derives the result from the arguments so the e2e test proves both
+    # directions on the wire.
+    action :guide, :map do
+      argument :level, :atom, allow_nil?: false, constraints: [one_of: [:beginner, :advanced]]
+      argument :phases, {:array, AshSwift.Test.StatusType}, allow_nil?: true
+
+      constraints fields: [
+                    status: [
+                      type: :atom,
+                      constraints: [one_of: [:none, :building, :ready]],
+                      allow_nil?: false
+                    ],
+                    phase: [type: AshSwift.Test.StatusType],
+                    history: [
+                      type: {:array, :atom},
+                      constraints: [items: [one_of: [:none, :building, :ready]]]
+                    ],
+                    cues: [
+                      type: {:array, :map},
+                      constraints: [
+                        items: [
+                          fields: [
+                            kind: [
+                              type: :atom,
+                              constraints: [one_of: [:drill, :practice_item]],
+                              allow_nil?: false
+                            ]
+                          ]
+                        ]
+                      ]
+                    ]
+                  ]
+
+      run fn input, _ctx ->
+        status = if input.arguments.level == :advanced, do: :ready, else: :building
+
+        {:ok,
+         %{
+           status: status,
+           phase: List.first(input.arguments[:phases] || []),
+           history: [:none, status],
+           cues: [%{kind: :practice_item}]
+         }}
+      end
     end
   end
 end
