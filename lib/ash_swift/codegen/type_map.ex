@@ -89,8 +89,8 @@ defmodule AshSwift.Codegen.TypeMap do
   # and anything else (array/tuple/union/struct/enum/resource) is :unsupported.
   # An enum is :unsupported *here* because its Swift type is a generated, named
   # enum this module can't name; the Reader maps enums (via manifest_enum_values)
-  # before falling back to this (#182). `ash_type_to_swift` would silently return "String" for a nil module, which
-  # is the mis-type this gate exists to prevent.
+  # before falling back to this (#182). `ash_type_to_swift` would silently return
+  # "String" for a nil module, which is the mis-type this gate exists to prevent.
   def generic_swift_type(%{kind: :map}), do: {:ok, "[String: AshJSON]"}
 
   def generic_swift_type(%{kind: kind, module: module})
