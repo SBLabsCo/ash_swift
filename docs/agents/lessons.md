@@ -240,19 +240,19 @@ client-formatted (camelCase) field names (`FieldFormatter.format_field_for_clien
 and Swift's synthesized `CodingKeys` match the wire with no explicit keys — exactly
 like a model struct. Don't reuse the `[String: AshJSON]` mapping for a constrained
 map: it's still passed through for the *unconstrained* case only. See `generic_action_return/6`
-+ `map_constraint_fields/5` (issue #70); the wire behavior is in
++ `map_constraint_fields/6` (issue #70); the wire behavior is in
 `deps/ash_typescript/lib/ash_typescript/rpc/value_formatter.ex`.
 
 ### A return-side nested struct name must include the `Result` segment to avoid colliding with the argument-side one
 
 The return-side typed-map machinery reuses the same nested-struct generator as
-array-of-record *arguments* (`generic_field_swift_type/5`). An action like
+array-of-record *arguments* (`generic_field_swift_type/6`). An action like
 `upload_start` can carry a `clips` `{:array, :map}` argument **and** a `clips`
 field in its `:map` return — both would generate a nested struct named after the
 field. The argument's is `UploadStartClipsItem`; the return's must be
 `UploadStartResultClipsItem` (the result-struct name is the prefix), or the two
 emit duplicate `struct` definitions and `swift build` fails. Hence
-`generic_field_swift_type/5` takes an already-pascal-cased `name_prefix`
+`generic_field_swift_type/6` takes an already-pascal-cased `name_prefix`
 (`UploadStart` for args, `UploadStartResult` for the return) rather than deriving
 the name from the action alone. When #56 adds field-selectable struct returns,
 keep the prefix distinct the same way. See issue #70.

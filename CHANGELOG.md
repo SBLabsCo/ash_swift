@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- An enum (an `:atom` with `one_of`, or a named `Ash.Type.Enum`) in a generic
+  action's typed `:map` result, an array-of-map item, or an argument (including
+  an array of enums) now generates a typed Swift enum named from its enclosing
+  type and the field (e.g. `StudentGuideResultStatus`). Previously the whole
+  generic action was skipped. An enum argument on a create/update/read/destroy
+  action, previously omitted from its input struct, is generated the same way.
+  (#182)
 - Two different resources that map to the same Swift type name (for example a
   related, unexposed resource sharing a primary's `type_name`) are now a codegen
   error instead of one being silently decoded as the other's struct. Give one of

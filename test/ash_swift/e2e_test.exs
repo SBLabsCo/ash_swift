@@ -215,6 +215,84 @@ defmodule AshSwift.E2ETest do
     SwiftConsumer.run_swift_test!("E2EEnumDecodeTest", e2e_swift)
   end
 
+  test "enum-typed generic-action arguments and result fields round-trip the real backend (#182)" do
+    conn = %Plug.Conn{private: %{}, assigns: %{}}
+
+    # The exact `input` dict the generated GuideInput encodes below: enum cases
+    # travel as their wire strings, an array of a named enum as an array of them.
+    guide_input = %{"level" => "advanced", "phases" => ["archived", "default"]}
+
+    rpc_result =
+      AshTypescript.Rpc.run_action(:ash_swift, conn, %{
+        "action" => "guide",
+        "input" => guide_input,
+        "fields" => ["status", "phase", "history", %{"cues" => ["kind"]}]
+      })
+
+    assert rpc_result["success"] == true, inspect(rpc_result)
+
+    # The arguments reached the action: `advanced` → `ready`, the first phase echoed.
+    assert rpc_result["data"] == %{
+             "status" => "ready",
+             "phase" => "archived",
+             "history" => ["none", "ready"],
+             "cues" => [%{"kind" => "practice_item"}]
+           }
+
+    json = Jason.encode!(rpc_result)
+    # The same envelope with a status the generated enum doesn't list.
+    unknown_json = Jason.encode!(put_in(rpc_result, ["data", "status"], "stale"))
+    guide_input_json = Jason.encode!(guide_input)
+
+    e2e_swift = """
+    import XCTest
+    import Foundation
+    import AshSwiftRuntime
+    import GeneratedClient
+
+    // Generic-action enums (#182) against a real backend response: the generated
+    // input struct encodes enum arguments to the wire strings the server accepted,
+    // the result struct decodes each enum shape, and an unlisted value fails the
+    // call the way an attribute enum's does, with no silent fallback.
+    final class E2EGenericActionEnumTest: XCTestCase {
+        private let fields: [FieldSelection] = ["status", "phase", "history", .relationship("cues", ["kind"])]
+
+        func testGuideInputEncodesEnumArguments() throws {
+            let encoded = try JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(GuideInput(level: .advanced, phases: [.archived, .default]))
+            ) as! NSDictionary
+            let expected = try JSONSerialization.jsonObject(
+                with: Data(#{inspect(guide_input_json, binaries: :as_strings)}.utf8)
+            ) as! NSDictionary
+            XCTAssertEqual(encoded, expected)
+        }
+
+        func testGuideResultDecodesEnumFields() async throws {
+            let rpc = stubRpc(body: Data(#{inspect(json, binaries: :as_strings)}.utf8))
+            let guide = try await rpc.guide(input: GuideInput(level: .advanced), fields: fields)
+
+            XCTAssertEqual(guide.status, .ready)
+            XCTAssertEqual(guide.phase, .archived)
+            XCTAssertEqual(guide.history, [.none, .ready])
+            XCTAssertEqual(guide.cues?.map { $0.kind }, [.practiceItem])
+        }
+
+        func testUnlistedEnumValueFailsTheCall() async throws {
+            let rpc = stubRpc(body: Data(#{inspect(unknown_json, binaries: :as_strings)}.utf8))
+
+            do {
+                _ = try await rpc.guide(input: GuideInput(level: .advanced), fields: fields)
+                XCTFail("expected an unlisted status to fail decoding")
+            } catch AshRpcError.decodingFailed {
+                // expected
+            }
+        }
+    }
+    """
+
+    SwiftConsumer.run_swift_test!("E2EGenericActionEnumTest", e2e_swift)
+  end
+
   test "get action: single-record retrieval and not-found path exercise both not_found_error? behaviors" do
     # Create a record so we can retrieve it by id.
     todo =

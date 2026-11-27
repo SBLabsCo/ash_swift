@@ -140,6 +140,26 @@ enum ConsumerCheck {
         let _: String? = manifest.clips?.first?.uploadUrl
         let _: [String]? = manifest.clips?.first?.studentNames
 
+        // Enum-typed generic-action fields and arguments (#182): each enum is a
+        // generated `<Struct><Field>` Swift enum, so a switch over a required
+        // field is exhaustive and arguments take typed cases, not strings.
+        let guide: GuideResult = try await rpc.guide(
+            input: GuideInput(level: .advanced, phases: [.pending, .default]),
+            fields: ["status", "phase", "history", .relationship("cues", ["kind"])]
+        )
+        switch guide.status {
+        case .none, .building, .ready: break
+        }
+        let _: GuideResultPhase? = guide.phase
+        let _: [GuideResultHistory]? = guide.history
+        let _: GuideResultCuesItemKind? = guide.cues?.first?.kind
+
+        // A CRUD action's enum argument is typed the same way (#182).
+        let reprioritized: Todo = try await rpc.reprioritizeTodo(
+            id: "some-uuid", input: ReprioritizeTodoInput(urgency: .high), fields: ["id"]
+        )
+        let _ = reprioritized
+
         // Generic actions returning a resource (issue #56): optional when the
         // action allows nil, non-optional otherwise; `fields:` is required.
         let summary: Todo? = try await rpc.summarize(fields: ["id", "title"])

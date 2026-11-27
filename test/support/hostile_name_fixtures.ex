@@ -399,3 +399,63 @@ defmodule AshSwift.Test.SnakeEnumValueDomain do
     resource AshSwift.Test.SnakeEnumValue
   end
 end
+
+defmodule AshSwift.Test.BadEnumNameArgument do
+  @moduledoc """
+  Fixture resource (#182): a hostile raw argument name that `argument_names` maps
+  to a clean client name, typed as an enum. The generated enum's name is derived
+  from the raw atom, so it must be validated on its own, like an `…Item` struct
+  name (#142).
+  """
+
+  use Ash.Resource,
+    domain: AshSwift.Test.BadEnumNameArgumentDomain,
+    data_layer: Ash.DataLayer.Ets,
+    extensions: [AshTypescript.Resource]
+
+  typescript do
+    type_name("BadEnumNameArgument")
+    argument_names up_it: [{:"x {}\nenum Evil { case pwned }\nenum Z?", :level}]
+  end
+
+  ets do
+    private? true
+  end
+
+  attributes do
+    uuid_primary_key :id, public?: true
+  end
+
+  actions do
+    defaults [:read]
+
+    action :up_it, :boolean do
+      argument :"x {}\nenum Evil { case pwned }\nenum Z?", :atom do
+        allow_nil? false
+        public? true
+        constraints one_of: [:low, :high]
+      end
+
+      run fn _input, _ctx -> {:ok, true} end
+    end
+  end
+end
+
+defmodule AshSwift.Test.BadEnumNameArgumentDomain do
+  @moduledoc "Fixture domain exposing `AshSwift.Test.BadEnumNameArgument` (#182)."
+
+  use Ash.Domain,
+    otp_app: :ash_swift,
+    extensions: [AshTypescript.Rpc],
+    validate_config_inclusion?: false
+
+  typescript_rpc do
+    resource AshSwift.Test.BadEnumNameArgument do
+      rpc_action(:up_it, :up_it)
+    end
+  end
+
+  resources do
+    resource AshSwift.Test.BadEnumNameArgument
+  end
+end

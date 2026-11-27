@@ -96,7 +96,14 @@ and a TypeScript client stay wire-identical by construction.
   `fields:` selection and returns the resource's generated model type as a
   non-optional (`summarizeRequired(fields:) -> Todo`), or **optional** (`Todo?`) when
   the action sets `allow_nil? true`. Array-of-resource returns
-  are skipped with a warning.
+  are skipped with a warning. An **enum** — an `:atom` with `one_of`, or a named
+  `Ash.Type.Enum` — in an argument, a typed result field or an array-of-map item
+  field (or an array of one) generates a Swift enum named from its enclosing type
+  and the field: a `status` result field of `studentGuide` becomes
+  `StudentGuideResultStatus`, a `level` argument `StudentGuideLevel`. As with
+  attribute enums, each use site gets its own enum, and a response value the
+  enum doesn't list fails the call with `AshRpcError.decodingFailed` rather than
+  falling back.
 - **Ad-hoc field selection** — request only the fields a screen needs, including
   fields on nested relationships. Every model field is `Optional`, so unselected
   fields safely decode as `nil`.

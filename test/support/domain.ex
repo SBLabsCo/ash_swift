@@ -39,6 +39,7 @@ defmodule AshSwift.Test.Domain do
       # Create/update actions with arguments (issue #83).
       rpc_action(:create_todo_with_args, :create_with_args)
       rpc_action(:retitle_todo, :retitle)
+      rpc_action(:reprioritize_todo, :reprioritize)
       # Required argument sharing a name with a public nullable attribute (issue #75).
       rpc_action(:set_todo_score, :set_score)
       # Arguments named like a private attribute (issue #84).
@@ -68,6 +69,7 @@ defmodule AshSwift.Test.Domain do
       rpc_action(:nested_records, :nested_records)
       rpc_action(:bulk_raw, :bulk_raw)
       rpc_action(:upload_start, :upload_start)
+      rpc_action(:guide, :guide)
     end
 
     resource AshSwift.Test.User do
